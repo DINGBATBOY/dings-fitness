@@ -42,15 +42,17 @@ workflows:
     integrations:
       app_store_connect: codemagic       # name you give the API key in Codemagic UI
 
+    # NOTE on signing: we intentionally do NOT use the `environment.ios_signing`
+    # block. That block triggers Codemagic's PRE-script auto-signing, which
+    # only looks for existing profiles and fails on a fresh Apple account
+    # before our explicit script runs. Instead we use the
+    # `app-store-connect fetch-signing-files ... --create` step below, which
+    # creates the cert + profile on Apple's side using the API key.
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.dings.fitness
       vars:
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 6776480908
-   # ← REPLACE: the numeric Apple ID from App Store Connect → App Info
         BUNDLE_ID: "com.dings.fitness"
       node: 22.x
       xcode: latest
