@@ -84,11 +84,12 @@ workflows:
           cd ios/App && pod install
 
       # ─── First-run signing setup ────────────────────────────────────────
-      # Codemagic's environment.ios_signing handles signing once the cert +
-      # profile exist. On a fresh Apple account there are none yet — this
-      # step uses the App Store Connect API key to CREATE them (the --create
-      # flag is the key bit). After the first successful build the cert is
-      # cached in the Developer Portal; subsequent builds reuse it.
+      # On a fresh Apple account there are no signing files yet — this step
+      # uses the App Store Connect API key to CREATE them (the --create flag
+      # is the key bit). After the first successful build the cert is cached
+      # in the Developer Portal; subsequent builds reuse it. The explicit
+      # --xcode-project path is needed because Capacitor's iOS project lives
+      # in ios/App/, not the workspace root.
       - name: Initialize keychain + create signing files
         script: |
           keychain initialize
@@ -96,7 +97,7 @@ workflows:
             --type IOS_APP_STORE \
             --create
           keychain add-certificates
-          xcode-project use-profiles
+          xcode-project use-profiles --xcode-project ios/App/App.xcodeproj
 
       - name: Bump iOS build number
         script: |
@@ -104,11 +105,17 @@ workflows:
           BUILD_NUMBER=$(($(date +%s) % 100000))
           agvtool new-version -all $BUILD_NUMBER
 
+      # ─── Build & archive ────────────────────────────────────────────────
+      # We pass DEVELOPMENT_TEAM and CODE_SIGN_STYLE explicitly so xcodebuild
+      # has everything it needs even if use-profiles' write to .pbxproj
+      # didn't stick. With these, Xcode auto-matches to the profile in the
+      # keychain by team + bundle ID — no manual profile spec needed.
       - name: Build .ipa
         script: |
           xcode-project build-ipa \
             --workspace "$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME"
+            --scheme "$XCODE_SCHEME" \
+            --archive-flags "DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM CODE_SIGN_STYLE=Automatic"
 
     artifacts:
       - build/ios/ipa/*.ipa
