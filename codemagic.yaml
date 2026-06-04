@@ -81,6 +81,21 @@ workflows:
         script: |
           cd ios/App && pod install
 
+      # ─── First-run signing setup ────────────────────────────────────────
+      # Codemagic's environment.ios_signing handles signing once the cert +
+      # profile exist. On a fresh Apple account there are none yet — this
+      # step uses the App Store Connect API key to CREATE them (the --create
+      # flag is the key bit). After the first successful build the cert is
+      # cached in the Developer Portal; subsequent builds reuse it.
+      - name: Initialize keychain + create signing files
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
       - name: Bump iOS build number
         script: |
           cd ios/App
