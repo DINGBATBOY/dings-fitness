@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-orbitron: "Orbitron", sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-alert: var(--alert);
+  --color-rose-dusk: var(--rose-dusk);
+  --color-cream: var(--cream);
+}
+
+/* ───────────────── DUSK TRAIL PALETTE ─────────────────
+   Warm sunset, ember-fire, calm but alive. Replaces the
+   neon orange/pink/cyan with terracotta, dusk rose, ochre,
+   and a slightly warmer near-black so the surface feels
+   like dusk rather than space. */
+:root {
+    --bg-dark: #0d0a08;        /* warm near-black (was #050505) */
+    --bg-card: #161210;        /* warm-tinted card surface (was #0f0f0f) */
+    --primary: #d97757;        /* terracotta — warm action (was #f97316 orange) */
+    --accent: #d4a55a;         /* ochre — highlight (was #22d3ee cyan) */
+    --alert: #d44a4a;          /* warm dusty red (was #f43f5e rose) */
+    --rose-dusk: #c97b6e;      /* dusk rose — secondary warmth */
+    --cream: #d4cfc4;          /* warm muted off-white for body text */
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-dark);
+    color: #ffffff;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+.font-orbitron {
+    font-family: 'Orbitron', sans-serif;
+}
+.font-mono {
+    font-family: var(--font-mono);
+}
+
+.glass {
+    background: rgba(22, 18, 16, 0.6);     /* warm-tinted glass */
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.glass-panel {
+    /* Flatter than before — dropped the steep linear gradient for a single
+       warm-tinted surface. Subtle inset highlight remains. */
+    background: rgba(22, 18, 16, 0.45);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+}
+
+/* Animations */
+@keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.animate-fade-in {
+    animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* Markdown Styles */
+.markdown-body p { margin-bottom: 0.75em; line-height: 1.6; }
+.markdown-body ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 0.75em; color: #a1a1aa; }
+.markdown-body ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 0.75em; color: #a1a1aa; }
+.markdown-body strong { font-weight: 700; color: var(--primary); }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { 
+    font-family: 'Orbitron', sans-serif; 
+    font-weight: 700; 
+    color: #ffffff; 
+    margin-top: 1em; 
+    margin-bottom: 0.5em; 
+    letter-spacing: -0.02em;
+}
+
+/* Splash screen animations */
+@keyframes splashDot {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes splashLine {
+  from { width: 0; opacity: 0; }
+  to { width: 80px; opacity: 1; }
+}
+
+@keyframes splashProgress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+@keyframes splashFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; pointer-events: none; }
+}
+
+/* Ambient orb animations for Auth screen */
+@keyframes orbFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes orbPulse {
+  0%, 100% { transform: scale(1); opacity: 0.04; }
+  50% { transform: scale(1.1); opacity: 0.06; }
+}
+
+@keyframes orbDrift {
+  0%, 100% { transform: translateX(0px); }
+  50% { transform: translateX(15px); }
+}
+
+/* Button shimmer */
+@keyframes shimmer {
+  from { transform: translateX(-100%) skewX(-15deg); }
+  to { transform: translateX(200%) skewX(-15deg); }
+}
+
+.btn-shimmer {
+  position: relative;
+}
+
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255,255,255,0.15),
+    transparent
+  );
+  transform: translateX(-100%) skewX(-15deg);
+}
+
+.btn-shimmer:hover::after {
+  animation: shimmer 0.6s ease forwards;
+}
+
+/* Status line animation */
+@keyframes statusIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.status-line {
+  animation: statusIn 0.3s ease forwards;
+  opacity: 0;
+  animation-fill-mode: forwards;
+}
+
+/* Ping/pulse for active indicator */
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-ping {
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.noise-bg {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  background-color: var(--bg-dark);
+}

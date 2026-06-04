@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ding! Fitness — AI Food Tracking + Personalized Workouts</title>
+  <meta name="description" content="AI-powered fitness tracking that actually understands you. Verified macros from 44 chain restaurants, USDA + Open Food Facts integration, personalized workouts built around your schedule and equipment." />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="canonical" href="https://dings.fitness/" />
+
+  <!-- Open Graph / social sharing -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://dings.fitness/" />
+  <meta property="og:title" content="Ding! Fitness — AI Food Tracking + Personalized Workouts" />
+  <meta property="og:description" content="Verified macros, personalized workouts, real progress. Built with safety floors and user control from the ground up." />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+      background: #050505;
+      color: #d4d4d4;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Subtle scan-line texture matching the app's vibe. */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.012) 2px, rgba(255,255,255,0.012) 4px);
+      z-index: 1;
+    }
+
+    .container { max-width: 1080px; margin: 0 auto; padding: 0 1.5rem; position: relative; z-index: 2; }
+
+    /* ----- HEADER ----- */
+    header {
+      padding: 1.25rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      font-family: 'Orbitron', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 1.125rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #fff;
+      text-decoration: none;
+    }
+    .brand-accent {
+      background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a {
+      color: #888;
+      text-decoration: none;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #fff; }
+    .nav-cta {
+      background: #fff;
+      color: #000 !important;
+      padding: 0.5rem 1rem;
+      border-radius: 999px;
+      font-size: 0.75rem !important;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 700 !important;
+    }
+    .nav-cta:hover { background: #e5e5e5; color: #000 !important; }
+
+    @media (max-width: 540px) {
+      .nav-links a:not(.nav-cta) { display: none; }
+    }
+
+    /* ----- HERO ----- */
+    .hero {
+      padding: 5rem 0 6rem;
+      text-align: center;
+      position: relative;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 20%; left: 50%;
+      transform: translateX(-50%);
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(249,115,22,0.08) 0%, transparent 70%);
+      filter: blur(60px);
+      z-index: -1;
+      pointer-events: none;
+    }
+    .hero-pill {
+      display: inline-block;
+      padding: 0.4rem 1rem;
+      background: rgba(249,115,22,0.08);
+      border: 1px solid rgba(249,115,22,0.3);
+      border-radius: 999px;
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #fb923c;
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 {
+      font-family: 'Orbitron', -apple-system, sans-serif;
+      font-size: clamp(2rem, 6vw, 3.75rem);
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+      color: #fff;
+      margin-bottom: 1.25rem;
+    }
+    .hero h1 .accent {
+      background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero-sub {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      color: #a3a3a3;
+      max-width: 580px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.5;
+    }
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #fff;
+      color: #000;
+      padding: 1rem 2rem;
+      border-radius: 999px;
+      font-weight: 800;
+      text-decoration: none;
+      font-size: 0.875rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: all 0.2s;
+      box-shadow: 0 0 40px rgba(249,115,22,0.2);
+    }
+    .hero-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 60px rgba(249,115,22,0.35);
+    }
+    .hero-platforms {
+      margin-top: 1.5rem;
+      font-size: 0.6875rem;
+      color: #666;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .hero-platforms .dot { color: #444; margin: 0 0.5em; }
+
+    /* ----- FEATURES ----- */
+    .features {
+      padding: 4rem 0;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .section-label {
+      display: block;
+      font-size: 0.625rem;
+      font-weight: 700;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: #666;
+      text-align: center;
+      margin-bottom: 0.75rem;
+    }
+    .section-h {
+      font-family: 'Orbitron', -apple-system, sans-serif;
+      font-size: clamp(1.5rem, 4vw, 2.25rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #fff;
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 1.5rem;
+      padding: 1.75rem;
+      transition: all 0.3s;
+    }
+    .feature-card:hover {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(255,255,255,0.15);
+      transform: translateY(-2px);
+    }
+    .feature-emoji { font-size: 1.875rem; margin-bottom: 1rem; display: block; }
+    .feature-h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.01em;
+    }
+    .feature-p { font-size: 0.875rem; color: #a3a3a3; line-height: 1.55; }
+
+    /* ----- TRUST / SAFETY ----- */
+    .trust {
+      padding: 4rem 0;
+      background: linear-gradient(180deg, transparent 0%, rgba(249,115,22,0.03) 100%);
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .trust-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.875rem;
+    }
+    .trust-item {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      padding: 1rem 1.25rem;
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 1rem;
+    }
+    .trust-item .check {
+      color: #34d399;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .trust-item .text {
+      font-size: 0.8125rem;
+      color: #d4d4d4;
+      line-height: 1.5;
+    }
+    .trust-item .text strong { color: #fff; font-weight: 700; }
+
+    /* ----- FINAL CTA ----- */
+    .final-cta {
+      padding: 5rem 0;
+      text-align: center;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .final-cta h2 {
+      font-family: 'Orbitron', -apple-system, sans-serif;
+      font-size: clamp(1.625rem, 4vw, 2.5rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #fff;
+      margin-bottom: 0.875rem;
+    }
+    .final-cta p {
+      font-size: 1rem;
+      color: #888;
+      max-width: 520px;
+      margin: 0 auto 2rem;
+    }
+
+    /* ----- FOOTER ----- */
+    footer {
+      padding: 2rem 0 3rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.75rem;
+      color: #666;
+    }
+    .footer-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+    .footer-links a {
+      color: #888;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: #fff; }
+    .footer-meta {
+      color: #555;
+      font-size: 0.6875rem;
+      letter-spacing: 0.1em;
+    }
+
+    @media (max-width: 540px) {
+      .hero { padding: 3rem 0 4rem; }
+      .features, .trust, .final-cta { padding: 3rem 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- HEADER -->
+    <header>
+      <nav class="nav">
+        <a href="/" class="brand">DING! <span class="brand-accent">FITNESS</span></a>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#trust">Why us</a>
+          <a href="/app" class="nav-cta">Open App</a>
+        </div>
+      </nav>
+    </header>
+
+    <!-- HERO -->
+    <section class="hero">
+      <span class="hero-pill">Coming soon to iOS &amp; Android</span>
+      <h1>
+        Fitness tracking that<br />
+        <span class="accent">actually understands you.</span>
+      </h1>
+      <p class="hero-sub">
+        Personalized workouts. Verified macros. Real progress.
+        Built with safety floors, full data control, and zero ads.
+      </p>
+      <a href="/app" class="hero-cta">
+        Try the web app →
+      </a>
+      <div class="hero-platforms">
+        Web<span class="dot">·</span>iOS soon<span class="dot">·</span>Android soon
+      </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section class="features" id="features">
+      <span class="section-label">What you get</span>
+      <h2 class="section-h">Built for accuracy, not vibes.</h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <span class="feature-emoji">🤖</span>
+          <h3 class="feature-h3">AI food logging</h3>
+          <p class="feature-p">
+            Snap a photo, type a sentence, or scan a label. Macros pulled from
+            USDA, Open Food Facts, and 44 verified chain restaurants — the AI
+            uses real numbers, not guesses.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-emoji">⚡</span>
+          <h3 class="feature-h3">Personalized workouts</h3>
+          <p class="feature-p">
+            Tell us your experience, schedule, session length, and equipment.
+            The AI builds a 7-day split tailored to you — beginner to advanced,
+            bodyweight to full gym, 30 to 90-minute sessions.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-emoji">🎯</span>
+          <h3 class="feature-h3">Macro-fit suggestions</h3>
+          <p class="feature-p">
+            Open the Eats tab anytime and see exactly what fits your remaining
+            calories and protein for the day. Tap to log — no guessing what
+            to eat next.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-emoji">📊</span>
+          <h3 class="feature-h3">Real progress tracking</h3>
+          <p class="feature-p">
+            Body-composition-aware BMR (Katch-McArdle when you know your body
+            fat %). Weekly trends. Streak tracking. Meal grouping by time of
+            day. Numbers you can actually plan around.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-emoji">🌯</span>
+          <h3 class="feature-h3">44 restaurants verified</h3>
+          <p class="feature-p">
+            Chipotle, Sweetgreen, Huey Magoo's, Chick-fil-A, Subway and more —
+            with menu items AND ingredient-level breakdowns for custom builds.
+            "Double chicken, no rice" gets the math right.
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-emoji">⭐</span>
+          <h3 class="feature-h3">Smart favorites</h3>
+          <p class="feature-p">
+            Items you log 5+ times get auto-favorited. Re-logging your usual
+            takes one tap. Recents that don't get hammered by accidental
+            entries.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRUST / SAFETY -->
+    <section class="trust" id="trust">
+      <span class="section-label">Where we differ</span>
+      <h2 class="section-h">Designed with care.</h2>
+      <div class="trust-grid">
+        <div class="trust-item">
+          <span class="check">✓</span>
+          <div class="text">
+            <strong>Eating-disorder safety floors.</strong>
+            Minimum calorie targets baked in so the app can't push you toward
+            unsafe deficits. ED helpline links surfaced where they belong.
+          </div>
+        </div>
+        <div class="trust-item">
+          <span class="check">✓</span>
+          <div class="text">
+            <strong>Your data, your control.</strong>
+            Full data export, full account deletion in two taps. No
+            third-party tracking, no ads, no data sold.
+          </div>
+        </div>
+        <div class="trust-item">
+          <span class="check">✓</span>
+          <div class="text">
+            <strong>Honest AI.</strong>
+            Confidence labels on every estimate. Source attribution
+            (label / restaurant / USDA / AI guess). Verify before you log.
+          </div>
+        </div>
+        <div class="trust-item">
+          <span class="check">✓</span>
+          <div class="text">
+            <strong>Free at launch.</strong>
+            No subscription gates, no premium tier, no upsells. Just the app.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="final-cta">
+      <h2>Ready to start?</h2>
+      <p>
+        Use the web app today. We'll let you know when iOS &amp; Android are
+        live — just sign up and you're on the list.
+      </p>
+      <a href="/app" class="hero-cta">
+        Open the web app →
+      </a>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+      <div class="footer-row">
+        <div>
+          <div class="brand" style="font-size: 0.875rem;">DING! <span class="brand-accent">FITNESS</span></div>
+          <div class="footer-meta" style="margin-top: 0.25rem;">A FITNESS TOOL · NOT MEDICAL ADVICE</div>
+        </div>
+        <div class="footer-links">
+          <a href="/privacy/">Privacy</a>
+          <a href="/terms/">Terms</a>
+          <a href="/disclaimer/">Health Disclaimer</a>
+          <a href="mailto:support@dings.fitness">Contact</a>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+</body>
+</html>

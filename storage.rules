@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Ding! Firebase Storage rules.
+// Used for profile pictures (and any future user-uploaded media).
+// Each user can only read/write their own folder. Images only, 1MB cap.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /users/{userId}/{filename=**} {
+      allow read:  if isOwner(userId);
+      allow write: if isOwner(userId)
+                   && request.resource.size < 1 * 1024 * 1024              // 1 MB cap
+                   && request.resource.contentType.matches('image/.*');     // images only
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+function isOwner(userId) {
+  return request.auth != null && request.auth.uid == userId;
+}

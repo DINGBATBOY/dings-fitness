@@ -1,0 +1,112 @@
+# ───────────────────── Codemagic CI for Ding! Fitness ─────────────────────
+#
+# Codemagic builds the iOS app from your repo and uploads to App Store
+# Connect / TestFlight. Recommended over raw GitHub Actions because the
+# code-signing setup is UI-driven instead of base64-encoded-secret hell.
+#
+# ## First-time setup (one-time, ~30 min)
+#
+# 1. Sign up at https://codemagic.io (use your GitHub account).
+# 2. Connect this repo.
+# 3. In Codemagic → Teams → Integrations → "App Store Connect":
+#    - Generate an App Store Connect API key at
+#      https://appstoreconnect.apple.com/access/integrations/api
+#    - Issuer ID + Key ID + .p8 file → upload to Codemagic
+# 4. In Codemagic → this app → Settings → iOS code signing:
+#    - Pick "Automatic" mode
+#    - Select your team
+#    - Codemagic will fetch/generate certs + provisioning profiles for you
+# 5. Create the App Store Connect app record:
+#    - https://appstoreconnect.apple.com/apps → "+" → New App
+#    - Bundle ID: com.dings.fitness  (must match capacitor.config.ts)
+#    - Name: Ding! Fitness
+#    - Primary language: English (U.S.)
+#    - SKU: dings-fitness-ios-001 (any unique string)
+# 6. Trigger your first build by pushing to `main` — Codemagic does the rest.
+#
+# ## What this workflow does on every push to main
+#
+# 1. Installs JS deps (with Capacitor)
+# 2. Builds the web bundle (`npm run build`)
+# 3. Syncs into the iOS project (`npx cap sync ios`)
+# 4. Installs CocoaPods (`pod install`)
+# 5. Builds the .ipa via xcodebuild
+# 6. Uploads to TestFlight (internal testing)
+# 7. Emails you when build is ready
+
+workflows:
+  ios-testflight:
+    name: iOS · TestFlight (main)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: codemagic       # name you give the API key in Codemagic UI
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.dings.fitness
+      vars:
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        APP_STORE_APPLE_ID: 0000000000   # ← REPLACE: the numeric Apple ID from App Store Connect → App Info
+        BUNDLE_ID: "com.dings.fitness"
+      node: 22.x
+      xcode: latest
+      cocoapods: default
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
+    scripts:
+      - name: Install JS deps
+        script: |
+          npm ci
+
+      - name: Build web bundle (Vite)
+        script: |
+          npm run build
+
+      - name: Sync Capacitor → iOS
+        script: |
+          npx cap sync ios
+
+      - name: Install CocoaPods
+        script: |
+          cd ios/App && pod install
+
+      - name: Bump iOS build number
+        script: |
+          cd ios/App
+          BUILD_NUMBER=$(($(date +%s) % 100000))
+          agvtool new-version -all $BUILD_NUMBER
+
+      - name: Build .ipa
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # Internal testing only — these names must match groups you've created
+        # in App Store Connect → TestFlight → Internal Testing.
+        beta_groups:
+          - Internal
+      email:
+        recipients:
+          - cuodibeltran@gmail.com
+        notify:
+          success: true
+          failure: true

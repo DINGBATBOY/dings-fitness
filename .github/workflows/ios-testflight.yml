@@ -1,0 +1,163 @@
+# ───────────── GitHub Actions: iOS → TestFlight ─────────────
+#
+# Alternative to codemagic.yaml. Pick ONE — running both would do the
+# same build twice and burn minutes.
+#
+# This workflow is more configuration-heavy than Codemagic because GitHub
+# Actions has no native UI for iOS code signing. You need to package your
+# certs + profile as base64-encoded secrets. Steps below.
+#
+# ## One-time setup
+#
+# 1. Generate an App Store Connect API key:
+#    https://appstoreconnect.apple.com/access/integrations/api
+#    - Role: App Manager (minimum)
+#    - Download the .p8 file
+#    - Note the Key ID and Issuer ID
+#
+# 2. Get your signing cert + provisioning profile:
+#    a) On a Mac, create a Distribution certificate in Xcode (or via
+#       Apple Developer portal → Certificates).
+#    b) Export from Keychain Access as a .p12 file with a password.
+#    c) Download the App Store provisioning profile (.mobileprovision)
+#       for bundle ID com.dings.fitness.
+#
+# 3. Base64-encode them so they can live in GitHub secrets:
+#    base64 -i Certificates.p12 | pbcopy
+#    base64 -i Dings_Fitness_AppStore.mobileprovision | pbcopy
+#    base64 -i AuthKey_XXXXXX.p8 | pbcopy
+#
+# 4. In GitHub → repo → Settings → Secrets and variables → Actions →
+#    add these repository secrets:
+#    - IOS_CERTIFICATE_BASE64           ← from step 3a
+#    - IOS_CERTIFICATE_PASSWORD         ← password you used on the .p12
+#    - IOS_PROVISIONING_PROFILE_BASE64  ← from step 3c
+#    - APP_STORE_CONNECT_KEY_ID         ← e.g. ABCDE12345
+#    - APP_STORE_CONNECT_ISSUER_ID      ← UUID from API key page
+#    - APP_STORE_CONNECT_KEY_BASE64     ← .p8 file base64-encoded
+#    - KEYCHAIN_PASSWORD                ← any random string (used to unlock CI keychain)
+#
+# 5. Push to main → CI runs.
+
+name: iOS · TestFlight
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build-and-upload:
+    runs-on: macos-14   # Latest stable macOS runner with Xcode
+
+    env:
+      BUNDLE_ID: com.dings.fitness
+      SCHEME: App
+      WORKSPACE: ios/App/App.xcworkspace
+      EXPORT_METHOD: app-store
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Build web bundle (Vite)
+        run: npm run build
+
+      - name: Sync Capacitor → iOS
+        run: npx cap sync ios
+
+      - name: Install CocoaPods
+        working-directory: ios/App
+        run: pod install
+
+      - name: Set up signing
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Decode certificate + profile
+          echo "$IOS_CERTIFICATE_BASE64" | base64 -D -o cert.p12
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D -o profile.mobileprovision
+
+          # Create + unlock a temp keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security import cert.p12 -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k build.keychain
+          security list-keychain -d user -s build.keychain login.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Bump build number
+        working-directory: ios/App
+        run: agvtool new-version -all $(($(date +%s) % 100000))
+
+      - name: Archive
+        run: |
+          xcodebuild \
+            -workspace $WORKSPACE \
+            -scheme $SCHEME \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            archive | xcpretty
+
+      - name: Export .ipa
+        run: |
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>${EXPORT_METHOD}</string>
+            <key>teamID</key><string></string>
+            <key>signingStyle</key><string>manual</string>
+            <key>uploadBitcode</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/ipa
+
+      - name: Upload to TestFlight
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$APP_STORE_CONNECT_KEY_BASE64" | base64 -D > ~/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/ipa/App.ipa \
+            --apiKey $APP_STORE_CONNECT_KEY_ID \
+            --apiIssuer $APP_STORE_CONNECT_ISSUER_ID
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: |
+            build/ipa/*.ipa
+            build/App.xcarchive

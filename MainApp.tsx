@@ -1,0 +1,3043 @@
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { motion } from 'motion/react';
+import { marked } from 'marked';
+import { Layout } from './components/Layout';
+import { ProgressRing } from './components/ProgressRing';
+import { MacroReactor } from './components/MacroReactor';
+import { MuscleMap } from './components/MuscleMap';
+import { CalorieCalendar } from './components/CalorieCalendar';
+import { Journal } from './components/Journal';
+import { Auth } from './components/Auth';
+import { Onboarding } from './components/Onboarding';
+import { RecompVelocity } from './components/RecompVelocity';
+import { RestaurantHub } from './components/RestaurantHub';
+import { DeleteAccountModal } from './components/DeleteAccountModal';
+import { UsageDashboard } from './components/UsageDashboard';
+import { Wrapped } from './components/Wrapped';
+import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
+import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
+import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
+import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/geminiService';
+import { db, auth, isConfigured } from './services/firebase';
+import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+
+const DEFAULT_STATE: AppState = { 
+    profile: null,
+    todayLog: [], 
+    activityBurn: 0,
+    dailyLogs: [], 
+    milestones: [], 
+    savedNotes: [], 
+    mealHistory: [],
+    foodHistory: [],
+    recentFoods: [], 
+    waterIntake: 0,
+    bodyStats: INITIAL_BODY_STATS,
+    lastActiveDate: new Date().toLocaleDateString()
+};
+
+// FALLBACK SPLIT in case AI fails or is slow
+const FALLBACK_SPLIT = [
+    { day: "Monday", label: "Upper Power", intensity: "High", exercises: [
+        { name: "Bench Press", sets: 3, reps: "5-8", completed: false },
+        { name: "Barbell Row", sets: 3, reps: "6-10", completed: false },
+        { name: "Overhead Press", sets: 3, reps: "8-12", completed: false },
+        { name: "Pull Ups", sets: 3, reps: "AMRAP", completed: false },
+        { name: "Dumbbell Curls", sets: 3, reps: "10-15", completed: false }
+    ]},
+    { day: "Tuesday", label: "Lower Power", intensity: "High", exercises: [
+        { name: "Squat", sets: 3, reps: "5-8", completed: false },
+        { name: "Romanian Deadlift", sets: 3, reps: "8-12", completed: false },
+        { name: "Leg Press", sets: 3, reps: "10-15", completed: false },
+        { name: "Calf Raises", sets: 4, reps: "15-20", completed: false }
+    ]},
+    { day: "Wednesday", label: "Rest / Active Recovery", intensity: "Low", exercises: [
+        { name: "Light Cardio (Walk)", sets: 1, reps: "30 mins", completed: false },
+        { name: "Stretching Routine", sets: 1, reps: "15 mins", completed: false }
+    ]},
+    { day: "Thursday", label: "Push Hypertrophy", intensity: "Moderate", exercises: [
+        { name: "Incline Dumbbell Press", sets: 3, reps: "8-12", completed: false },
+        { name: "Lateral Raises", sets: 4, reps: "12-15", completed: false },
+        { name: "Tricep Pushdowns", sets: 3, reps: "12-15", completed: false },
+        { name: "Pushups", sets: 3, reps: "Failure", completed: false }
+    ]},
+    { day: "Friday", label: "Pull Hypertrophy", intensity: "Moderate", exercises: [
+        { name: "Lat Pulldowns", sets: 3, reps: "10-12", completed: false },
+        { name: "Cable Rows", sets: 3, reps: "10-12", completed: false },
+        { name: "Face Pulls", sets: 4, reps: "15-20", completed: false },
+        { name: "Hammer Curls", sets: 3, reps: "10-12", completed: false }
+    ]},
+    { day: "Saturday", label: "Legs Hypertrophy", intensity: "Moderate", exercises: [
+        { name: "Goblet Squats", sets: 3, reps: "10-12", completed: false },
+        { name: "Lunges", sets: 3, reps: "12 per leg", completed: false },
+        { name: "Leg Curls", sets: 3, reps: "12-15", completed: false },
+        { name: "Planks", sets: 3, reps: "60s", completed: false }
+    ]},
+    { day: "Sunday", label: "Rest", intensity: "Low", exercises: [
+         { name: "Full Rest", sets: 0, reps: "0", completed: false }
+    ]}
+];
+
+
+// Temporary type for scanned items before they become FoodItems
+interface ScannedItem {
+    name: string;
+    calories: string;
+    protein: string;
+    carbs: string;
+    fat: string;
+    fiber: string;
+    // Optional enrichment from the AI analysis. These drive UI badges and the
+    // collapsible "what's in this number?" panel. None of them are required;
+    // legacy/manual entries omit them and the UI gracefully hides the badges.
+    source?: 'label' | 'restaurant_db' | 'visual_estimate' | 'text_only';
+    confidence?: 'high' | 'medium' | 'low';
+    ingredients?: Array<{
+        name: string;
+        grams: number;
+        calories: number;
+        protein: number;
+        carbs: number;
+        fat: number;
+        fiber?: number;
+        emoji?: string;
+    }>;
+    servingSize?: string;
+    servingsConsumed?: number;
+}
+
+// Image Resize Utility to prevent crashes
+const resizeImage = (file: File, maxWidth = 1024, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxWidth) {
+            width = Math.round((width * maxWidth) / height);
+            height = maxWidth;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+const safeFloat = (val: any): number => {
+    const str = String(val).replace(/[^0-9.]/g, ''); // Remove non-numeric chars except dot
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+};
+
+// ============================================================================
+//  Dashboard helpers
+// ============================================================================
+
+// METs from the Compendium of Physical Activities (Ainsworth et al.).
+// Used to estimate calorie burn = MET × weight_kg × hours.
+const ACTIVITY_METS = {
+  running: 9.8,   // 6 mph
+  weights: 5.0,   // vigorous strength training
+  cycling: 8.0,   // 12-14 mph
+  walking: 4.3,   // brisk walk
+  hiit: 8.0,
+  yoga: 3.0,
+} as const;
+
+const personalizedBurn = (weightLbs: number, met: number, minutes: number = 30): number => {
+  const weightKg = (weightLbs || 150) / 2.20462;
+  return Math.round(met * weightKg * (minutes / 60));
+};
+
+// Meal categorization based on item timestamp.
+type MealKey = 'breakfast' | 'lunch' | 'snacks' | 'dinner' | 'late';
+
+const MEAL_DEFINITIONS: { key: MealKey; label: string; emoji: string }[] = [
+  { key: 'breakfast', label: 'Breakfast', emoji: '🌅' },
+  { key: 'lunch',     label: 'Lunch',     emoji: '☀️' },
+  { key: 'snacks',    label: 'Snacks',    emoji: '🍿' },
+  { key: 'dinner',    label: 'Dinner',    emoji: '🌙' },
+  { key: 'late',      label: 'Late Night',emoji: '🌌' },
+];
+
+// FoodItem.timestamp is whatever toLocaleTimeString produces, which varies by
+// locale. We accept ISO dates, "3:45:00 PM", or "15:45" gracefully.
+const classifyMeal = (timestamp: string | undefined): MealKey => {
+  if (!timestamp) return 'snacks';
+  let hour = -1;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(timestamp)) {
+    hour = new Date(timestamp).getHours();
+  } else {
+    const m12 = timestamp.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)/i);
+    if (m12) {
+      let h = parseInt(m12[1], 10);
+      const ampm = m12[3].toUpperCase();
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      hour = h;
+    } else {
+      const m24 = timestamp.match(/^(\d{1,2}):(\d{2})/);
+      if (m24) hour = parseInt(m24[1], 10);
+    }
+  }
+  if (hour < 0) return 'snacks';
+  if (hour >= 5 && hour < 11) return 'breakfast';
+  if (hour >= 11 && hour < 15) return 'lunch';
+  if (hour >= 17 && hour < 22) return 'dinner';
+  if (hour >= 22 || hour < 5)  return 'late';
+  return 'snacks'; // 15:00-17:00
+};
+
+// Consecutive-day streak ending today or yesterday. A day counts if it has
+// any logged food (calories consumed > 0 or foodItems present). Today is
+// pulled from todayLog since dailyLogs is the historical record.
+const computeStreak = (dailyLogs: any[], todayLog: any[]): number => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split('T')[0];
+
+  const loggedDates = new Set<string>();
+  if (todayLog && todayLog.length > 0) loggedDates.add(todayStr);
+  (dailyLogs || [])
+    .filter(l => (l.caloriesConsumed ?? 0) > 0 || (l.foodItems && l.foodItems.length > 0))
+    .forEach(l => loggedDates.add(l.date));
+
+  let streak = 0;
+  const d = new Date(today);
+  // If today not yet logged, allow the streak to count from yesterday so the
+  // user doesn't see "0-day streak" first thing in the morning.
+  if (!loggedDates.has(todayStr)) d.setDate(d.getDate() - 1);
+
+  for (let i = 0; i < 365; i++) {
+    const dateStr = d.toISOString().split('T')[0];
+    if (loggedDates.has(dateStr)) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+};
+
+const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
+  // Auth State (managed by shell now, but keeping some refs)
+  const user = { uid: userId, email: userEmail };
+
+  // Per-user cache keys. localStorage is global, so we scope every key by uid
+  // to guarantee one user's cache can never leak into another's session.
+  // If userId isn't available yet (shouldn't happen at this point), we skip
+  // the cache entirely — never fall back to a global key.
+  const appStateKey = userId ? `dings_app_state_${userId}` : null;
+  const splitKey = userId ? `dings_workout_split_${userId}` : null;
+
+  // INITIALIZE STATE FROM LOCAL STORAGE FIRST (Backup for "Dad/Data on Phone")
+  const [appState, setAppState] = useState<AppState>(() => {
+      try {
+          const saved = appStateKey ? localStorage.getItem(appStateKey) : null;
+          if (saved) {
+              const parsed = JSON.parse(saved);
+              // Deep merge to ensure profile and other critical keys exist even if older data is partial
+              return {
+                  ...DEFAULT_STATE,
+                  ...parsed,
+                  profile: initialProfile || { ...DEFAULT_STATE.profile, ...(parsed.profile || {}) }
+              };
+          }
+      } catch (e) {
+          console.error("Error loading state", e);
+      }
+      return { ...DEFAULT_STATE, profile: initialProfile };
+  });
+
+  const [workoutSplit, setWorkoutSplit] = useState<any[]>(() => {
+      try {
+          const saved = splitKey ? localStorage.getItem(splitKey) : null;
+          if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          }
+      } catch (e) {
+          console.error("Error loading split", e);
+      }
+      return FALLBACK_SPLIT;
+  });
+
+  const [weeklyCompletedWorkouts, setWeeklyCompletedWorkouts] = useState<string[]>([]);
+
+  // UI State
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [isGeneratingSplit, setIsGeneratingSplit] = useState(false);
+  const [showAddFood, setShowAddFood] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  
+  // Chat
+  const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Manual Workout Entry State
+  const [manualExercise, setManualExercise] = useState({ name: '', sets: 3, reps: '10' });
+  const [activeDayIndexForAdd, setActiveDayIndexForAdd] = useState<number | null>(null);
+
+  // Food Analysis State
+  const [addFoodMode, setAddFoodMode] = useState<'manual' | 'ai' | 'history'>('manual');
+  const [foodImages, setFoodImages] = useState<string[]>([]);
+  const [foodDescription, setFoodDescription] = useState('');
+  const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
+  const [analysisTip, setAnalysisTip] = useState('');
+  // Surfaces which nutrition databases the last analysis actually queried.
+  // Empty = nutrition DB wasn't queried (image path, restaurant match, or
+  // query too long). Used both as a debug aid and a trust signal to the user.
+  const [analysisNutritionSources, setAnalysisNutritionSources] = useState<('usda' | 'openfoodfacts')[]>([]);
+  const [analysisNutritionMatchCount, setAnalysisNutritionMatchCount] = useState<number>(0);
+  const [analysisNutritionSkipped, setAnalysisNutritionSkipped] = useState<{ source: string; reason: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const profilePicInputRef = useRef<HTMLInputElement>(null);
+  
+  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
+  // Which scanned items have their ingredient list expanded. Set of indices.
+  const [expandedIngredients, setExpandedIngredients] = useState<Set<number>>(new Set());
+  const [foodForm, setFoodForm] = useState<ScannedItem>({ name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '' });
+
+  // Activity Logging State
+  const [isLoggingActivity, setIsLoggingActivity] = useState(false);
+
+  // Admin-only token usage dashboard. Visibility is gated by isAdminUser(userId).
+  const [showUsageDashboard, setShowUsageDashboard] = useState(false);
+
+  // Wrapped (Spotify-Wrapped-style summary) overlay. `wrappedAutoPrompted`
+  // tracks whether the open was triggered by the month-start auto-prompt vs.
+  // a manual tap so we can show a "New month" badge.
+  const [showWrapped, setShowWrapped] = useState(false);
+  const [wrappedAutoPrompted, setWrappedAutoPrompted] = useState(false);
+  const [wrappedInitialPeriod, setWrappedInitialPeriod] = useState<'week' | 'month'>('month');
+
+  // Quick-add custom activity modal (replaces the old window.prompt() UX).
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [activityModalForm, setActivityModalForm] = useState<{
+    kind: 'running' | 'weights' | 'cycling' | 'walking' | 'hiit' | 'yoga' | 'manual';
+    minutes: number;
+    manualKcal: string; // string for input control
+  }>({ kind: 'running', minutes: 30, manualKcal: '' });
+  const [activityLogValue, setActivityLogValue] = useState('');
+
+  // Profile Edit State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editProfileData, setEditProfileData] = useState<Partial<UserProfile>>({});
+  const [visionRoadmap, setVisionRoadmap] = useState<VisionRoadmap | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // One-time health disclaimer for users who onboarded BEFORE we added the
+  // disclaimer step. App Store / Play Store policy requires every user to see
+  // and accept it at least once. Triggered below once profile is loaded.
+  const [showHealthDisclaimer, setShowHealthDisclaimer] = useState(false);
+
+  // Helper to Save State to DB AND LocalStorage
+  const saveToCloud = useCallback(async (updates: Partial<AppState>) => {
+      // Always save local first for speed/offline.
+      // Per-user cache key so accounts can't read each other's data.
+      if (appStateKey) {
+          const currentLocal = localStorage.getItem(appStateKey);
+          const parsedLocal = currentLocal ? JSON.parse(currentLocal) : DEFAULT_STATE;
+          const merged = { ...parsedLocal, ...updates };
+          localStorage.setItem(appStateKey, JSON.stringify(merged));
+      }
+
+      if (!user || !db) return;
+      const ref = doc(db, "users", user.uid);
+      try {
+          await setDoc(ref, updates, { merge: true });
+      } catch (error) {
+          console.error("Firebase permission denied or network error during saveToCloud:", error);
+          triggerToast("Sync error (check rules)");
+      }
+  }, [user, appStateKey]);
+
+  // Wrappers for state updates that also sync
+  const handleUpdateAppState = (newState: AppState | ((prev: AppState) => AppState)) => {
+      setAppState(prev => {
+          const updated = typeof newState === 'function' ? newState(prev) : newState;
+          saveToCloud(updated); // Fire and forget
+          return updated;
+      });
+  };
+
+  // 1. DAILY RESET LOGIC
+  // Idempotent: re-running this when an archive already exists for the
+  // previous day will only refresh todayLog/lastActiveDate, not duplicate.
+  // Runs both on dependency change AND every minute so apps left open past
+  // midnight still roll over without requiring a navigation.
+  useEffect(() => {
+    const performRollover = () => {
+      const todayStr = new Date().toLocaleDateString();
+
+      let archivedJustNow = false;
+      let isMonday = false;
+
+      setAppState(prev => {
+        const lastDate = prev.lastActiveDate;
+        if (!lastDate || lastDate === todayStr) return prev; // nothing to do
+
+        // IDEMPOTENCY GUARD — don't double-archive if a log for lastDate
+        // already exists (handles Strict Mode double-firing and snapshot
+        // race conditions where the same effect could run twice).
+        const alreadyArchived = (prev.dailyLogs || []).some(l => l.date === lastDate);
+
+        const safeTodayLog = prev.todayLog || [];
+        const calories = safeTodayLog.reduce((acc, item) => acc + (item.calories || 0), 0);
+        const protein  = safeTodayLog.reduce((acc, item) => acc + (item.protein  || 0), 0);
+        const carbs    = safeTodayLog.reduce((acc, item) => acc + (item.carbs    || 0), 0);
+        const fat      = safeTodayLog.reduce((acc, item) => acc + (item.fat      || 0), 0);
+        const fiber    = safeTodayLog.reduce((acc, item) => acc + (item.fiber    || 0), 0);
+
+        // Skip archiving days with no real activity — opening the app and
+        // logging nothing shouldn't create a placeholder entry. This was
+        // creating dozens of empty rows that polluted the Journal navigation.
+        const hadAnyActivity =
+          safeTodayLog.length > 0 ||
+          (prev.waterIntake || 0) > 0 ||
+          (prev.activityBurn || 0) > 0;
+
+        let nextDailyLogs = prev.dailyLogs || [];
+        if (!alreadyArchived && hadAnyActivity) {
+          const archivedLog: DailyLog = {
+            date: lastDate,
+            weight: prev.profile?.weight || 0,
+            caloriesConsumed: calories,
+            proteinConsumed: protein,
+            carbsConsumed: carbs,
+            fatConsumed: fat,
+            fiberConsumed: fiber,
+            waterIntake: prev.waterIntake,
+            caloriesBurned: prev.activityBurn,
+            workoutCompleted: false,
+            foodItems: safeTodayLog,
+          };
+          nextDailyLogs = [...nextDailyLogs, archivedLog];
+          archivedJustNow = true;
+          console.log("[Rollover] Archived", safeTodayLog.length, "items for", lastDate, "→", todayStr);
+        } else if (alreadyArchived) {
+          console.log("[Rollover] Already archived", lastDate, "— resetting today only");
+        } else {
+          console.log("[Rollover] Skipping empty day", lastDate, "— no food/water/burn logged");
+        }
+
+        const next = {
+          ...prev,
+          dailyLogs: nextDailyLogs,
+          todayLog: [],
+          activityBurn: 0,
+          waterIntake: 0,
+          lastActiveDate: todayStr,
+        };
+        // Persist immediately. Fire-and-forget is OK because localStorage
+        // is also written synchronously inside saveToCloud, so a closed tab
+        // doesn't lose data — the next sign-in will push it.
+        saveToCloud(next);
+        return next;
+      });
+
+      // Workout reset on Monday — only fires once per actual rollover (not
+      // on idempotent re-runs) by checking the `archivedJustNow` flag the
+      // setAppState callback set.
+      if (archivedJustNow) {
+        const dayOfWeek = new Date().getDay();
+        isMonday = dayOfWeek === 1;
+        if (isMonday) {
+          setWeeklyCompletedWorkouts([]);
+          if (user && db) saveWorkoutToCloud(workoutSplit, []);
+          const resetSplit = workoutSplit.map(day => ({
+            ...day,
+            exercises: day.exercises.map((ex: any) => ({ ...ex, completed: false })),
+          }));
+          setWorkoutSplit(resetSplit);
+          saveWorkoutToCloud(resetSplit, []);
+          triggerToast("New Week: Workouts Reset");
+        } else {
+          triggerToast("New Day: Food & Water Reset");
+        }
+      }
+    };
+
+    // Run on mount + when relevant state changes
+    performRollover();
+
+    // Re-check every minute so apps left open past midnight still archive.
+    const intervalId = setInterval(performRollover, 60_000);
+    return () => clearInterval(intervalId);
+  }, [appState.lastActiveDate, user, workoutSplit, saveToCloud]);
+
+  // 2. Database Sync (User)
+  useEffect(() => {
+    if (!isConfigured || !db) return; 
+
+    if (user?.uid) {
+        const unsubState = onSnapshot(doc(db, "users", user.uid), (docSnapshot) => {
+            if (docSnapshot.exists()) {
+                const data = docSnapshot.data() as Partial<AppState>;
+
+                // ONE-TIME CLEANUP: remove empty dailyLogs (no food, no water,
+                // no burn) and de-dupe by date. The old rollover code created
+                // empty placeholder entries every time the app opened without
+                // logging. Self-terminating — once dailyLogs is clean, future
+                // snapshots find no empties and skip the write.
+                const rawDailyLogs = Array.isArray(data.dailyLogs) ? data.dailyLogs : [];
+                const seenDates = new Set<string>();
+                const cleanedDailyLogs = rawDailyLogs.filter(log => {
+                    if (!log || !log.date) return false;
+                    if (seenDates.has(log.date)) return false;
+                    seenDates.add(log.date);
+                    const hasActivity =
+                      (log.foodItems && log.foodItems.length > 0) ||
+                      (log.caloriesConsumed || 0) > 0 ||
+                      (log.waterIntake || 0) > 0 ||
+                      (log.caloriesBurned || 0) > 0;
+                    return hasActivity;
+                });
+                if (cleanedDailyLogs.length !== rawDailyLogs.length) {
+                    const removed = rawDailyLogs.length - cleanedDailyLogs.length;
+                    console.log(`[Cleanup] Removed ${removed} empty/duplicate dailyLogs entries from storage.`);
+                    // Write back the cleaned version. saveToCloud merges, so
+                    // this replaces only the dailyLogs field. Fire and forget.
+                    saveToCloud({ dailyLogs: cleanedDailyLogs });
+                }
+
+                setAppState(prev => {
+                    const nextState = {
+                        ...prev,
+                        ...data,
+                        dailyLogs: cleanedDailyLogs,
+                        todayLog: data.todayLog || prev.todayLog || [],
+                        milestones: data.milestones || prev.milestones || [],
+                        savedNotes: data.savedNotes || prev.savedNotes || [],
+                        foodHistory: data.foodHistory || prev.foodHistory || [],
+                        recentFoods: data.recentFoods || prev.recentFoods || [],
+                        mealHistory: data.mealHistory || prev.mealHistory || [],
+                    };
+                    if (appStateKey) localStorage.setItem(appStateKey, JSON.stringify(nextState));
+                    return nextState;
+                });
+            }
+        }, (error) => {
+            console.error("Firebase snapshot error (users):", error);
+            triggerToast("Database read access denied. Review Firestore Rules.");
+        });
+
+        const unsubWorkout = onSnapshot(doc(db, "user_workouts", user.uid), (docSnapshot) => {
+            if (docSnapshot.exists()) {
+                 const data = docSnapshot.data();
+                 if (data.split && data.split.length > 0) {
+                     setWorkoutSplit(data.split);
+                     if (splitKey) localStorage.setItem(splitKey, JSON.stringify(data.split));
+                 }
+                 if (data.weeklyProgress) setWeeklyCompletedWorkouts(data.weeklyProgress);
+            } else {
+                const localSplit = splitKey ? localStorage.getItem(splitKey) : null;
+                if (localSplit) {
+                    const parsed = JSON.parse(localSplit);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setWorkoutSplit(parsed);
+                        saveWorkoutToCloud(parsed, []);
+                        return;
+                    }
+                }
+                setWorkoutSplit(FALLBACK_SPLIT);
+                saveWorkoutToCloud(FALLBACK_SPLIT, []);
+            }
+        }, (error) => {
+            console.error("Firebase snapshot error (user_workouts):", error);
+        });
+
+        return () => {
+            unsubState();
+            unsubWorkout();
+        };
+    }
+  }, [user]);
+
+  // Force Fallback check if state becomes empty
+  useEffect(() => {
+      if (!workoutSplit || workoutSplit.length === 0) {
+          setWorkoutSplit(FALLBACK_SPLIT);
+      }
+  }, [workoutSplit]);
+
+  // One-time health disclaimer trigger for existing users (pre-disclaimer-onboarding).
+  // Fires once the profile is loaded; sets to false the moment it sees acceptedHealthDisclaimer=true.
+  useEffect(() => {
+    if (appState.profile && appState.profile.acceptedHealthDisclaimer !== true) {
+      setShowHealthDisclaimer(true);
+    } else {
+      setShowHealthDisclaimer(false);
+    }
+  }, [appState.profile?.acceptedHealthDisclaimer]);
+
+  const saveWorkoutToCloud = useCallback(async (split: any[], progress: string[]) => {
+      if (splitKey) localStorage.setItem(splitKey, JSON.stringify(split));
+      if (!user || !db) return;
+      const ref = doc(db, "user_workouts", user.uid);
+      try {
+          await setDoc(ref, { split, weeklyProgress: progress }, { merge: true });
+      } catch (error) {
+          console.error("Firebase error saving workouts:", error);
+      }
+  }, [user, splitKey]);
+
+  // Current Time Awareness
+  const currentDayName = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long' }), []);
+  const currentHour = useMemo(() => new Date().getHours(), []);
+  
+  const greeting = useMemo(() => {
+    if (currentHour < 12) return "Good Morning";
+    if (currentHour < 18) return "Good Afternoon";
+    return "Good Evening";
+  }, [currentHour]);
+
+  // Display-formatted date for the hero strip — "Saturday, May 17".
+  const dateString = useMemo(() => {
+    return new Date().toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+  }, []);
+
+  // Consecutive-day streak. Recomputed when today's log or history changes.
+  const streak = useMemo(
+    () => computeStreak(appState.dailyLogs || [], appState.todayLog || []),
+    [appState.dailyLogs, appState.todayLog],
+  );
+
+
+  useEffect(() => {
+      if (activeTab === 'coach' && chatBottomRef.current) {
+          chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+  }, [chatHistory, activeTab]);
+
+  // Wrapped auto-prompt: when the calendar month changes, show the previous
+  // month's Wrapped once. localStorage key is uid-namespaced (per the
+  // cross-account leak fix) and stores the YYYY-MM string we last greeted on.
+  // Only fires if there's actually data in the prior month worth celebrating
+  // — otherwise the user would get an empty Wrapped that feels deflating.
+  useEffect(() => {
+      if (!userId || !appState.profile) return;
+      const key = `dings_wrapped_last_seen_${userId}`;
+      const today = new Date();
+      const currentYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      let lastSeen: string | null = null;
+      try { lastSeen = localStorage.getItem(key); } catch { /* private mode */ }
+      if (lastSeen === currentYM) return; // already greeted this month
+
+      // Check there's data in the previous 30 days worth showing.
+      const cutoff = new Date(today);
+      cutoff.setDate(cutoff.getDate() - 30);
+      const recentRealDays = (appState.dailyLogs || []).filter(l => {
+          const d = new Date(l.date);
+          const real = (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0 || (l.caloriesBurned || 0) > 0;
+          return d >= cutoff && real;
+      }).length;
+      if (recentRealDays < 5) {
+          // Not enough data yet. Don't burn the auto-prompt; let them
+          // accumulate first. Update the marker on the 1st of the month
+          // anyway so we don't poll forever — they can still tap the
+          // dashboard launcher manually.
+          if (today.getDate() === 1) {
+              try { localStorage.setItem(key, currentYM); } catch { /* ignore */ }
+          }
+          return;
+      }
+
+      // Defer slightly so it doesn't fight with the dashboard render.
+      const t = setTimeout(() => {
+          setWrappedAutoPrompted(true);
+          setWrappedInitialPeriod('month');
+          setShowWrapped(true);
+          try { localStorage.setItem(key, currentYM); } catch { /* ignore */ }
+      }, 1200);
+      return () => clearTimeout(t);
+  }, [userId, appState.profile, appState.dailyLogs]);
+
+  const generateSplitForUser = async () => {
+      setIsGeneratingSplit(true);
+      try {
+          if (!appState.profile) throw new Error("No profile");
+          const split = await generateSmartSplit(appState.profile.goal, appState.profile.busyDays, appState.profile.highEnergyDays, {
+              age: appState.profile.age || 30,
+              weight: appState.profile.weight || 150,
+              activityLevel: appState.profile.activityLevel || ActivityLevel.Light,
+              // Pass workout-personalization answers from onboarding. Legacy
+              // profiles without these get sensible defaults inside the prompt.
+              workoutPreferences: appState.profile.workoutPreferences,
+          });
+          if (split && Array.isArray(split) && split.length > 0) {
+              setWorkoutSplit(split);
+              saveWorkoutToCloud(split, weeklyCompletedWorkouts);
+          } else {
+              throw new Error("Empty split generated");
+          }
+      } catch (e) {
+          console.error("Split gen failed, using fallback", e);
+          setWorkoutSplit(FALLBACK_SPLIT);
+          saveWorkoutToCloud(FALLBACK_SPLIT, weeklyCompletedWorkouts);
+          triggerToast("Used Default Protocol (AI Busy)");
+      } finally {
+          setIsGeneratingSplit(false);
+      }
+  }
+
+  const triggerToast = (msg: string, durationMs = 3000) => {
+    setToastMessage(msg);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), durationMs);
+  };
+
+  const updateWater = (amount: number) => {
+      handleUpdateAppState(prev => ({
+          ...prev,
+          waterIntake: Math.max(0, prev.waterIntake + amount)
+      }));
+  };
+
+  const targetMacros = useMemo(() => {
+    if (!appState.profile) return { calories: 2000, protein: 150, carbs: 200, fat: 65 };
+    if (appState.nutritionTargets) return appState.nutritionTargets;
+    // Prefer InBody-measured body fat % when present (gold standard);
+    // otherwise fall back to user-entered bodyFat. If neither, CALCULATE_TDEE
+    // uses Mifflin-St Jeor automatically.
+    const bf = appState.profile.inBodyData?.pbf ?? appState.profile.bodyFat;
+    const tdee = CALCULATE_TDEE(
+      appState.profile.weight,
+      appState.profile.height,
+      appState.profile.age,
+      appState.profile.activityLevel,
+      appState.profile.sex,
+      bf,
+    );
+    return CALCULATE_MACROS(tdee, appState.profile.goal, appState.profile.weight, appState.profile.sex);
+  }, [appState.profile, appState.nutritionTargets]);
+
+  const consumedMacros = useMemo(() => {
+    const today = appState.todayLog || [];
+    const totals = today.reduce((acc, item) => ({
+      calories: acc.calories + (Number(item.calories) || 0),
+      protein: acc.protein + (Number(item.protein) || 0),
+      carbs: acc.carbs + (Number(item.carbs) || 0),
+      fat: acc.fat + (Number(item.fat) || 0),
+      fiber: acc.fiber + (Number(item.fiber) || 0)
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
+
+    // Adjust calories based on activity burn
+    totals.calories = Math.max(0, totals.calories - (appState.activityBurn || 0));
+    
+    return totals;
+  }, [appState.todayLog, appState.activityBurn]);
+
+  // Tracks the most recent activity burn so the user can hit "Undo" inside
+  // the success toast. Null means there's nothing to undo right now.
+  const [pendingActivityUndo, setPendingActivityUndo] = useState<{ amount: number; expiresAt: number } | null>(null);
+
+  // Same pattern, but for food log additions. We snapshot the IDs that were
+  // pushed so undo can remove exactly those (and not a re-logged duplicate).
+  const [pendingFoodUndo, setPendingFoodUndo] = useState<{ ids: string[]; label: string; expiresAt: number } | null>(null);
+
+  // Same pattern, but for food log deletions. We snapshot the deleted item
+  // + its position in todayLog so undo restores it where it was.
+  const [pendingDeleteUndo, setPendingDeleteUndo] = useState<{ item: FoodItem; index: number; expiresAt: number } | null>(null);
+
+  const logActivity = (calories: number) => {
+    handleUpdateAppState(prev => ({
+        ...prev,
+        activityBurn: prev.activityBurn + calories
+    }));
+    // 5-second undo window. The toast shows an Undo button while this is set.
+    const expiresAt = Date.now() + 5000;
+    setPendingActivityUndo({ amount: calories, expiresAt });
+    // Toast duration matches the undo window so the Undo button stays
+    // visible the whole time.
+    triggerToast(`${calories} kcal · movement noted`, 5000);
+    // Auto-clear the undo window after it expires.
+    setTimeout(() => {
+      setPendingActivityUndo(curr =>
+        curr && curr.expiresAt <= Date.now() ? null : curr,
+      );
+    }, 5100);
+  };
+
+  const undoLastActivity = () => {
+    if (!pendingActivityUndo) return;
+    const amount = pendingActivityUndo.amount;
+    handleUpdateAppState(prev => ({
+        ...prev,
+        activityBurn: Math.max(0, prev.activityBurn - amount),
+    }));
+    setPendingActivityUndo(null);
+    triggerToast(`${amount} kcal · movement unmarked`);
+  };
+
+  // Undo the last food log push. Removes the exact items we just added
+  // (matched by ID) so a re-logged item with the same name isn't touched.
+  const undoLastFoodLog = () => {
+    if (!pendingFoodUndo) return;
+    const idsToRemove = new Set(pendingFoodUndo.ids);
+    handleUpdateAppState(prev => ({
+        ...prev,
+        todayLog: (prev.todayLog || []).filter(i => !idsToRemove.has(i.id)),
+    }));
+    setPendingFoodUndo(null);
+    triggerToast('Removed from your trail');
+  };
+
+  // Restore the last deleted food item. We splice it back at its original
+  // position so the order doesn't visibly jump around on undo.
+  const undoLastDelete = () => {
+    if (!pendingDeleteUndo) return;
+    const { item, index } = pendingDeleteUndo;
+    handleUpdateAppState(prev => {
+        const next = [...(prev.todayLog || [])];
+        const insertAt = Math.min(index, next.length);
+        next.splice(insertAt, 0, item);
+        return { ...prev, todayLog: next };
+    });
+    setPendingDeleteUndo(null);
+    triggerToast(`Restored ${item.name}`);
+  };
+
+  // Toggle the favorited flag on a HistoryEntry. Favorited entries are
+  // pinned to the top of the Quick tab and never pruned from history.
+  const toggleHistoryFavorite = (entryId: string) => {
+    handleUpdateAppState(prev => ({
+        ...prev,
+        foodHistory: (prev.foodHistory || []).map(e =>
+            e.id === entryId ? { ...e, favorited: !e.favorited } : e,
+        ),
+    }));
+  };
+
+  // Remove a history entry entirely (Quick tab "X" button). This is
+  // different from deleteLog — that one removes from today's log only.
+  const removeHistoryEntry = (entryId: string) => {
+    handleUpdateAppState(prev => ({
+        ...prev,
+        foodHistory: (prev.foodHistory || []).filter(e => e.id !== entryId),
+    }));
+  };
+
+  const completedWorkoutsToday = useMemo(() => {
+      const todayDayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+      return weeklyCompletedWorkouts.filter(w => w === todayDayName);
+  }, [weeklyCompletedWorkouts]);
+
+  // ----------------------------------------------------------------------
+  // EXPONENTIAL SMOOTHING + THERMODYNAMICS PHYSICS CHECK
+  // ----------------------------------------------------------------------
+  const liveMetrics = useMemo(() => {
+      // 1. ANCHOR: Use Initial Weight from Profile or Fallback
+      const startWeight = appState.profile?.initialWeight || appState.profile?.weight || 160;
+      const startBF = appState.profile?.bodyFat || 20;
+      const weightKg = startWeight / 2.20462;
+      const heightCm = (appState.profile?.height || 70) * 2.54;
+      const age = appState.profile?.age || 25;
+      const baseBMR = (10 * weightKg) + (6.25 * heightCm) - (5 * age) + (appState.profile?.sex === 'Female' ? -161 : 5);
+
+      let trendWeight = startWeight;
+      let trendBF = startBF;
+      let accumulatedTheoreticalLoss = 0; // Cumulative lbs expected to be lost based on CICO
+
+      // 2. Iterate History (Exponential Smoothing)
+      // We process every logged day to smooth out the trend curve
+      const allDays = [...(appState.dailyLogs || [])]; 
+      
+      allDays.forEach(log => {
+          // --- Trend Weight Logic (Scale) ---
+          // New_Trend = Prev_Trend + 0.1 * (Daily_Scale_Weight - Prev_Trend)
+          const dailyWeight = log.weight > 0 ? log.weight : trendWeight; // Hold previous if 0
+          trendWeight = trendWeight + 0.1 * (dailyWeight - trendWeight);
+
+          // --- Thermodynamics Check (CICO) ---
+          // TDEE = 1815 * 1.2 + (Workout ? 350 : 0)
+          const workoutBurn = log.workoutCompleted ? 350 : 0;
+          const dailyTDEE = (baseBMR * 1.2) + workoutBurn;
+          
+          // Deficit = TDEE - Consumed
+          const deficit = dailyTDEE - log.caloriesConsumed;
+          
+          // Expected Fat Loss = Deficit / 3500
+          // Note: If no food logged (0 cal), this implies massive deficit. 
+          // We filter days with <500 cal to prevent bad data skewing the math.
+          if (log.caloriesConsumed > 500) {
+              const dailyLoss = deficit / 3500;
+              accumulatedTheoreticalLoss += dailyLoss; // Positive means weight LOSS
+          }
+      });
+
+      // 3. Process TODAY (Live)
+      const currentScaleWeight = appState.profile?.weight || trendWeight;
+      const currentScaleBF = appState.profile?.bodyFat || trendBF;
+
+      // Update Trend for Today
+      trendWeight = trendWeight + 0.1 * (currentScaleWeight - trendWeight);
+      trendBF = trendBF + 0.05 * (currentScaleBF - trendBF);
+
+      // Calculate Today's Physics
+      const todayWorkout = completedWorkoutsToday.length > 0;
+      const todayWorkoutBurn = todayWorkout ? 350 : 0;
+      const todayTDEE = (baseBMR * 1.2) + todayWorkoutBurn;
+      const todayDeficit = todayTDEE - consumedMacros.calories;
+      
+      // Only count today's deficit if user has actually logged meaningful food
+      if (consumedMacros.calories > 500) {
+          accumulatedTheoreticalLoss += (todayDeficit / 3500);
+      }
+
+      // 4. GENERATE BIO-ESTIMATED WEIGHT (The Math)
+      const bioWeight = startWeight - accumulatedTheoreticalLoss;
+
+      // 5. GENERATE FEEDBACK (Reality Check)
+      // "Actual Scale Change" (Positive = Lost Weight)
+      const totalScaleDrop = startWeight - currentScaleWeight;
+      
+      let status = "Healthy";
+      let feedback = "Collecting data...";
+
+      const diff = totalScaleDrop - accumulatedTheoreticalLoss;
+      // Example: Scale dropped 5lbs, Physics says 2lbs. Diff = 3. (Water weight lost)
+      // Example: Scale dropped 0lbs, Physics says 2lbs. Diff = -2. (Retention)
+
+      if (diff > 2.5) {
+          status = "Fluctuation";
+          feedback = "Scale drop exceeds fat loss. Likely water weight shedding.";
+      } else if (diff < -1.5) {
+          status = "Plateau / Recomp";
+          feedback = "Scale is lagging behind calculated fat loss. Water retention or muscle gain masking progress.";
+      } else {
+          status = "On Track";
+          feedback = "Scale movement aligns accurately with your calorie deficit.";
+      }
+
+      return {
+          scaleTrend: trendWeight.toFixed(1), // Smoothed Scale Weight
+          bioWeight: bioWeight.toFixed(1),    // Thermodynamic Estimate
+          currentPBF: trendBF.toFixed(1),
+          theoreticalFatLoss: accumulatedTheoreticalLoss.toFixed(1),
+          actualScaleDrop: totalScaleDrop.toFixed(1),
+          status,
+          feedback
+      };
+
+  }, [appState.dailyLogs, appState.profile, consumedMacros, completedWorkoutsToday]);
+
+  const toggleExerciseComplete = (dayIndex: number, exerciseIndex: number) => {
+      const newSplit = [...workoutSplit];
+      const ex = newSplit[dayIndex].exercises[exerciseIndex];
+      ex.completed = !ex.completed;
+      setWorkoutSplit(newSplit);
+      saveWorkoutToCloud(newSplit, weeklyCompletedWorkouts);
+  };
+
+  const updateExerciseWeight = (dayIndex: number, exerciseIndex: number, weight: string) => {
+      const newSplit = [...workoutSplit];
+      const val = weight === '' ? undefined : Number(weight);
+      newSplit[dayIndex].exercises[exerciseIndex].weight = val;
+      setWorkoutSplit(newSplit);
+  };
+
+  const deleteExercise = (dayIndex: number, exerciseIndex: number) => {
+      const newSplit = [...workoutSplit];
+      newSplit[dayIndex].exercises.splice(exerciseIndex, 1);
+      setWorkoutSplit(newSplit);
+      saveWorkoutToCloud(newSplit, weeklyCompletedWorkouts);
+      triggerToast("Exercise Deleted");
+  };
+
+  const addExerciseToSplit = (dayIndex: number) => {
+      if(!manualExercise.name) return;
+      const newSplit = [...workoutSplit];
+      newSplit[dayIndex].exercises.push({
+          name: manualExercise.name,
+          sets: manualExercise.sets,
+          reps: manualExercise.reps,
+          completed: false,
+          gymAlternative: '',
+          homeAlternative: ''
+      });
+      setWorkoutSplit(newSplit);
+      saveWorkoutToCloud(newSplit, weeklyCompletedWorkouts);
+      setManualExercise({ name: '', sets: 3, reps: '10' });
+      setActiveDayIndexForAdd(null);
+      triggerToast("Exercise Added");
+  };
+
+  const completeWorkoutDay = (dayIndex: number) => {
+      const day = workoutSplit[dayIndex];
+      if (weeklyCompletedWorkouts.includes(day.day)) {
+          triggerToast("Already Completed This Week!");
+          return;
+      }
+
+      const affectedMuscles = GET_AFFECTED_MUSCLES(day.label);
+      const xpGain = 150; 
+      
+      handleUpdateAppState(prev => {
+          const newBodyStats = { ...prev.bodyStats };
+          affectedMuscles.forEach(muscle => {
+              const key = muscle as keyof BodyStats;
+              if (newBodyStats[key]) {
+                  newBodyStats[key].currentXP += xpGain;
+                  if (newBodyStats[key].currentXP >= newBodyStats[key].maxXP) {
+                      newBodyStats[key].level += 1;
+                      newBodyStats[key].currentXP -= newBodyStats[key].maxXP;
+                      newBodyStats[key].maxXP = Math.round(newBodyStats[key].maxXP * 1.2);
+                      triggerToast(`LEVEL UP: ${muscle.toUpperCase()}!`);
+                  }
+              }
+          });
+          return { ...prev, bodyStats: newBodyStats };
+      });
+
+      const newWeekly = [...weeklyCompletedWorkouts, day.day];
+      setWeeklyCompletedWorkouts(newWeekly);
+      saveWorkoutToCloud(workoutSplit, newWeekly);
+      
+      let totalVolume = 0;
+      day.exercises.forEach((ex: any) => {
+          const weight = ex.weight || 0;
+          const sets = ex.sets || 0;
+          const repsStr = String(ex.reps);
+          const repsMatch = repsStr.match(/\d+/);
+          const reps = repsMatch ? parseInt(repsMatch[0]) : 0;
+          totalVolume += (weight * sets * reps);
+      });
+
+      handleUpdateAppState(prev => ({
+          ...prev,
+          dailyLogs: [
+              ...prev.dailyLogs,
+              {
+                  date: new Date().toISOString(),
+                  weight: prev.profile?.weight || 0,
+                  caloriesConsumed: consumedMacros.calories,
+                  proteinConsumed: consumedMacros.protein,
+                  carbsConsumed: consumedMacros.carbs,
+                  fatConsumed: consumedMacros.fat,
+                  waterIntake: prev.waterIntake,
+                  workoutCompleted: true,
+                  workoutLabel: day.label,
+                  workoutVolume: totalVolume,
+                  workoutExercises: day.exercises
+              }
+          ]
+      }));
+      triggerToast("MISSION COMPLETE (+XP)");
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+        Array.from(e.target.files).forEach(async (file: File) => {
+            // Resize image before storing in state to prevent memory crashes
+            try {
+                const resized = await resizeImage(file);
+                setFoodImages(prev => [...prev, resized]);
+            } catch (err) {
+                console.error("Image resize failed", err);
+                triggerToast("Failed to process image");
+            }
+        });
+    }
+  };
+
+  const removeImage = (index: number) => {
+      setFoodImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAnalyzeFood = async () => {
+    if (foodImages.length === 0 && !foodDescription) return;
+    setIsAnalyzingFood(true);
+    setAnalysisTip('');
+    try {
+      const result = await analyzeFoodEntry(foodImages, foodDescription, 'auto', appState.customMenuItems);
+      
+      if (!result.items || !Array.isArray(result.items)) {
+          throw new Error("Invalid AI response");
+      }
+
+      // Map result items to our scan form state safely. We preserve the new
+      // optional enrichment fields (source, confidence, ingredients, serving
+      // info) so the review UI can surface them as badges and an expandable
+      // ingredient list.
+      const items: ScannedItem[] = result.items.map((item: any) => ({
+          name: item.name || "Unknown Item",
+          calories: String(item.calories || '').replace(/[^0-9.]/g, ''),
+          protein: String(item.protein || '').replace(/[^0-9.]/g, ''),
+          carbs: String(item.carbs || '').replace(/[^0-9.]/g, ''),
+          fat: String(item.fat || '').replace(/[^0-9.]/g, ''),
+          fiber: String(item.fiber || '').replace(/[^0-9.]/g, ''),
+          source: item.source,
+          confidence: item.confidence,
+          ingredients: Array.isArray(item.ingredients) ? item.ingredients : undefined,
+          servingSize: typeof item.servingSize === 'string' ? item.servingSize : undefined,
+          servingsConsumed: typeof item.servingsConsumed === 'number' ? item.servingsConsumed : undefined,
+      }));
+
+      setScannedItems(items);
+      setExpandedIngredients(new Set());
+
+      // If detection found nothing, set manual mode default
+      if (items.length === 0) {
+           setFoodForm({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+      }
+
+      if (result.tip) setAnalysisTip(result.tip);
+      setAnalysisNutritionSources((result as any).nutritionSourcesUsed ?? []);
+      setAnalysisNutritionMatchCount((result as any).nutritionMatchCount ?? 0);
+      setAnalysisNutritionSkipped((result as any).nutritionSourcesSkipped ?? []);
+    } catch (e) {
+      triggerToast('Analysis failed. Try manual entry.');
+      console.error(e);
+      setAddFoodMode('manual');
+    } finally {
+      setIsAnalyzingFood(false);
+    }
+  };
+
+  const addFoodEntry = () => {
+      // Manual Mode Entry
+      if (!foodForm.name || !foodForm.calories) return;
+      const newItem: FoodItem = {
+          id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 5),
+          name: foodForm.name,
+          calories: safeFloat(foodForm.calories),
+          protein: safeFloat(foodForm.protein),
+          carbs: safeFloat(foodForm.carbs),
+          fat: safeFloat(foodForm.fat),
+          fiber: safeFloat(foodForm.fiber),
+          timestamp: new Date().toLocaleTimeString()
+      };
+      
+      // Add single item
+      pushFoodToState([newItem], newItem.name);
+  };
+
+  const addAllScannedItems = () => {
+      const newItems: FoodItem[] = scannedItems.map((item, idx) => ({
+          id: Date.now().toString() + '-' + idx + '-' + Math.random().toString(36).substr(2, 5),
+          name: item.name || 'Unknown',
+          calories: safeFloat(item.calories),
+          protein: safeFloat(item.protein),
+          carbs: safeFloat(item.carbs),
+          fat: safeFloat(item.fat),
+          fiber: safeFloat(item.fiber),
+          timestamp: new Date().toLocaleTimeString()
+      }));
+
+      // AUTO-ADD UNKNOWN RESTAURANT ITEMS: if the user's description mentions
+      // a known chain AND any scanned item has a restaurant-attributed source,
+      // see whether the item exists in our verified menu (built-in or custom).
+      // If not, add it to the user's customMenuItems for that restaurant so
+      // they (and the AI, on future requests) can find it instantly.
+      const detected = detectRestaurantsInText(foodDescription || '');
+      if (detected.length > 0) {
+          const primaryRestaurant = detected[0];
+          const currentCustom = appState.customMenuItems?.[primaryRestaurant.id] || [];
+          const allKnownForThisRestaurant: MenuItem[] = [...primaryRestaurant.menuItems, ...currentCustom];
+
+          const newCustomEntries: NonNullable<AppState['customMenuItems']>[string] = [];
+          for (let i = 0; i < scannedItems.length; i++) {
+              const scanned = scannedItems[i];
+              const sourceItem = (scanned as any).source;
+              // Only auto-add when the AI attributed the macros to a restaurant
+              // database or nutrition database (real source). Skip pure
+              // text/visual estimates so guesses don't pollute the menu.
+              if (sourceItem !== 'restaurant_db' && sourceItem !== 'nutrition_db') continue;
+              const itemName = scanned.name || newItems[i].name;
+              if (!itemName) continue;
+              // Fuzzy match against everything we already know for this restaurant.
+              const matches = findMenuItemMatches(itemName, allKnownForThisRestaurant);
+              if (matches.length > 0) continue; // already in our menu, skip
+              newCustomEntries.push({
+                  id: `custom-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
+                  name: itemName,
+                  category: 'Added by you',
+                  calories: safeFloat(scanned.calories),
+                  protein:  safeFloat(scanned.protein),
+                  carbs:    safeFloat(scanned.carbs),
+                  fat:      safeFloat(scanned.fat),
+                  fiber:    safeFloat(scanned.fiber) || undefined,
+                  isCustom: true,
+                  addedAt: new Date().toISOString(),
+              });
+          }
+
+          if (newCustomEntries.length > 0) {
+              handleUpdateAppState(prev => ({
+                  ...prev,
+                  customMenuItems: {
+                      ...(prev.customMenuItems || {}),
+                      [primaryRestaurant.id]: [
+                          ...(prev.customMenuItems?.[primaryRestaurant.id] || []),
+                          ...newCustomEntries,
+                      ],
+                  },
+              }));
+              // Toast happens after the log toast in pushFoodToState — slight delay
+              // so the user sees both messages in sequence.
+              const itemLabels = newCustomEntries.map(e => `"${e.name}"`).join(', ');
+              setTimeout(() => triggerToast(`Saved ${itemLabels} to ${primaryRestaurant.shortName}`), 1500);
+          }
+      }
+
+      // Use user description or generic name if description missing
+      const mealLabel = foodDescription || (newItems.length > 1 ? "Scanned Meal" : newItems[0].name);
+      pushFoodToState(newItems, mealLabel);
+  };
+
+  const pushFoodToState = (items: FoodItem[], label?: string) => {
+      handleUpdateAppState(prev => {
+          const rawLabel = label || (items.length === 1 ? items[0].name : `Meal (${items.length} items)`);
+          const mealLabel = rawLabel.length > 30 ? rawLabel.substring(0, 30) + '...' : rawLabel;
+          const totalCalories = items.reduce((a,b) => a + b.calories, 0);
+          const totalProtein  = items.reduce((a,b) => a + b.protein, 0);
+          const totalCarbs    = items.reduce((a,b) => a + b.carbs, 0);
+          const totalFat      = items.reduce((a,b) => a + b.fat, 0);
+
+          const currentHistory = prev.foodHistory || [];
+
+          // De-dupe by label. If we've logged this exact meal label before,
+          // BUMP the existing entry (refresh timestamp + increment count)
+          // instead of creating a duplicate. This is what the user expected
+          // when re-logging "Chipotle Chicken Bowl" repeatedly.
+          const existingIdx = currentHistory.findIndex(e => e.label === mealLabel);
+          let newHistory: HistoryEntry[];
+          let bumped: HistoryEntry;
+
+          if (existingIdx >= 0) {
+              const existing = currentHistory[existingIdx];
+              const nextCount = (existing.loggedCount ?? 1) + 1;
+              // Auto-favorite at 5+ logs unless user has explicitly turned it off.
+              const shouldAutoFavorite =
+                  !existing.favorited &&
+                  nextCount >= 5 &&
+                  prev.profile?.autoFavoriteEnabled !== false;
+              bumped = {
+                  ...existing,
+                  timestamp: new Date().toLocaleDateString(),
+                  loggedCount: nextCount,
+                  favorited: existing.favorited || shouldAutoFavorite,
+                  // Keep the LATEST items list so re-logs reflect any AI macro
+                  // refinements between log events.
+                  items,
+                  totalCalories, totalProtein, totalCarbs, totalFat,
+              };
+              // Move to front
+              newHistory = [bumped, ...currentHistory.filter((_, i) => i !== existingIdx)];
+              if (shouldAutoFavorite) {
+                  setTimeout(() => triggerToast(`★ Added "${mealLabel}" to favorites`), 100);
+              }
+          } else {
+              bumped = {
+                  id: Date.now().toString(),
+                  label: mealLabel,
+                  timestamp: new Date().toLocaleDateString(),
+                  totalCalories, totalProtein, totalCarbs, totalFat,
+                  items,
+                  loggedCount: 1,
+              };
+              newHistory = [bumped, ...currentHistory];
+          }
+
+          // Prune to 50, but ALWAYS keep favorited entries even if they'd
+          // otherwise be dropped from the cap.
+          if (newHistory.length > 50) {
+              const favorited = newHistory.filter(e => e.favorited);
+              const nonFavorited = newHistory.filter(e => !e.favorited).slice(0, 50 - favorited.length);
+              // Re-merge preserving recency order: favorites at the start
+              // (latest first), then most-recent non-favorited.
+              newHistory = [...favorited, ...nonFavorited];
+          }
+
+          return {
+              ...prev,
+              todayLog: [...items, ...(prev.todayLog || [])],
+              foodHistory: newHistory,
+          };
+      });
+
+      // Reset Form
+      setFoodForm({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+      setScannedItems([]);
+      setExpandedIngredients(new Set());
+      setFoodImages([]);
+      setFoodDescription('');
+      setShowAddFood(false);
+      setAddFoodMode('manual');
+
+      // 5-second undo window. Snapshot the exact item IDs so undo removes
+      // these specific entries even if the user logs the same meal again.
+      const undoExpiresAt = Date.now() + 5000;
+      const undoLabel = items.length > 1 ? `${items.length} items` : items[0]?.name || 'item';
+      setPendingFoodUndo({ ids: items.map(i => i.id), label: undoLabel, expiresAt: undoExpiresAt });
+      triggerToast(items.length > 1 ? `${items.length} items marked` : 'Marked', 5000);
+      setTimeout(() => {
+        setPendingFoodUndo(curr =>
+          curr && curr.expiresAt <= Date.now() ? null : curr,
+        );
+      }, 5100);
+  };
+
+  const deleteLog = (id: string) => {
+      // Snapshot the item BEFORE we remove it so undo can restore it exactly
+      // (including its original position in the food log order).
+      const currentLog = appState.todayLog || [];
+      const index = currentLog.findIndex(item => item.id === id);
+      const snapshot = index >= 0 ? currentLog[index] : null;
+
+      handleUpdateAppState(prev => ({
+          ...prev,
+          todayLog: (prev.todayLog || []).filter(item => item.id !== id)
+      }));
+
+      if (snapshot) {
+          // 5-second undo window. Same pattern as activity-burn / food-add undo.
+          const expiresAt = Date.now() + 5000;
+          setPendingDeleteUndo({ item: snapshot, index, expiresAt });
+          triggerToast(`Removed ${snapshot.name}`, 5000);
+          setTimeout(() => {
+              setPendingDeleteUndo(curr =>
+                  curr && curr.expiresAt <= Date.now() ? null : curr,
+              );
+          }, 5100);
+      } else {
+          triggerToast("Removed from your trail");
+      }
+  };
+
+  const updateScannedItem = (index: number, field: keyof ScannedItem, value: string) => {
+      const updated = [...scannedItems];
+      updated[index] = { ...updated[index], [field]: value };
+      setScannedItems(updated);
+  };
+
+  const removeScannedItem = (index: number) => {
+      const updated = scannedItems.filter((_, i) => i !== index);
+      setScannedItems(updated);
+  };
+
+  const logHistoryEntry = (entry: HistoryEntry) => {
+      // Create fresh copies of items with new IDs for the current log
+      const newItems = entry.items.map((item, idx) => ({
+          ...item,
+          id: Date.now() + '-' + idx + Math.random().toString(36).substr(2, 5),
+          timestamp: new Date().toLocaleTimeString()
+      }));
+      
+      // Push to state (this will also bubble it to top of history in pushFoodToState)
+      pushFoodToState(newItems, entry.label);
+      setAddFoodMode('manual');
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || !appState.profile) return;
+    const userMsg = chatInput;
+    setChatInput('');
+    setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
+    setIsChatLoading(true);
+    try {
+        const response = await sendChatMessage(chatHistory, appState.profile, userMsg);
+        
+        if (response.text) {
+             setChatHistory(prev => [...prev, { role: 'model', text: response.text }]);
+        }
+
+        if (response.toolCalls && response.toolCalls.length > 0) {
+            for (const tool of response.toolCalls) {
+                if (tool.name === 'saveInsight') {
+                    const { title, content } = tool.args;
+                    const newNote: SavedNote = {
+                        id: Date.now().toString(),
+                        title: title,
+                        content: content,
+                        date: new Date().toLocaleDateString(),
+                        type: 'coach_insight'
+                    };
+                    handleUpdateAppState(prev => ({
+                        ...prev,
+                        savedNotes: [newNote, ...(prev.savedNotes || [])]
+                    }));
+                    triggerToast("Coach Saved a Note");
+                }
+                else if (tool.name === 'addExerciseToSplit') {
+                     const { day, exerciseName, sets, reps } = tool.args;
+                     const dayIndex = workoutSplit.findIndex(d => d.day.toLowerCase() === day.toLowerCase());
+                     if (dayIndex !== -1) {
+                         const newSplit = [...workoutSplit];
+                         newSplit[dayIndex].exercises.push({
+                             name: exerciseName,
+                             sets: sets,
+                             reps: reps,
+                             completed: false,
+                             gymAlternative: '',
+                             homeAlternative: ''
+                         });
+                         setWorkoutSplit(newSplit);
+                         saveWorkoutToCloud(newSplit, weeklyCompletedWorkouts);
+                         triggerToast(`Added ${exerciseName} to ${day}`);
+                     }
+                }
+                else if (tool.name === 'updateUserMetric') {
+                    const { metric, value } = tool.args;
+                    if (metric === 'weight' && appState.profile) {
+                         // Update profile weight
+                         const newProfile = { ...appState.profile, weight: value };
+                         handleUpdateAppState(prev => ({
+                             ...prev,
+                             profile: newProfile
+                         }));
+                         
+                         // Clear vision roadmap to force a regen on next view
+                         setVisionRoadmap(null);
+                         
+                         triggerToast(`Weight Updated: ${value} lbs`);
+                    } else if (metric === 'bodyFat' && appState.profile) {
+                         const newProfile = { ...appState.profile, bodyFat: value };
+                         handleUpdateAppState(prev => ({
+                             ...prev,
+                             profile: newProfile
+                         }));
+                         setVisionRoadmap(null);
+                         triggerToast(`Body Fat Updated: ${value}%`);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        setChatHistory(prev => [...prev, { role: 'model', text: "Connection error." }]);
+    } finally {
+        setIsChatLoading(false);
+    }
+  };
+
+  const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      handleUpdateAppState(prev => ({
+        ...prev,
+        profile: {
+          ...prev.profile!,
+          profilePicture: base64
+        }
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // --------------------------------------------------------------------------------
+  // RENDER LOGIC
+  // --------------------------------------------------------------------------------
+  
+  if (!isConfigured) {
+      return (
+          <div className="min-h-screen bg-[#0d0a08] flex flex-col items-center justify-center text-white font-orbitron text-center p-4">
+              <h2 className="text-red-500 font-bold mb-4">SYSTEM HALTED</h2>
+              <p className="text-xs text-gray-400">Firebase Config Missing in <code>services/firebase.ts</code></p>
+          </div>
+      );
+  }
+
+  // Use appState.profile or initialProfile, but at this point profile is guaranteed
+  const currentProfile = appState.profile || initialProfile;
+  if (!currentProfile) return null; // safety
+
+  const waterTarget = Math.round(currentProfile.weight * 0.5);
+
+  return (
+    <Layout activeTab={activeTab} onTabChange={setActiveTab} profile={currentProfile}>
+      {showToast && (() => {
+        // Pick the active undo, preferring the MOST RECENTLY set one (each
+        // new action overwrites the prior toast anyway, so the freshest
+        // pending undo is what the user is looking at). Order matches the
+        // typical action flow: delete > food-add > activity-burn.
+        const now = Date.now();
+        let undoFn: (() => void) | null = null;
+        if (pendingDeleteUndo && pendingDeleteUndo.expiresAt > now) {
+          undoFn = undoLastDelete;
+        } else if (pendingFoodUndo && pendingFoodUndo.expiresAt > now) {
+          undoFn = undoLastFoodLog;
+        } else if (pendingActivityUndo && pendingActivityUndo.expiresAt > now) {
+          undoFn = undoLastActivity;
+        }
+        return (
+          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-[#d97757] text-white px-5 py-2 rounded-full font-bold text-xs uppercase tracking-widest shadow-md animate-slide-up flex items-center gap-3 whitespace-nowrap">
+            <span>{toastMessage}</span>
+            {/* Undo button — appears whenever a 5-second undo window is open
+                for activity burn, food add, or food delete. Tapping reverses
+                the most recent action and clears the window. */}
+            {undoFn && (
+              <button
+                onClick={undoFn}
+                className="ml-1 px-3 py-1 rounded-full bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-colors"
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* FLOATING ACTION BUTTON FOR ADD FOOD - GLOBAL (Hidden on Coach tab) */}
+      {!showAddFood && activeTab !== 'coach' && (
+          <button 
+            onClick={() => setShowAddFood(true)}
+            className="fixed bottom-28 right-6 w-14 h-14 bg-[#d97757] rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.4)] z-[60] flex items-center justify-center text-2xl text-white hover:scale-110 transition-transform"
+          >
+              +
+          </button>
+      )}
+
+      {/* ADD FOOD BOTTOM SHEET MODAL */}
+      {showAddFood && (
+            <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowAddFood(false)}>
+              <div 
+                className="bg-[#0f0f0f] w-full max-w-md rounded-t-[2rem] p-6 border-t border-white/10 shadow-2xl overflow-y-auto max-h-[85vh] animate-slide-up"
+                onClick={e => e.stopPropagation()}
+              >
+                {/* ... existing food modal content ... */}
+                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4"></div>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-orbitron font-bold text-white flex items-center gap-2">
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#d97757] to-[#c97b6e]">LOG</span> FUEL
+                  </h2>
+                  {/* Explicit close X — tap-outside dismissal still works,
+                      but users on first launch can't always discover that. */}
+                  <button
+                    onClick={() => setShowAddFood(false)}
+                    className="w-9 h-9 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                {/* QUICK ADD PILLS - Now using Grouped History */}
+                {appState.foodHistory && appState.foodHistory.length > 0 && addFoodMode === 'manual' && scannedItems.length === 0 && (
+                    <div className="mb-6">
+                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                            {appState.foodHistory.slice(0, 6).map(entry => (
+                                <button 
+                                    key={entry.id} 
+                                    onClick={() => logHistoryEntry(entry)}
+                                    className="bg-white/5 hover:bg-orange-500/20 border border-white/10 hover:border-orange-500 rounded-full px-4 py-2 text-xs text-gray-300 transition-all shrink-0 whitespace-nowrap font-medium"
+                                >
+                                    {entry.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex p-1 bg-white/5 rounded-xl mb-6 border border-white/10">
+                    <button 
+                        onClick={() => { setAddFoodMode('manual'); setScannedItems([]); }}
+                        className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all ${addFoodMode === 'manual' ? 'bg-white text-black shadow-lg' : 'text-gray-500'}`}
+                    >
+                        Manual
+                    </button>
+                    <button 
+                        onClick={() => setAddFoodMode('ai')}
+                        className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all ${addFoodMode === 'ai' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg' : 'text-gray-500'}`}
+                    >
+                        AI Scan
+                    </button>
+                    <button
+                        onClick={() => setAddFoodMode('history')}
+                        className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all ${addFoodMode === 'history' ? 'bg-white/20 text-white shadow-lg' : 'text-gray-500'}`}
+                    >
+                        Quick
+                    </button>
+                </div>
+
+                {addFoodMode === 'history' && (() => {
+                    const all = appState.foodHistory || [];
+                    const favorites = all.filter(e => e.favorited);
+                    const recents = all.filter(e => !e.favorited);
+
+                    // Reusable card renderer — same shape for favorites and recents,
+                    // only the star fill / accent color differ.
+                    const renderEntry = (entry: HistoryEntry) => (
+                        <div
+                            key={entry.id}
+                            className={`group flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-3 py-2.5 transition-all ${entry.favorited ? 'border-orange-500/30' : ''}`}
+                        >
+                            {/* Tap the body to re-log */}
+                            <button
+                                onClick={() => logHistoryEntry(entry)}
+                                className="flex-1 min-w-0 text-left"
+                            >
+                                <p className="text-sm font-bold text-gray-100 truncate">{entry.label}</p>
+                                <div className="flex flex-wrap gap-x-2 gap-y-0 text-[9px] text-gray-500 uppercase tracking-wider mt-0.5 tabular-nums">
+                                    <span>{Math.round(entry.totalCalories)} kcal</span>
+                                    <span className="text-emerald-400">{Math.round(entry.totalProtein)}g P</span>
+                                    {entry.items.length > 1 && <span>· {entry.items.length} items</span>}
+                                    {entry.loggedCount && entry.loggedCount > 1 && <span className="text-gray-600">· logged {entry.loggedCount}×</span>}
+                                </div>
+                            </button>
+
+                            {/* Star toggle */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); toggleHistoryFavorite(entry.id); }}
+                                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-base ${
+                                    entry.favorited
+                                        ? 'text-orange-400 hover:text-orange-300 bg-orange-500/10'
+                                        : 'text-gray-600 hover:text-orange-400 hover:bg-white/5'
+                                }`}
+                                aria-label={entry.favorited ? 'Unfavorite' : 'Favorite'}
+                            >
+                                {entry.favorited ? '★' : '☆'}
+                            </button>
+
+                            {/* Remove from history. Favorites are pinned, so only allow
+                                removing non-favorited entries from this view. */}
+                            {!entry.favorited && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); removeHistoryEntry(entry.id); }}
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-600 hover:text-red-400 hover:bg-white/5 opacity-0 group-hover:opacity-100 transition-all text-xs"
+                                    aria-label="Remove from history"
+                                >
+                                    ✕
+                                </button>
+                            )}
+
+                            {/* Quick "+" log button (always visible) */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); logHistoryEntry(entry); }}
+                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-black text-gray-300 text-sm font-bold transition-colors shrink-0"
+                                aria-label="Quick log"
+                            >
+                                +
+                            </button>
+                        </div>
+                    );
+
+                    if (all.length === 0) {
+                        return (
+                            <div className="text-center py-10 opacity-50">
+                                <p className="text-xs">No meals yet — log something to start your quick list.</p>
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <div className="space-y-5">
+                            {/* FAVORITES */}
+                            {favorites.length > 0 && (
+                                <div className="space-y-2">
+                                    <h3 className="text-[10px] font-bold text-orange-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                                        <span>★ Favorites</span>
+                                        <span className="text-gray-600 font-mono">({favorites.length})</span>
+                                    </h3>
+                                    <div className="space-y-1.5 max-h-[30vh] overflow-y-auto">
+                                        {favorites.map(renderEntry)}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* RECENTS */}
+                            {recents.length > 0 && (
+                                <div className="space-y-2">
+                                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                                        <span>Recent</span>
+                                        <span className="text-gray-700 font-mono">({recents.length})</span>
+                                    </h3>
+                                    <div className="space-y-1.5 max-h-[30vh] overflow-y-auto">
+                                        {recents.map(renderEntry)}
+                                    </div>
+                                </div>
+                            )}
+
+                            <p className="text-[9px] text-gray-600 italic text-center pt-2">
+                                Star items you want pinned — favorites are kept forever.
+                                Items you log 5+ times are starred automatically.
+                            </p>
+                        </div>
+                    );
+                })()}
+
+                {addFoodMode === 'ai' && scannedItems.length === 0 && (
+                     <div className="space-y-4">
+                         {/* DRAG & DROP / CLICK AREA */}
+                         <div className="border-2 border-dashed border-white/10 rounded-2xl p-4 flex flex-col items-center justify-center hover:border-purple-500/50 transition-all group relative bg-white/[0.02]">
+                            <div className="w-16 h-16 rounded-full bg-purple-500/10 text-purple-500 flex items-center justify-center mb-3 text-2xl group-hover:scale-110 transition-transform">📷</div>
+                            <p className="text-xs text-gray-400 font-bold mb-1">Tap to capture labels or food</p>
+                            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Multi-select supported</p>
+                            <input 
+                                type="file" 
+                                ref={fileInputRef}
+                                accept="image/*"
+                                multiple
+                                onChange={handleImageUpload}
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                         </div>
+
+                         {/* HORIZONTAL IMAGE PREVIEW SCROLL */}
+                         {foodImages.length > 0 && (
+                             <div className="flex gap-3 overflow-x-auto pb-2 px-1">
+                                 {foodImages.map((img, idx) => (
+                                     <div key={idx} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-white/20 group">
+                                         <img src={img} className="w-full h-full object-cover" alt={`Upload ${idx}`} />
+                                         <button 
+                                            onClick={() => removeImage(idx)}
+                                            className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-[10px] backdrop-blur-md hover:bg-red-500 transition-colors"
+                                         >
+                                             ✕
+                                         </button>
+                                     </div>
+                                 ))}
+                             </div>
+                         )}
+                         
+                         <input 
+                            type="text"
+                            value={foodDescription}
+                            onChange={(e) => setFoodDescription(e.target.value)}
+                            placeholder="e.g. '2 servings of rice label, 1 cup of chicken'"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white text-sm focus:outline-none focus:border-purple-500 transition-colors"
+                         />
+
+                         <button 
+                            onClick={handleAnalyzeFood}
+                            disabled={(foodImages.length === 0 && !foodDescription) || isAnalyzingFood}
+                            className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all disabled:opacity-50 disabled:grayscale"
+                         >
+                            {isAnalyzingFood ? "Analyzing..." : `Analyze ${foodImages.length > 0 ? `(${foodImages.length} Images)` : ''}`}
+                         </button>
+                     </div>
+                )}
+                
+                {scannedItems.length > 0 && (
+                    // SCANNED ITEMS REVIEW LIST
+                    <div className="space-y-4">
+                        {/* ... items list ... */}
+                         <div className="flex justify-between items-center mb-2">
+                             <h3 className="text-xs font-bold uppercase text-white">Review Detected Items</h3>
+                             <button onClick={() => { setScannedItems([]); setExpandedIngredients(new Set()); }} className="text-[10px] text-pink-500 font-bold uppercase">Clear All</button>
+                        </div>
+
+                        {analysisTip && (
+                            <div className="bg-purple-500/10 border border-purple-500/30 p-4 rounded-xl flex items-start gap-3">
+                                <span className="text-lg">💡</span>
+                                <p className="text-xs text-purple-400 leading-relaxed pt-0.5 font-medium">{analysisTip}</p>
+                            </div>
+                        )}
+
+                        {/* Nutrition DB lookup indicator — surfaces which authoritative
+                            sources were queried AND which were skipped, so the
+                            integration is fully visible. Hidden when no nutrition
+                            lookup was made (e.g. photo path, restaurant match, or
+                            query too long). */}
+                        {(analysisNutritionSources.length > 0 || analysisNutritionSkipped.length > 0) && (
+                            <div className="bg-cyan-500/10 border border-cyan-500/30 px-3 py-2 rounded-xl space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm">🗄</span>
+                                    <div className="flex-1 text-[10px] text-cyan-300 uppercase tracking-widest font-bold">
+                                        {analysisNutritionSources.length === 0 ? (
+                                            <span className="text-amber-400">No databases used</span>
+                                        ) : (
+                                            <>
+                                                {analysisNutritionSources.includes('usda') && 'USDA'}
+                                                {analysisNutritionSources.includes('usda') && analysisNutritionSources.includes('openfoodfacts') && ' + '}
+                                                {analysisNutritionSources.includes('openfoodfacts') && 'Open Food Facts'}
+                                                {analysisNutritionMatchCount > 0
+                                                    ? ` · ${analysisNutritionMatchCount} match${analysisNutritionMatchCount !== 1 ? 'es' : ''}`
+                                                    : ' · no matches'}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                                {/* If any sources were skipped, show why. This is the diagnostic
+                                    for things like "USDA_API_KEY not set" — once the user fixes
+                                    that, this line disappears. */}
+                                {analysisNutritionSkipped.length > 0 && (
+                                    <div className="text-[9px] text-amber-400/80 leading-relaxed pl-6">
+                                        {analysisNutritionSkipped.map((s, i) => (
+                                            <div key={i}>
+                                                <span className="font-bold uppercase">{s.source}</span> skipped: {s.reason}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+                            {scannedItems.map((item, idx) => {
+                                // Source label: short, human-readable, with emoji.
+                                const sourceLabel =
+                                    item.source === 'label' ? '📋 Nutrition label' :
+                                    item.source === 'restaurant_db' ? '🔍 Restaurant menu' :
+                                    item.source === 'nutrition_db' ? '🗄 USDA / Open Food Facts' :
+                                    item.source === 'visual_estimate' ? '👁 Visual estimate' :
+                                    item.source === 'text_only' ? '✏️ Text estimate' :
+                                    null;
+
+                                // Confidence chip styling. Low confidence intentionally screams
+                                // "verify" so users catch AI errors like the per-unit / per-serving
+                                // mix-up that produced a 144g-protein 6-tender result for Huey Magoo.
+                                const confidenceClass =
+                                    item.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+                                    item.confidence === 'medium' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                                    item.confidence === 'low' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                                    '';
+                                const confidenceText =
+                                    item.confidence === 'high' ? '● High confidence' :
+                                    item.confidence === 'medium' ? '● Medium — verify' :
+                                    item.confidence === 'low' ? '● Low — verify' :
+                                    null;
+
+                                const isExpanded = expandedIngredients.has(idx);
+                                const toggleExpanded = () => {
+                                    setExpandedIngredients(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(idx)) next.delete(idx);
+                                        else next.add(idx);
+                                        return next;
+                                    });
+                                };
+
+                                return (
+                                <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={item.name}
+                                            onChange={(e) => updateScannedItem(idx, 'name', e.target.value)}
+                                            className="flex-1 bg-transparent border-b border-white/10 text-white font-bold text-sm focus:outline-none focus:border-pink-500"
+                                            placeholder="Item Name"
+                                        />
+                                        <button onClick={() => removeScannedItem(idx)} className="text-gray-500 hover:text-red-500">✕</button>
+                                    </div>
+
+                                    {/* Source + confidence badges — only render when AI provided them. */}
+                                    {(sourceLabel || confidenceText) && (
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {sourceLabel && (
+                                                <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/5 text-gray-300 border border-white/10">
+                                                    {sourceLabel}
+                                                </span>
+                                            )}
+                                            {confidenceText && (
+                                                <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold border ${confidenceClass}`}>
+                                                    {confidenceText}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Serving info for nutrition labels */}
+                                    {item.servingSize && (
+                                        <div className="text-[10px] text-gray-500">
+                                            Serving: <span className="text-gray-300">{item.servingSize}</span>
+                                            {typeof item.servingsConsumed === 'number' && (
+                                                <> · <span className="text-gray-300">{item.servingsConsumed} serving{item.servingsConsumed !== 1 ? 's' : ''} consumed</span></>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-5 gap-2">
+                                        <div>
+                                            <label className="text-[8px] text-gray-500 uppercase">Cals</label>
+                                            <input type="number" value={item.calories} onChange={(e) => updateScannedItem(idx, 'calories', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[8px] text-emerald-400 uppercase">Prot</label>
+                                            <input type="number" value={item.protein} onChange={(e) => updateScannedItem(idx, 'protein', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[8px] text-gray-500 uppercase">Carb</label>
+                                            <input type="number" value={item.carbs} onChange={(e) => updateScannedItem(idx, 'carbs', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[8px] text-gray-500 uppercase">Fat</label>
+                                            <input type="number" value={item.fat} onChange={(e) => updateScannedItem(idx, 'fat', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[8px] text-yellow-500 uppercase">Fibr</label>
+                                            <input type="number" value={item.fiber} onChange={(e) => updateScannedItem(idx, 'fiber', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
+                                        </div>
+                                    </div>
+
+                                    {/* Per-ingredient breakdown — read-only, collapsed by default. */}
+                                    {item.ingredients && item.ingredients.length > 0 && (
+                                        <div className="pt-1">
+                                            <button
+                                                onClick={toggleExpanded}
+                                                className="text-[10px] text-cyan-400 hover:text-cyan-300 uppercase tracking-widest font-bold"
+                                            >
+                                                {isExpanded ? '▾' : '▸'} {isExpanded ? 'Hide' : 'Show'} {item.ingredients.length} ingredient{item.ingredients.length !== 1 ? 's' : ''}
+                                            </button>
+                                            {isExpanded && (
+                                                <div className="mt-2 space-y-1 pl-2 border-l border-white/10">
+                                                    {item.ingredients.map((ing, ingIdx) => (
+                                                        <div key={ingIdx} className="flex items-center justify-between text-[11px] text-gray-400 gap-2">
+                                                            <span className="flex-1 truncate">
+                                                                {ing.emoji && <span className="mr-1">{ing.emoji}</span>}
+                                                                {ing.name}
+                                                                <span className="text-gray-600 ml-1">· {Math.round(ing.grams)}g</span>
+                                                            </span>
+                                                            <span className="text-gray-500 text-[10px] tabular-nums whitespace-nowrap">
+                                                                {Math.round(ing.calories)} cal · {Math.round(ing.protein)}p · {Math.round(ing.carbs)}c · {Math.round(ing.fat)}f
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="flex gap-3 pt-4">
+                            <button onClick={() => setShowAddFood(false)} className="flex-1 py-4 rounded-xl border border-white/10 text-gray-400 font-bold text-xs uppercase tracking-widest hover:bg-white/5">Cancel</button>
+                            <button onClick={addAllScannedItems} className="flex-1 py-4 rounded-xl bg-white text-black font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-gray-200">Log All ({scannedItems.length})</button>
+                        </div>
+                    </div>
+                )}
+                
+                {addFoodMode === 'manual' && scannedItems.length === 0 && (
+                    // MANUAL ENTRY FORM
+                    <form onSubmit={(e) => { e.preventDefault(); addFoodEntry(); }} className="space-y-4">
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Name</label>
+                            <input type="text" value={foodForm.name} onChange={e => setFoodForm({...foodForm, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Calories</label>
+                                <input type="number" value={foodForm.calories} onChange={e => setFoodForm({...foodForm, calories: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1.5 block ml-1">Protein (g)</label>
+                                <input type="number" value={foodForm.protein} onChange={e => setFoodForm({...foodForm, protein: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-emerald-400 focus:bg-emerald-400/5 transition-all" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Carbs (g)</label>
+                                <input type="number" value={foodForm.carbs} onChange={e => setFoodForm({...foodForm, carbs: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Fat (g)</label>
+                                <input type="number" value={foodForm.fat} onChange={e => setFoodForm({...foodForm, fat: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
+                            </div>
+                            <div className="col-span-2">
+                                <label className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-1.5 block ml-1">Fiber (g)</label>
+                                <input type="number" value={foodForm.fiber} onChange={e => setFoodForm({...foodForm, fiber: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-yellow-500 focus:bg-yellow-500/5 transition-all" />
+                            </div>
+                        </div>
+                        <div className="flex gap-3 pt-4">
+                            <button type="button" onClick={() => setShowAddFood(false)} className="flex-1 py-4 rounded-xl border border-white/10 text-gray-400 font-bold text-xs uppercase tracking-widest hover:bg-white/5">Cancel</button>
+                            <button type="submit" className="flex-1 py-4 rounded-xl bg-white text-black font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-gray-200">Log Item</button>
+                        </div>
+                    </form>
+                )}
+              </div>
+            </div>
+      )}
+
+      {activeTab === 'dashboard' && (
+        <div className="space-y-5 pb-20 animate-fade-in">
+          {/* HERO STRIP — greeting, date, streak */}
+          <div className="px-1 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-white text-xl font-bold tracking-tight truncate">
+                {greeting}, {appState.profile.name?.trim() || 'Warrior'}
+              </h2>
+              <p className="text-gray-500 text-[11px] font-medium mt-0.5">{dateString}</p>
+            </div>
+            {streak >= 2 && (
+              <div className="flex items-center gap-1.5 bg-[#d97757]/10 border border-[#d97757]/30 px-3 py-1.5 rounded-full shrink-0 self-start mt-1">
+                <span className="text-base leading-none">🪶</span>
+                <span className="text-[#d4a55a] text-[10px] font-bold tracking-widest uppercase tabular-nums">
+                  {streak}-day trail
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* MACRO REACTOR — hero card */}
+          <section className="glass-panel border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] rounded-3xl p-6 relative overflow-hidden">
+            <MacroReactor
+              consumedCals={consumedMacros.calories}
+              targetCals={targetMacros.calories}
+              consumedProt={consumedMacros.protein}
+              targetProt={targetMacros.protein}
+              consumedCarbs={consumedMacros.carbs}
+              targetCarbs={targetMacros.carbs}
+              consumedFat={consumedMacros.fat}
+              targetFat={targetMacros.fat}
+            />
+          </section>
+
+          {/* ACTIVITY BURN — personalized kcal estimates per activity */}
+          <section className="glass-panel rounded-3xl p-5 relative overflow-hidden">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Activity Burn</h3>
+              <span className="text-orange-400 text-xs font-bold font-mono tabular-nums">{appState.activityBurn} kcal today</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              {[
+                { key: 'running', emoji: '🏃', label: 'Running',  minutes: 30, met: ACTIVITY_METS.running, btn: 'bg-red-500/10 border-red-500/20 hover:bg-red-500/20',       kcalClr: 'text-red-400' },
+                { key: 'weights', emoji: '🏋️', label: 'Weights',  minutes: 30, met: ACTIVITY_METS.weights, btn: 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20', kcalClr: 'text-purple-400' },
+                { key: 'cycling', emoji: '🚴', label: 'Cycling',  minutes: 30, met: ACTIVITY_METS.cycling, btn: 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20',     kcalClr: 'text-blue-400' },
+              ].map(a => {
+                const kcal = personalizedBurn(appState.profile.weight, a.met, a.minutes);
+                return (
+                  <button
+                    key={a.key}
+                    onClick={() => logActivity(kcal)}
+                    className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all group ${a.btn}`}
+                  >
+                    <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">{a.emoji}</span>
+                    <span className="text-[10px] text-white font-bold uppercase tracking-widest text-center">{a.label}</span>
+                    <span className={`text-[9px] font-bold mt-1 font-mono tabular-nums ${a.kcalClr}`}>+{kcal} kcal · {a.minutes}m</span>
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => {
+                  setActivityModalForm({ kind: 'running', minutes: 30, manualKcal: '' });
+                  setShowActivityModal(true);
+                }}
+                className="flex flex-col items-center justify-center p-3 rounded-2xl border bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/20 transition-all group"
+              >
+                <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">➕</span>
+                <span className="text-[10px] text-white font-bold uppercase tracking-widest">Custom</span>
+                <span className="text-[9px] text-orange-400 font-bold mt-1">Pick activity</span>
+              </button>
+            </div>
+          </section>
+
+          {/* HYDRATION — compact one-row strip */}
+          <section className="glass-panel rounded-3xl p-4">
+            <div className="flex items-center gap-3">
+              <span className="text-blue-400 text-2xl leading-none">💧</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Hydration</span>
+                  <span className="text-blue-400 text-[11px] font-bold font-mono tabular-nums">
+                    {appState.waterIntake} / {waterTarget} oz
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-500"
+                    style={{ width: `${Math.min(100, (appState.waterIntake / waterTarget) * 100)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <button onClick={() => updateWater(-8)} className="h-9 w-9 flex items-center justify-center bg-white/5 rounded-lg text-gray-400 text-base font-bold hover:bg-white/10">−</button>
+                <button onClick={() => updateWater(8)}  className="h-9 px-3 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-bold hover:bg-blue-500/20 uppercase tracking-wider">+8oz</button>
+                <button onClick={() => updateWater(16)} className="h-9 px-3 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-bold hover:bg-blue-500/20 uppercase tracking-wider">+16</button>
+              </div>
+            </div>
+          </section>
+
+          {/* TODAY'S LOG — meal-grouped */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Today's Log</h3>
+              {(appState.todayLog || []).length > 0 && (
+                <button
+                  onClick={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
+                  className="text-[10px] text-cyan-400 hover:text-cyan-300 uppercase tracking-widest font-bold"
+                >
+                  + Add food
+                </button>
+              )}
+            </div>
+
+            {(appState.todayLog || []).length === 0 ? (
+              <div className="glass-panel rounded-3xl py-12 text-center">
+                <div className="text-5xl mb-3 opacity-60">🍽️</div>
+                <p className="text-sm font-bold text-white mb-1">Nothing logged yet</p>
+                <p className="text-[11px] text-gray-500 mb-5">Add your first meal to start the day</p>
+                <button
+                  onClick={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
+                  className="px-5 py-2.5 bg-white text-black rounded-full text-[11px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-colors"
+                >
+                  + Log Food
+                </button>
+              </div>
+            ) : (
+              MEAL_DEFINITIONS.map(meal => {
+                const items = (appState.todayLog || []).filter(i => classifyMeal(i.timestamp) === meal.key);
+                if (items.length === 0) return null;
+                const subtotal = items.reduce((s, i) => s + (Number(i.calories) || 0), 0);
+                const protTotal = items.reduce((s, i) => s + (Number(i.protein) || 0), 0);
+
+                return (
+                  <div key={meal.key} className="space-y-2">
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base leading-none">{meal.emoji}</span>
+                        <span className="text-[11px] font-bold text-gray-300 uppercase tracking-widest">{meal.label}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] font-mono tabular-nums">
+                        <span className="text-white font-bold">{Math.round(subtotal)} kcal</span>
+                        <span className="text-emerald-400">{Math.round(protTotal)}g P</span>
+                      </div>
+                    </div>
+
+                    {items.map(item => (
+                      <div
+                        key={item.id}
+                        className="bg-white/[0.03] hover:bg-white/[0.05] p-3.5 rounded-xl border border-white/5 hover:border-white/10 transition-colors group"
+                      >
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            <h5 className="font-bold text-white text-sm truncate">{item.name}</h5>
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[10px] font-medium tabular-nums">
+                              <span className="text-white"><span className="font-bold">{Math.round(Number(item.calories) || 0)}</span> <span className="text-gray-500">cal</span></span>
+                              <span className="text-emerald-400"><span className="font-bold">{Math.round(Number(item.protein) || 0)}</span><span className="text-emerald-700">p</span></span>
+                              <span className="text-blue-400"><span className="font-bold">{Math.round(Number(item.carbs) || 0)}</span><span className="text-blue-700">c</span></span>
+                              <span className="text-amber-400"><span className="font-bold">{Math.round(Number(item.fat) || 0)}</span><span className="text-amber-700">f</span></span>
+                              {item.fiber ? <span className="text-yellow-500/70"><span className="font-bold">{Math.round(Number(item.fiber))}</span><span className="text-yellow-700">fib</span></span> : null}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-gray-600 tabular-nums whitespace-nowrap">{item.timestamp}</span>
+                            <button
+                              onClick={() => deleteLog(item.id)}
+                              className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label="Remove log entry"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </section>
+
+          {/* WRAPPED LAUNCHER — quick jump to the Reflect tab where Wrapped
+              lives inline. Shown when the user has at least a few logged
+              days so the summary has something to celebrate. */}
+          {(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2 && (
+            <button
+              onClick={() => setActiveTab('reflect')}
+              className="w-full text-left rounded-3xl border border-white/10 bg-gradient-to-br from-[#d97757]/12 via-[#c97b6e]/8 to-[#d4a55a]/10 p-5 relative overflow-hidden group hover:border-[#d97757]/40 transition-colors"
+            >
+              <div className="absolute -top-12 -right-8 w-44 h-44 rounded-full bg-[#d97757]/15 blur-3xl pointer-events-none" />
+              <div className="relative flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-[#d97757] flex items-center justify-center shrink-0 shadow-md">
+                  <span className="text-xl">🪶</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#d4a55a]">Reflect</div>
+                  <div className="text-white font-bold mt-1 text-[15px]">Your week & month, recapped</div>
+                  <div className="text-[11px] text-gray-400 mt-0.5">Top foods, trail, sessions, patterns</div>
+                </div>
+                <span className="text-gray-400 group-hover:text-white group-hover:translate-x-0.5 transition-all text-lg">→</span>
+              </div>
+            </button>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'restaurants' && (
+        <div className="animate-fade-in">
+          <RestaurantHub
+            targetMacros={targetMacros}
+            consumedMacros={consumedMacros}
+            customMenuItems={appState.customMenuItems}
+            onLogItem={(item, restaurantName) => {
+              // Push the verified menu item directly into today's food log.
+              // Restaurant-sourced items skip the AI pipeline entirely — macros
+              // come from the curated database, not from a Gemini estimate.
+              pushFoodToState([item], `${restaurantName} · ${item.name}`);
+              triggerToast(`Logged ${item.name}`);
+            }}
+          />
+        </div>
+      )}
+
+      {activeTab === 'journal' && (
+        <div className="animate-fade-in">
+          <Journal
+            dailyLogs={appState.dailyLogs || []}
+            todayLog={appState.todayLog || []}
+            waterIntake={appState.waterIntake}
+            activityBurn={appState.activityBurn}
+            profile={appState.profile}
+            targets={targetMacros}
+            onDeleteLog={deleteLog}
+            onAddFood={() => {
+                setAddFoodMode('manual');
+                setShowAddFood(true);
+            }}
+          />
+        </div>
+      )}
+
+      {activeTab === 'workouts' && (
+        <div className="space-y-6 pb-20 animate-fade-in">
+          {/* PERSONALIZATION CTA — only shown to existing users who never
+              answered the four workout-personalization questions (the split
+              they're seeing was generated from default assumptions). One-tap
+              opens Edit Profile so they can fill it in. Hidden once any of
+              the four fields is set. */}
+          {(() => {
+            const prefs = appState.profile?.workoutPreferences;
+            const isComplete = prefs && prefs.experience && prefs.daysPerWeek && prefs.sessionMinutes && prefs.equipment;
+            if (isComplete) return null;
+            return (
+              <button
+                onClick={() => {
+                  setEditProfileData({
+                    weight: appState.profile?.weight,
+                    bodyFat: appState.profile?.bodyFat,
+                    goal: appState.profile?.goal,
+                    activityLevel: appState.profile?.activityLevel,
+                    workoutPreferences: appState.profile?.workoutPreferences,
+                  });
+                  setIsEditingProfile(true);
+                }}
+                className="w-full text-left glass-panel border border-cyan-500/30 rounded-2xl p-4 hover:border-cyan-400/60 hover:bg-cyan-500/5 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl shrink-0">⚡</span>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-white text-sm font-bold tracking-tight">Personalize your training</h3>
+                    <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">
+                      Tell us your experience, days/week, session length, and equipment — we'll tune the split to you.
+                    </p>
+                  </div>
+                  <span className="text-cyan-400 text-lg shrink-0 group-hover:translate-x-1 transition-transform">›</span>
+                </div>
+              </button>
+            );
+          })()}
+
+          {/* MANUAL REGENERATE BUTTON IF EMPTY OR STUCK */}
+          <div className="flex justify-end px-2">
+             <button
+                onClick={generateSplitForUser}
+                disabled={isGeneratingSplit}
+                className="text-[9px] font-bold uppercase tracking-widest text-blue-400 border border-blue-400/30 px-3 py-1.5 rounded-full hover:bg-blue-400/10 transition-colors"
+             >
+                 {isGeneratingSplit ? 'Generating...' : 'Regenerate Protocol'}
+             </button>
+          </div>
+
+          {workoutSplit.map((day, idx) => {
+             const isCompleted = weeklyCompletedWorkouts.includes(day.day);
+             const isToday = day.day === currentDayName;
+             
+             return (
+             <div key={idx} className={`relative overflow-hidden rounded-3xl p-1 transition-all duration-300 ${isCompleted ? 'opacity-70 grayscale-[0.5]' : ''} ${isToday ? 'border-2 border-blue-500' : ''}`}>
+                <div className={`absolute inset-0 opacity-20 bg-gradient-to-br ${isCompleted ? 'from-green-500 to-transparent' : 'from-blue-500 to-transparent'}`}></div>
+                
+                {isToday && (
+                     <div className="absolute top-4 right-4 z-20">
+                         <span className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-[9px] font-bold uppercase px-3 py-1 rounded-full animate-pulse shadow-lg">Active Protocol</span>
+                     </div>
+                )}
+
+                <div className="glass-panel rounded-[1.3rem] p-5 relative z-10">
+                    <div className="flex justify-between mb-6 items-start border-b border-white/5 pb-4">
+                        <div className="relative">
+                             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest block mb-1">{day.day}</span>
+                             <h4 className="font-orbitron font-bold text-white text-lg tracking-wide max-w-[150px]">{day.label}</h4>
+                             <span className="inline-block mt-2 text-[9px] bg-white/5 border border-white/10 px-3 py-1.5 rounded-full text-gray-300 uppercase font-bold tracking-wider">{day.intensity}</span>
+                        </div>
+                        
+                        {/* Muscle Diagram */}
+                        <div className="w-16 h-28 -mt-2">
+                             <MuscleMap muscles={GET_AFFECTED_MUSCLES(day.label)} className="w-full h-full" />
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                    {day.exercises.map((ex: any, i: number) => (
+                        <div key={i} className={`group flex items-center justify-between p-3 rounded-xl transition-all duration-200 ${ex.completed ? 'bg-green-500/5 border border-green-500/20' : 'bg-black/20 border border-white/5 hover:border-white/10'}`}>
+                            <div className="flex items-center gap-4 flex-1">
+                                <button 
+                                    onClick={() => toggleExerciseComplete(idx, i)}
+                                    className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-200 ${ex.completed ? 'bg-green-500 border-green-500 text-black scale-110' : 'border-gray-600 text-transparent hover:border-white'}`}
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                </button>
+                                <div className="flex-1">
+                                    <p className={`text-sm font-semibold ${ex.completed ? 'text-gray-500 line-through' : 'text-gray-100'}`}>{ex.name}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-[9px] font-bold bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded">{ex.sets} SETS</span>
+                                        <span className="text-[9px] font-bold text-gray-500">{ex.reps} REPS</span>
+                                        <div className="flex items-center bg-white/5 rounded px-1.5 py-0.5 border border-white/5 ml-1 hover:border-white/20 transition-colors">
+                                            <input 
+                                                type="number" 
+                                                placeholder="0" 
+                                                value={ex.weight || ''} 
+                                                onChange={(e) => updateExerciseWeight(idx, i, e.target.value)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-8 bg-transparent text-[9px] font-bold text-white focus:outline-none text-center placeholder-gray-700"
+                                            />
+                                            <span className="text-[7px] text-gray-500 font-bold ml-0.5">LBS</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onClick={() => deleteExercise(idx, i)} className="w-8 h-8 flex items-center justify-center text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors">
+                                <span className="text-lg">×</span>
+                            </button>
+                        </div>
+                    ))}
+                    </div>
+
+                    {/* MANUAL ADD EXERCISE */}
+                    {!isCompleted && (
+                    <div className="mt-6">
+                        {activeDayIndexForAdd === idx ? (
+                            <div className="bg-black/40 p-3 rounded-xl border border-white/10 animate-fade-in">
+                                <input 
+                                    type="text" 
+                                    placeholder="Exercise Name" 
+                                    value={manualExercise.name} 
+                                    onChange={e => setManualExercise({...manualExercise, name: e.target.value})}
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white mb-2 focus:border-blue-500 focus:outline-none"
+                                />
+                                <div className="flex gap-2">
+                                    <input
+                                        type="number"
+                                        placeholder="Sets"
+                                        value={manualExercise.sets}
+                                        onChange={e => setManualExercise({...manualExercise, sets: Number(e.target.value)})}
+                                        className="w-1/4 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Reps"
+                                        value={manualExercise.reps}
+                                        onChange={e => setManualExercise({...manualExercise, reps: e.target.value})}
+                                        className="w-1/4 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                                    />
+                                    <button onClick={() => addExerciseToSplit(idx)} className="flex-1 bg-blue-500 text-white text-xs font-bold rounded-lg uppercase">Add</button>
+                                    <button
+                                        onClick={() => setActiveDayIndexForAdd(null)}
+                                        className="px-3 bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold rounded-lg uppercase"
+                                        aria-label="Cancel"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button onClick={() => setActiveDayIndexForAdd(idx)} className="w-full py-3 bg-white/[0.02] hover:bg-white/[0.05] rounded-xl text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-widest border border-dashed border-white/10 transition-colors">
+                                + Add Exercise
+                            </button>
+                        )}
+                    </div>
+                    )}
+
+                    {/* COMPLETE WORKOUT BUTTON */}
+                    <button 
+                        onClick={() => completeWorkoutDay(idx)}
+                        disabled={isCompleted}
+                        className={`w-full mt-6 py-4 rounded-xl font-bold font-orbitron uppercase tracking-widest transition-all duration-300 relative overflow-hidden group ${isCompleted ? 'bg-green-600 text-white cursor-not-allowed opacity-50' : 'bg-white text-black hover:scale-[1.02] shadow-lg'}`}
+                    >
+                        {isCompleted ? (
+                             <span className="flex items-center justify-center gap-2">MISSION COMPLETE ✓</span>
+                        ) : (
+                             <span className="relative z-10">COMPLETE MISSION</span>
+                        )}
+                        {!isCompleted && <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left opacity-10"></div>}
+                    </button>
+                </div>
+             </div>
+          )})}
+        </div>
+      )}
+
+      {/* REFLECT — the analytics & insights home. Wrapped lives here inline
+          (no more buried-on-the-dashboard launcher), with Recomp Velocity
+          rendered below it as a deeper-dive section. Replaces the old
+          standalone Recomp tab; the old `recomp` tab id still resolves here
+          so any stale deep-links don't break. */}
+      {(activeTab === 'reflect' || activeTab === 'recomp') && appState.profile && (
+        <div className="space-y-6 pb-20">
+          <Wrapped
+            inline
+            profile={appState.profile}
+            dailyLogs={appState.dailyLogs || []}
+            todayLog={appState.todayLog || []}
+            todayActivityBurn={appState.activityBurn || 0}
+            todayWaterIntake={appState.waterIntake || 0}
+            foodHistory={appState.foodHistory || []}
+            bodyStats={appState.bodyStats}
+            targets={targetMacros}
+            weeklyCompletedWorkouts={weeklyCompletedWorkouts}
+            initialPeriod="week"
+          />
+
+          {/* RECOMP VELOCITY — deeper-dive trend analysis. Lives under
+              Wrapped so users who want the harder numbers can scroll to them. */}
+          <div className="pt-2 border-t border-white/5">
+            <div className="flex items-center gap-1.5 px-1 mb-3">
+              <span className="text-gray-500">🪶</span>
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400">Deeper read</h3>
+            </div>
+            <RecompVelocity appState={appState} workoutSplit={workoutSplit} />
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'coach' && (
+        <div className="flex flex-col animate-fade-in relative min-h-screen pb-40">
+           {/* ... existing coach content ... */}
+          <div className="flex-1 space-y-6 pr-2 pb-4 pt-2">
+              <div className="text-center opacity-30 my-4">
+                  <span className="text-4xl">🤖</span>
+                  <p className="text-[10px] font-bold uppercase mt-2">Dings AI Coach Online</p>
+              </div>
+              {chatHistory.map((msg, idx) => (
+                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed shadow-md ${msg.role === 'user' ? 'bg-[#c97b6e] text-white rounded-tr-sm' : 'glass-panel text-gray-200 rounded-tl-sm border border-white/10'}`}>
+                          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }} />
+                      </div>
+                  </div>
+              ))}
+              {isChatLoading && (
+                  <div className="flex justify-start">
+                      <div className="bg-white/5 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1">
+                          <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce"></div>
+                          <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce delay-100"></div>
+                          <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce delay-200"></div>
+                      </div>
+                  </div>
+              )}
+              <div ref={chatBottomRef} />
+          </div>
+          
+          <div className="fixed bottom-24 left-4 right-4 bg-[#0d0a08]/95 backdrop-blur-xl p-3 rounded-2xl border border-white/10 shadow-2xl z-30">
+               {/* Saved Notes Quick View */}
+                {appState.savedNotes && appState.savedNotes.length > 0 && (
+                    <div className="mb-3">
+                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                            {appState.savedNotes.map(note => (
+                                <div key={note.id} className="min-w-[140px] max-w-[140px] bg-white/5 p-2 rounded-xl border border-white/5 shrink-0 hover:border-pink-500/50 transition-colors cursor-pointer" onClick={() => setChatInput(`Tell me about note: ${note.title}`)}>
+                                    <p className="text-[9px] font-bold text-pink-500 truncate">{note.title}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+              <div className="relative">
+                  <input 
+                    type="text" 
+                    value={chatInput} 
+                    onChange={e => setChatInput(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && handleSendMessage()} 
+                    placeholder="Ask Dings anything..." 
+                    className="w-full bg-[#151515] border border-white/10 rounded-xl pl-5 pr-12 py-4 text-white placeholder-gray-600 focus:outline-none focus:border-pink-500/50 focus:bg-[#1a1a1a] transition-all shadow-inner text-sm" 
+                  />
+                  <button 
+                    onClick={handleSendMessage} 
+                    disabled={isChatLoading || !chatInput.trim()} 
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[#c97b6e] rounded-lg text-white disabled:opacity-50 disabled:bg-gray-800 transition-all hover:scale-105"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  </button>
+              </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'profile' && (
+        <div className="space-y-6 pb-20 animate-fade-in">
+           <div className="glass-panel p-8 rounded-[2rem] flex flex-col items-center gap-6 text-center border-t border-white/10 relative">
+              <button 
+                onClick={() => {
+                   setEditProfileData({
+                       weight: appState.profile?.weight,
+                       bodyFat: appState.profile?.bodyFat,
+                       goal: appState.profile?.goal,
+                       activityLevel: appState.profile?.activityLevel,
+                       workoutPreferences: appState.profile?.workoutPreferences,
+                   });
+                   setIsEditingProfile(true);
+                }}
+                className="absolute top-6 right-6 text-xs text-cyan-400 uppercase tracking-widest font-bold hover:text-white transition-colors"
+              >
+                Edit
+              </button>
+              <div 
+                className="w-24 h-24 rounded-full border-4 border-[#d4a55a] p-1 cursor-pointer relative group flex items-center justify-center bg-[#161210]"
+                onClick={() => profilePicInputRef.current?.click()}
+              >
+                 {appState.profile?.profilePicture ? (
+                     <img src={appState.profile.profilePicture} className="w-full h-full object-cover rounded-full" />
+                 ) : (
+                     <span className="text-3xl font-orbitron font-bold text-cyan-400">
+                         {appState.profile?.name?.charAt(0)?.toUpperCase() || 'U'}
+                     </span>
+                 )}
+                 <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                   <span className="text-xs text-white font-bold uppercase">Pic</span>
+                 </div>
+                 <input 
+                   type="file" 
+                   ref={profilePicInputRef} 
+                   className="hidden" 
+                   accept="image/*"
+                   onChange={handleProfilePicUpload} 
+                 />
+              </div>
+              <div>
+                 <h2 className="text-2xl font-orbitron font-bold text-white mb-1">{appState.profile?.name}</h2>
+                 <p className="text-xs text-cyan-400 font-bold uppercase tracking-[0.2em]">{appState.profile?.goal}</p>
+              </div>
+           </div>
+
+           <div className="grid grid-cols-2 gap-4">
+              <div className="glass-panel p-6 rounded-3xl text-center">
+                 <p className="text-[9px] text-gray-500 font-bold uppercase mb-2 tracking-widest">Trend Weight</p>
+                 <p className="text-3xl font-mono text-white tracking-tighter">{liveMetrics.scaleTrend} <span className="text-sm text-gray-500">lbs</span></p>
+              </div>
+              <div className="glass-panel p-6 rounded-3xl text-center">
+                 <p className="text-[9px] text-gray-500 font-bold uppercase mb-2 tracking-widest">Trend Body Fat</p>
+                 <p className="text-3xl font-mono text-cyan-400 tracking-tighter">{liveMetrics.currentPBF}<span className="text-sm text-cyan-400/50">%</span></p>
+              </div>
+           </div>
+
+           {/* CALORIE CALENDAR */}
+           <div className="glass-panel p-6 rounded-3xl">
+              <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
+           </div>
+           
+           <div className="flex flex-col items-center gap-3 mt-6">
+              <button
+                  onClick={() => {
+                      // Clear this user's per-uid cache + any legacy global keys
+                      // (from before we namespaced by uid).
+                      if (appStateKey) localStorage.removeItem(appStateKey);
+                      if (splitKey) localStorage.removeItem(splitKey);
+                      localStorage.removeItem('dings_app_state');
+                      localStorage.removeItem('dings_workout_split');
+                      signOut(auth);
+                      onSignOut();
+                  }}
+                  className="px-6 py-3 bg-red-500/10 text-red-500 rounded-full border border-red-500/20 hover:bg-red-500/20 transition-colors text-xs font-bold uppercase tracking-widest"
+              >
+                  Log Out
+              </button>
+              <button
+                  onClick={() => {
+                      // Pre-fill a support email with app version + account context
+                      // so users don't have to retype anything for us to triage.
+                      const subject = encodeURIComponent('Ding! Support Request');
+                      const body = encodeURIComponent(
+                          `\n\n---\nApp version: v2.1\nAccount: ${userEmail || 'unknown'}\n(Please describe your question or issue above this line.)`
+                      );
+                      window.location.href = `mailto:support@dings.fitness?subject=${subject}&body=${body}`;
+                  }}
+                  className="text-[10px] text-gray-500 underline underline-offset-4 hover:text-cyan-400 transition-colors uppercase tracking-widest"
+              >
+                  Contact Support
+              </button>
+              {isAdminUser(userId) && (
+                <button
+                    onClick={() => setShowUsageDashboard(true)}
+                    className="text-[10px] text-cyan-400 underline underline-offset-4 hover:text-cyan-300 transition-colors uppercase tracking-widest font-bold"
+                >
+                    Admin · Token Usage
+                </button>
+              )}
+              <button
+                  onClick={() => setIsDeleteModalOpen(true)}
+                  className="text-[10px] text-gray-600 underline underline-offset-4 hover:text-red-400 transition-colors uppercase tracking-widest"
+              >
+                  Delete Account
+              </button>
+           </div>
+
+           <p className="text-center text-[9px] text-gray-700 uppercase tracking-widest mt-8">Dings Fitness OS v2.1</p>
+        </div>
+      )}
+
+      {/* EDIT PROFILE MODAL */}
+      {isEditingProfile && (
+         <div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setIsEditingProfile(false); }}
+         >
+            <div className="bg-[#0f0f0f] w-full max-w-sm rounded-[2rem] p-6 border border-white/10 shadow-2xl animate-slide-up">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-orbitron font-bold text-white tracking-widest">EDIT PROFILE</h3>
+                  <button
+                    onClick={() => setIsEditingProfile(false)}
+                    className="w-9 h-9 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="space-y-4 mb-6">
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Weight (lbs)</label>
+                        <input 
+                            type="number"
+                            value={editProfileData.weight || ''}
+                            onChange={e => setEditProfileData(prev => ({...prev, weight: Number(e.target.value)}))}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Body Fat %</label>
+                        <input 
+                            type="number"
+                            value={editProfileData.bodyFat || ''}
+                            onChange={e => setEditProfileData(prev => ({...prev, bodyFat: Number(e.target.value)}))}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Goal</label>
+                        <select
+                            value={editProfileData.goal || ''}
+                            onChange={e => setEditProfileData(prev => ({...prev, goal: e.target.value as PhysiqueGoal}))}
+                            className="w-full bg-[#151515] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
+                        >
+                            {Object.values(PhysiqueGoal).map(g => (
+                                <option key={g} value={g}>{g}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Activity Level</label>
+                        <select
+                            value={editProfileData.activityLevel || ''}
+                            onChange={e => setEditProfileData(prev => ({...prev, activityLevel: e.target.value as ActivityLevel}))}
+                            className="w-full bg-[#151515] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-400"
+                        >
+                            {Object.values(ActivityLevel).map(a => (
+                                <option key={a} value={a}>{a}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* WORKOUT PREFERENCES — drives the AI-generated workout split.
+                        Existing users (onboarded before this section existed) can
+                        fill these in here without going through full onboarding. */}
+                    <div className="pt-2 border-t border-white/5">
+                        <h4 className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                            <span>⚡</span>
+                            <span>Workout Preferences</span>
+                        </h4>
+
+                        {/* Helper renders a button-group selector for one field. */}
+                        {([
+                            { field: 'experience' as const,     label: 'Experience',     options: [
+                                { value: 'beginner' as const,     display: 'Beginner' },
+                                { value: 'intermediate' as const, display: 'Intermediate' },
+                                { value: 'advanced' as const,     display: 'Advanced' },
+                            ]},
+                            { field: 'daysPerWeek' as const,    label: 'Days per week',  options: [
+                                { value: 3 as const, display: '3' },
+                                { value: 4 as const, display: '4' },
+                                { value: 5 as const, display: '5' },
+                                { value: 6 as const, display: '6' },
+                            ]},
+                            { field: 'sessionMinutes' as const, label: 'Session length', options: [
+                                { value: 30 as const, display: '30 min' },
+                                { value: 45 as const, display: '45 min' },
+                                { value: 60 as const, display: '60 min' },
+                                { value: 90 as const, display: '90 min' },
+                            ]},
+                            { field: 'equipment' as const,      label: 'Equipment',      options: [
+                                { value: 'full-gym' as const,      display: 'Full gym' },
+                                { value: 'home-weights' as const,  display: 'Home weights' },
+                                { value: 'bodyweight' as const,    display: 'Bodyweight' },
+                            ]},
+                        ] as const).map(({ field, label, options }) => {
+                            const current = editProfileData.workoutPreferences?.[field];
+                            return (
+                                <div key={field} className="mb-3">
+                                    <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1.5">{label}</label>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                        {options.map(opt => {
+                                            const selected = current === opt.value;
+                                            return (
+                                                <button
+                                                    key={String(opt.value)}
+                                                    onClick={() => {
+                                                        setEditProfileData(prev => ({
+                                                            ...prev,
+                                                            workoutPreferences: {
+                                                                ...(prev.workoutPreferences || {}),
+                                                                [field]: opt.value,
+                                                            } as any,
+                                                        }));
+                                                    }}
+                                                    className={`flex-1 min-w-[64px] px-3 py-2 rounded-lg border text-[11px] font-bold uppercase tracking-widest transition-all ${
+                                                        selected
+                                                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                                                            : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+                                                    }`}
+                                                >
+                                                    {opt.display}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* AUTO-FAVORITE TOGGLE — controls whether meals logged 5+
+                        times automatically get starred in food history. Default
+                        is ON (undefined === true); user can opt out here. */}
+                    <div className="pt-3 border-t border-white/5">
+                        {(() => {
+                            const currentVal =
+                                editProfileData.autoFavoriteEnabled !== undefined
+                                    ? editProfileData.autoFavoriteEnabled
+                                    : appState.profile?.autoFavoriteEnabled;
+                            const enabled = currentVal !== false; // undefined defaults to ON
+                            return (
+                                <button
+                                    type="button"
+                                    onClick={() => setEditProfileData(prev => ({ ...prev, autoFavoriteEnabled: !enabled }))}
+                                    className="w-full flex items-center justify-between gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-colors text-left"
+                                >
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[11px] font-bold text-white uppercase tracking-widest flex items-center gap-1.5">
+                                            <span>⭐</span>
+                                            Auto-favorite meals
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 mt-1 leading-snug">
+                                            Star meals automatically after logging them 5 or more times
+                                        </div>
+                                    </div>
+                                    {/* Switch */}
+                                    <div className={`relative w-10 h-6 rounded-full transition-colors shrink-0 ${
+                                        enabled ? 'bg-cyan-500' : 'bg-white/10'
+                                    }`}>
+                                        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-all ${
+                                            enabled ? 'left-[18px]' : 'left-0.5'
+                                        }`} />
+                                    </div>
+                                </button>
+                            );
+                        })()}
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setIsEditingProfile(false)} className="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 font-bold uppercase tracking-widest text-xs">Cancel</button>
+                    <button onClick={() => {
+                        const newProfile = { ...appState.profile, ...editProfileData } as UserProfile;
+                        // Body-composition-aware BMR: prefer InBody scan, fall back to manual bodyFat entry.
+                        const bf = newProfile.inBodyData?.pbf ?? newProfile.bodyFat;
+                        const tdee = CALCULATE_TDEE(newProfile.weight, newProfile.height, newProfile.age, newProfile.activityLevel, newProfile.sex, bf);
+                        const macroResult = CALCULATE_MACROS(tdee, newProfile.goal, newProfile.weight, newProfile.sex);
+                        // Strip MacroResult to NutritionTargets shape (drop floor metadata).
+                        const targets = {
+                            calories: macroResult.calories,
+                            protein: macroResult.protein,
+                            carbs: macroResult.carbs,
+                            fat: macroResult.fat,
+                        };
+
+                        // Detect whether workout preferences changed so we can hint at
+                        // regenerating the split.
+                        const prevPrefs = JSON.stringify(appState.profile?.workoutPreferences || {});
+                        const nextPrefs = JSON.stringify(newProfile.workoutPreferences || {});
+                        const workoutPrefsChanged = prevPrefs !== nextPrefs;
+
+                        handleUpdateAppState(prev => ({
+                            ...prev,
+                            profile: newProfile,
+                            nutritionTargets: targets // Sync new calculated targets
+                        }));
+                        setIsEditingProfile(false);
+                        triggerToast(
+                          macroResult.floorApplied
+                            ? "Profile updated. Calories capped at safety minimum."
+                            : workoutPrefsChanged
+                              ? "Saved. Regenerate Protocol to apply your new preferences."
+                              : "Profile Updated"
+                        );
+                    }} className="flex-1 py-3 rounded-xl bg-cyan-500 text-black font-bold uppercase tracking-widest text-xs">Save</button>
+                </div>
+            </div>
+         </div>
+      )}
+
+      {/* DELETE ACCOUNT MODAL */}
+      {isDeleteModalOpen && (
+        <DeleteAccountModal
+          onClose={() => setIsDeleteModalOpen(false)}
+          onDeleted={onSignOut}
+        />
+      )}
+
+      {/* ADMIN · TOKEN USAGE DASHBOARD */}
+      {showUsageDashboard && isAdminUser(userId) && (
+        <UsageDashboard onClose={() => setShowUsageDashboard(false)} />
+      )}
+
+      {/* WRAPPED OVERLAY — Spotify-Wrapped-style personalized summary.
+          Launched from the dashboard launcher card or auto-prompted at the
+          start of a new calendar month. */}
+      {showWrapped && appState.profile && (
+        <Wrapped
+          profile={appState.profile}
+          dailyLogs={appState.dailyLogs || []}
+          todayLog={appState.todayLog || []}
+          todayActivityBurn={appState.activityBurn || 0}
+          todayWaterIntake={appState.waterIntake || 0}
+          foodHistory={appState.foodHistory || []}
+          bodyStats={appState.bodyStats}
+          targets={targetMacros}
+          weeklyCompletedWorkouts={weeklyCompletedWorkouts}
+          initialPeriod={wrappedInitialPeriod}
+          autoPrompted={wrappedAutoPrompted}
+          onClose={() => {
+            setShowWrapped(false);
+            setWrappedAutoPrompted(false);
+          }}
+        />
+      )}
+
+      {/* CUSTOM ACTIVITY MODAL — replaces the old window.prompt() flow. */}
+      {showActivityModal && (
+        <div
+          className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ background: 'rgba(0,0,0,0.85)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowActivityModal(false); }}
+        >
+          <div
+            className="w-full sm:max-w-md glass rounded-t-3xl sm:rounded-3xl p-6 space-y-5"
+            style={{ background: '#0a0a0a' }}
+          >
+            <div className="flex justify-between items-center">
+              <h3 className="text-white text-base font-bold tracking-tight">Log Activity</h3>
+              <button
+                onClick={() => setShowActivityModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Activity picker */}
+            <div>
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Activity</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { key: 'running', emoji: '🏃', label: 'Running' },
+                  { key: 'weights', emoji: '🏋️', label: 'Weights' },
+                  { key: 'cycling', emoji: '🚴', label: 'Cycling' },
+                  { key: 'walking', emoji: '🚶', label: 'Walking' },
+                  { key: 'hiit',    emoji: '🔥', label: 'HIIT' },
+                  { key: 'yoga',    emoji: '🧘', label: 'Yoga' },
+                  { key: 'manual',  emoji: '✏️', label: 'Manual' },
+                ].map(opt => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setActivityModalForm({ ...activityModalForm, kind: opt.key as any })}
+                    className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all ${
+                      activityModalForm.kind === opt.key
+                        ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+                        : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                    }`}
+                  >
+                    <span className="text-xl mb-0.5">{opt.emoji}</span>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Duration (for MET-based) or manual kcal entry */}
+            {activityModalForm.kind === 'manual' ? (
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Calories burned</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={activityModalForm.manualKcal}
+                  onChange={e => setActivityModalForm({ ...activityModalForm, manualKcal: e.target.value })}
+                  placeholder="e.g. 250"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-cyan-500"
+                  autoFocus
+                />
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Duration</label>
+                  <span className="text-xs font-mono text-cyan-300 tabular-nums">{activityModalForm.minutes} min</span>
+                </div>
+                <input
+                  type="range"
+                  min={5}
+                  max={120}
+                  step={5}
+                  value={activityModalForm.minutes}
+                  onChange={e => setActivityModalForm({ ...activityModalForm, minutes: Number(e.target.value) })}
+                  className="w-full accent-cyan-500"
+                />
+                <div className="flex justify-between mt-1 text-[9px] text-gray-600 font-mono">
+                  <span>5m</span><span>30m</span><span>60m</span><span>120m</span>
+                </div>
+              </div>
+            )}
+
+            {/* Estimated burn preview */}
+            {(() => {
+              const isManual = activityModalForm.kind === 'manual';
+              const met = isManual ? 0 : ACTIVITY_METS[activityModalForm.kind as keyof typeof ACTIVITY_METS];
+              const estimated = isManual
+                ? Number(activityModalForm.manualKcal) || 0
+                : personalizedBurn(appState.profile.weight, met, activityModalForm.minutes);
+              return (
+                <div className="bg-orange-500/8 border border-orange-500/25 rounded-xl px-4 py-3 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-orange-300 uppercase tracking-widest">Estimated burn</span>
+                  <span className="text-xl font-mono font-bold text-orange-400 tabular-nums">
+                    {estimated} <span className="text-[10px] text-orange-500/70">kcal</span>
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowActivityModal(false)}
+                className="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 font-bold text-xs uppercase tracking-widest hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const isManual = activityModalForm.kind === 'manual';
+                  const met = isManual ? 0 : ACTIVITY_METS[activityModalForm.kind as keyof typeof ACTIVITY_METS];
+                  const kcal = isManual
+                    ? Number(activityModalForm.manualKcal) || 0
+                    : personalizedBurn(appState.profile.weight, met, activityModalForm.minutes);
+                  if (kcal > 0) logActivity(kcal);
+                  setShowActivityModal(false);
+                }}
+                className="flex-1 py-3 rounded-xl bg-orange-500 text-black font-bold text-xs uppercase tracking-widest hover:bg-orange-400"
+              >
+                Log Burn
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ONE-TIME HEALTH DISCLAIMER (for users who onboarded before we added this step) */}
+      {showHealthDisclaimer && (
+        <div
+          className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ background: 'rgba(0,0,0,0.92)' }}
+        >
+          <div
+            className="w-full sm:max-w-md glass rounded-t-3xl sm:rounded-3xl flex flex-col overflow-hidden"
+            style={{ maxHeight: '90vh', background: '#0a0a0a' }}
+          >
+            <div className="overflow-y-auto px-6 py-8 space-y-5">
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center">
+                  <span className="text-2xl">⚡</span>
+                </div>
+                <h2 className="text-lg font-orbitron font-bold text-white tracking-wider text-center">
+                  QUICK READ
+                </h2>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest text-center">
+                  Health disclaimer
+                </p>
+              </div>
+
+              <div className="space-y-3 text-sm text-gray-300 leading-relaxed">
+                <p>
+                  Dings is a <span className="text-white font-semibold">fitness tracking tool</span>,
+                  not a medical device or substitute for professional advice. Calorie targets and
+                  suggestions are estimates — a starting point, not a prescription.
+                </p>
+                <p>
+                  Please talk to a doctor before changing your diet or exercise routine, especially
+                  if you have any medical condition, are pregnant or breastfeeding, or take medication.
+                </p>
+                <div className="flex items-start gap-3 p-3 rounded-2xl bg-red-500/5 border border-red-500/20">
+                  <span className="text-red-400 shrink-0 mt-0.5">⚠</span>
+                  <p className="text-[12px] text-gray-200">
+                    If you have or have had an eating disorder, please don't use this app to set goals.
+                    Reach out to a healthcare provider or the National Alliance for Eating Disorders
+                    helpline (1-866-662-1235).
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  // Persist acceptance so we never prompt again.
+                  handleUpdateAppState(prev => ({
+                    ...prev,
+                    profile: prev.profile
+                      ? {
+                          ...prev.profile,
+                          acceptedHealthDisclaimer: true,
+                          disclaimerAcceptedAt: new Date().toISOString(),
+                        }
+                      : prev.profile,
+                  }));
+                  setShowHealthDisclaimer(false);
+                }}
+                className="w-full py-4 rounded-2xl bg-white text-black font-orbitron font-bold text-sm tracking-widest hover:bg-gray-200 transition-colors"
+              >
+                I UNDERSTAND & AGREE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+};
+
+export default MainApp;

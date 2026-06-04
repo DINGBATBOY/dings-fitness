@@ -1,0 +1,65 @@
+rules_version = '2';
+
+// Ding! Firestore security rules.
+// Every user can read/write ONLY their own documents.
+// Quotas are read-only from the client; Cloud Functions update them with the Admin SDK.
+// Everything else is locked.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- users/{uid} ----
+    // Profile, nutrition targets, daily logs, body stats, saved notes, etc.
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ---- user_workouts/{uid} ----
+    // Each user's workout split + exercise history.
+    match /user_workouts/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /{document=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ---- quotas/{uid} ----
+    // Per-user AI call counter + lifetime token totals. Read by user OR admin.
+    // Written only by Cloud Functions (callGemini using the Admin SDK).
+    match /quotas/{userId} {
+      allow read:  if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
+    // ---- tokenUsage/{auto} ----
+    // Per-AI-call audit log: feature, model, tokens, cost, timestamp.
+    // Users can read only their own. Admins can read everything (for the
+    // usage dashboard). Writes are server-side only (Cloud Functions).
+    match /tokenUsage/{docId} {
+      allow read:  if request.auth != null && (resource.data.uid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    // ---- default deny ----
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+function isOwner(userId) {
+  return request.auth != null && request.auth.uid == userId;
+}
+
+// Admin allowlist — keep tight. Find your UID in Firebase Console →
+// Authentication → Users. Add additional admin UIDs as needed.
+function isAdmin() {
+  return request.auth != null && request.auth.uid in [
+    "bYGcwJKlN2b4myugbVGNv8e4syO2"
+  ];
+}

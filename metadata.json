@@ -1,0 +1,8 @@
+{
+  "name": "Ding!",
+  "description": "Dings food tracking app",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}
