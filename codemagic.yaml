@@ -49,7 +49,8 @@ workflows:
       vars:
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
-        APP_STORE_APPLE_ID: 0000000000   # ← REPLACE: the numeric Apple ID from App Store Connect → App Info
+        APP_STORE_APPLE_ID: 6776480908
+   # ← REPLACE: the numeric Apple ID from App Store Connect → App Info
         BUNDLE_ID: "com.dings.fitness"
       node: 22.x
       xcode: latest
