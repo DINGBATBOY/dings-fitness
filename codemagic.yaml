@@ -83,21 +83,22 @@ workflows:
         script: |
           cd ios/App && pod install
 
-      # ─── First-run signing setup ────────────────────────────────────────
-      # On a fresh Apple account there are no signing files yet — this step
-      # uses the App Store Connect API key to CREATE them (the --create flag
-      # is the key bit). After the first successful build the cert is cached
-      # in the Developer Portal; subsequent builds reuse it. The explicit
-      # --xcode-project path is needed because Capacitor's iOS project lives
-      # in ios/App/, not the workspace root.
+      # ─── Signing setup ──────────────────────────────────────────────────
+      # We pass CERTIFICATE_PRIVATE_KEY (a Codemagic secret env var holding
+      # a PEM-formatted RSA key) so the same private key is used across
+      # every build. Apple lets us download an existing cert as a .p12 only
+      # if we own the matching private key — without persistence, the cert
+      # we create on build #1 becomes unusable on build #2.
+      # use-profiles auto-discovers the .xcodeproj in cwd (or its descendants).
       - name: Initialize keychain + create signing files
         script: |
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
+            --certificate-key="@env:CERTIFICATE_PRIVATE_KEY" \
             --create
           keychain add-certificates
-          xcode-project use-profiles --xcode-project ios/App/App.xcodeproj
+          xcode-project use-profiles
 
       - name: Bump iOS build number
         script: |
