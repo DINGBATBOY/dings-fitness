@@ -54,7 +54,7 @@ workflows:
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 6776480908
         BUNDLE_ID: "com.dings.fitness"
-      node: 22.x
+      node: 22
       xcode: latest
       cocoapods: default
 
