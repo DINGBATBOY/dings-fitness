@@ -131,11 +131,13 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
-        # Internal testing only — these names must match groups you've created
-        # in App Store Connect → TestFlight → Internal Testing.
-        beta_groups:
-          - Internal
+        # Uploads the .ipa to App Store Connect so it shows up in the
+        # TestFlight Builds list. We DON'T submit_to_testflight true here
+        # because that triggers EXTERNAL beta review (requires test info,
+        # First/Last name, etc). For internal testing you just need the
+        # build in App Store Connect — Internal Testing groups with
+        # "automatic distribution" enabled will pick it up on their own.
+        submit_to_testflight: false
       email:
         recipients:
           - cuodibeltran@gmail.com
