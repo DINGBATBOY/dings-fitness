@@ -28,7 +28,12 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchAutoHide: false,    // we hide manually after web bundle is ready
+      // Auto-hide after 2 seconds. The React app has its own SplashScreen.tsx
+      // that animates in beneath/after this — the native one is purely a
+      // bridge while the WebView boots. Set launchAutoHide: false ONLY if
+      // your JS calls SplashScreen.hide() via @capacitor/splash-screen.
+      launchAutoHide: true,
+      launchShowDuration: 2000,
       backgroundColor: '#0d0a08',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
