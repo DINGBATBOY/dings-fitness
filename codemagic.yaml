@@ -48,7 +48,13 @@ workflows:
     # before our explicit script runs. Instead we use the
     # `app-store-connect fetch-signing-files ... --create` step below, which
     # creates the cert + profile on Apple's side using the API key.
+    #
+    # `groups` exposes UI-defined env vars (DEVELOPMENT_TEAM,
+    # CERTIFICATE_PRIVATE_KEY, etc) to the build. The group must exist in
+    # Codemagic → Settings → Environment variables and contain those vars.
     environment:
+      groups:
+        - default
       vars:
         XCODE_WORKSPACE: "ios/App/App.xcworkspace"
         XCODE_SCHEME: "App"
