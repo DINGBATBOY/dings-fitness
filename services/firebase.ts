@@ -36,7 +36,16 @@ if (isConfigured) {
     // "Unsupported field value: undefined" — and the entire save fails.
     // This is the right default for our schemas, where optional fields are
     // common (fiber, brand, etc.) and undefined just means "not present."
-    db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+    //
+    // experimentalAutoDetectLongPolling: required for the iOS Capacitor
+    // WebView. Firestore's default WebSocket transport is unreliable inside
+    // WKWebView — getDoc() hangs forever instead of resolving. Long-polling
+    // is slower but works everywhere; the SDK auto-detects when WebSockets
+    // are available and uses them when possible.
+    db = initializeFirestore(app, {
+        ignoreUndefinedProperties: true,
+        experimentalAutoDetectLongPolling: true,
+    });
     auth = getAuth(app);
     // Region must match functions/src/index.ts (`setGlobalOptions({ region })`).
     functions = getFunctions(app, 'us-central1');
