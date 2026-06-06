@@ -1,7 +1,14 @@
 
 import { initializeApp, FirebaseApp } from 'firebase/app';
 import { initializeFirestore, Firestore } from 'firebase/firestore';
-import { getAuth, Auth } from 'firebase/auth';
+import {
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  inMemoryPersistence,
+  Auth,
+} from 'firebase/auth';
 import { getFunctions, Functions, connectFunctionsEmulator } from 'firebase/functions';
 import { getAnalytics, Analytics } from 'firebase/analytics';
 
@@ -46,7 +53,20 @@ if (isConfigured) {
         ignoreUndefinedProperties: true,
         experimentalAutoDetectLongPolling: true,
     });
-    auth = getAuth(app);
+    // initializeAuth with an explicit persistence chain. iOS WKWebView's
+    // IndexedDB is unreliable — signInWithEmailAndPassword hangs forever
+    // when Firebase tries to persist the auth token. We pass a fallback
+    // chain so the SDK tries IndexedDB first, then localStorage, then
+    // sessionStorage, then in-memory. All four work in the iOS WebView at
+    // least at the in-memory level, so sign-in always resolves.
+    auth = initializeAuth(app, {
+        persistence: [
+            indexedDBLocalPersistence,
+            browserLocalPersistence,
+            browserSessionPersistence,
+            inMemoryPersistence,
+        ],
+    });
     // Region must match functions/src/index.ts (`setGlobalOptions({ region })`).
     functions = getFunctions(app, 'us-central1');
 
