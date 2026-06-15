@@ -19,6 +19,7 @@
 import React from 'react';
 import {
   Feather, Beef, Wheat, Droplets, Dumbbell, Flame, Plus, ChevronRight,
+  Bike, Footprints, MoreHorizontal,
 } from 'lucide-react';
 import type { UserProfile, NutritionTargets } from '../types';
 
@@ -51,6 +52,12 @@ interface FuelHomeProps {
   dateString: string;
   onQuickAddFood: () => void;
   onOpenReflect: () => void;
+  /** Tap a quick-burn pill (Running / Weights / Cycling / etc.) to log kcal
+   *  for that activity. The parent computes the actual kcal from MET + body
+   *  weight; we just hand off the activity key + a sensible default minutes. */
+  onLogActivity: (kind: 'running' | 'weights' | 'cycling' | 'walking', minutes: number) => void;
+  /** Opens the full activity modal for HIIT / Yoga / Manual entries. */
+  onOpenActivityModal: () => void;
   hasEnoughDataForWrapped: boolean;
 }
 
@@ -66,6 +73,8 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   dateString,
   onQuickAddFood,
   onOpenReflect,
+  onLogActivity,
+  onOpenActivityModal,
   hasEnoughDataForWrapped,
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
@@ -85,9 +94,12 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
       <div className="px-1 pt-1 pb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.3em] font-medium" style={{ color: C.inkLight }}>{dateString}</p>
-          <h2 className="text-2xl font-bold tracking-tight mt-1 truncate" style={{ color: C.ink }}>
-            {greeting}, {firstName}
+          <h2 className="text-xl font-medium tracking-tight mt-1 leading-tight" style={{ color: C.inkMid }}>
+            {greeting},
           </h2>
+          <h1 className="text-3xl font-bold tracking-tight truncate leading-tight" style={{ color: C.ink }}>
+            {firstName}
+          </h1>
         </div>
         {streak >= 2 && (
           <div
@@ -158,13 +170,46 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
             icon={<Flame className="w-5 h-5" strokeWidth={1.5} style={{ color: C.fire }} />}
             label="Burn"
             value={`${activityBurn}`}
-            sublabel="kcal · activity"
+            sublabel="kcal · today"
           />
           <MovementCard
             icon={<Droplets className="w-5 h-5" strokeWidth={1.5} style={{ color: C.sage }} />}
             label="Water"
             value={`${waterIntake}`}
             sublabel={`/ ${waterTarget} oz`}
+          />
+        </div>
+
+        {/* Quick-log activity row — tap a pill to instantly add ~30 min of
+            that activity's calorie burn. Parent computes the real kcal from
+            MET + body weight; the "Other" pill opens the full modal for
+            HIIT / Yoga / Manual entries. */}
+        <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-1 scrollbar-hide">
+          <QuickBurnPill
+            label="Run"
+            icon={<Footprints className="w-3.5 h-3.5" strokeWidth={1.5} />}
+            onClick={() => onLogActivity('running', 30)}
+          />
+          <QuickBurnPill
+            label="Lift"
+            icon={<Dumbbell className="w-3.5 h-3.5" strokeWidth={1.5} />}
+            onClick={() => onLogActivity('weights', 30)}
+          />
+          <QuickBurnPill
+            label="Bike"
+            icon={<Bike className="w-3.5 h-3.5" strokeWidth={1.5} />}
+            onClick={() => onLogActivity('cycling', 30)}
+          />
+          <QuickBurnPill
+            label="Walk"
+            icon={<Footprints className="w-3.5 h-3.5" strokeWidth={1.5} />}
+            onClick={() => onLogActivity('walking', 30)}
+          />
+          <QuickBurnPill
+            label="Other"
+            icon={<MoreHorizontal className="w-3.5 h-3.5" strokeWidth={1.5} />}
+            onClick={onOpenActivityModal}
+            muted
           />
         </div>
       </div>
@@ -379,6 +424,26 @@ const MovementCard: React.FC<{
     <div className="text-[15px] font-bold tabular-nums mt-1" style={{ color: C.ink }}>{value}</div>
     <div className="text-[9px] mt-0.5" style={{ color: C.inkLight }}>{sublabel}</div>
   </div>
+);
+
+const QuickBurnPill: React.FC<{
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  muted?: boolean;
+}> = ({ label, icon, onClick, muted }) => (
+  <button
+    onClick={onClick}
+    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest shrink-0 transition-all active:scale-95"
+    style={{
+      background: muted ? C.bg : C.fire,
+      color: muted ? C.inkMid : '#fff',
+      border: muted ? `1px solid ${C.border}` : `1px solid ${C.fire}`,
+    }}
+  >
+    {icon}
+    {label}
+  </button>
 );
 
 export default FuelHome;

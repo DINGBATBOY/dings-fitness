@@ -72,8 +72,15 @@ body {
    win and nothing reskins. */
 
 @layer utilities {
-  /* Text colors — flip white→ink, gray→warm-brown shades */
+  /* Text colors — flip white→ink, gray→warm-brown shades.
+     Translucent whites (white/X) get the same treatment but with alpha
+     preserved so they still feel like a muted variant of the primary ink. */
   .text-white { color: #3a2818 !important; }
+  .text-white\/80 { color: rgba(58, 40, 24, 0.85) !important; }
+  .text-white\/60 { color: rgba(58, 40, 24, 0.70) !important; }
+  .text-white\/40 { color: rgba(58, 40, 24, 0.55) !important; }
+  .text-white\/20 { color: rgba(58, 40, 24, 0.40) !important; }
+
   .text-gray-100,
   .text-gray-200,
   .text-gray-300 { color: #3a2818 !important; }
