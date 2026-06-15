@@ -4,19 +4,12 @@ import { Feather, Flame, Utensils, BookOpen, Zap, MessageCircle } from 'lucide-r
 import { UserProfile } from '../types';
 
 export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, onTabChange: (tab: string) => void, profile?: UserProfile }> = ({ children, activeTab, onTabChange, profile }) => {
-  // ───────────────────────────────────────────────────────────────────────
-  // CREAM HOME THEME — the dashboard tab uses a warm cream/parchment look
-  // (lighter weight, line iconography, warmer brown chrome) to match the
-  // Mati-Watsā mockup direction. Every other tab stays on Dusk Trail dark,
-  // so the chrome (header + dock) flips its theme based on `activeTab`.
-  // ───────────────────────────────────────────────────────────────────────
-  const isCreamTab = activeTab === 'dashboard';
-
+  // Whole app is on the cream/parchment Mati-Watsā theme. The header +
+  // dock chrome are warm cream with soft warm-brown line icons.
+  //
   // Bottom dock — 6 tabs. Eats kept because the macro-fit AI card +
   // 44-restaurant DB is a hero feature that earns its dock slot. Recomp
   // absorbed into Reflect; Profile lives behind the header avatar tap.
-  // Icons drawn as Lucide line icons so they look consistent across both
-  // themes (cream home + dark elsewhere).
   const tabs = [
     { id: 'dashboard',   label: 'Fuel',    Icon: Flame },
     { id: 'restaurants', label: 'Eats',    Icon: Utensils },
@@ -29,9 +22,10 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).toUpperCase().replace(',', ' ·');
   const firstInitial = profile?.name ? profile.name.charAt(0).toUpperCase() : '?';
 
-  // Theme tokens — both surfaces share terracotta/ochre accents so the
-  // cream and dark themes feel like sister palettes, not unrelated UIs.
-  const theme = isCreamTab ? {
+  // Cream/parchment chrome tokens. Kept inline rather than imported so
+  // Layout has no external dependency on the cream-theme util — they're
+  // identical values, just convenient to inline at the root of the app.
+  const theme = {
     rootBg: '#f5ede1',
     headerBg: 'linear-gradient(180deg, rgba(245,237,225,0.96) 0%, rgba(245,237,225,0.88) 100%)',
     headerBorder: 'rgba(58,40,24,0.10)',
@@ -46,21 +40,6 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
     iconInactive: '#a09080',
     activeLabel: '#3a2818',
     activeIndicator: '#7a4a30',
-  } : {
-    rootBg: '#0d0a08',
-    headerBg: 'linear-gradient(180deg, rgba(13,10,8,0.95) 0%, rgba(13,10,8,0.85) 100%)',
-    headerBorder: 'rgba(255,255,255,0.10)',
-    wordmarkFrom: '#d97757',
-    wordmarkTo: '#d4a55a',
-    wordmarkText: '#ffffff',
-    dateText: '#7a6555',
-    avatarBorder: 'rgba(255,255,255,0.10)',
-    dockBg: 'rgba(10,10,10,0.95)',
-    dockBorder: 'rgba(255,255,255,0.10)',
-    iconActive: '#d4a55a',
-    iconInactive: 'rgba(255,255,255,0.40)',
-    activeLabel: '#ffffff',
-    activeIndicator: '#d4a55a',
   };
 
   return (
@@ -89,7 +68,7 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
           <button
             onClick={() => onTabChange('profile')}
             className="w-9 h-9 rounded-full p-0.5 overflow-hidden shadow-lg relative flex items-center justify-center transition-colors"
-            style={{ border: `1px solid ${theme.avatarBorder}`, background: isCreamTab ? '#fff' : '#000' }}
+            style={{ border: `1px solid ${theme.avatarBorder}`, background: '#fff' }}
             aria-label="Open profile"
           >
             {profile?.profilePicture ? (

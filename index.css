@@ -11,28 +11,33 @@
   --color-cream: var(--cream);
 }
 
-/* ───────────────── DUSK TRAIL PALETTE ─────────────────
-   Warm sunset, ember-fire, calm but alive. Replaces the
-   neon orange/pink/cyan with terracotta, dusk rose, ochre,
-   and a slightly warmer near-black so the surface feels
-   like dusk rather than space. */
+/* ───────────────── MATI-WATSĀ PALETTE ─────────────────
+   Warm cream/parchment app-wide. Surfaces are cream + white
+   cards; text is warm browns; accents are terracotta + ochre
+   (shared with the older Dusk Trail palette for consistency). */
 :root {
-    --bg-dark: #0d0a08;        /* warm near-black (was #050505) */
-    --bg-card: #161210;        /* warm-tinted card surface (was #0f0f0f) */
-    --primary: #d97757;        /* terracotta — warm action (was #f97316 orange) */
-    --accent: #d4a55a;         /* ochre — highlight (was #22d3ee cyan) */
-    --alert: #d44a4a;          /* warm dusty red (was #f43f5e rose) */
-    --rose-dusk: #c97b6e;      /* dusk rose — secondary warmth */
-    --cream: #d4cfc4;          /* warm muted off-white for body text */
+    --bg-dark: #f5ede1;        /* warm cream/parchment background */
+    --bg-card: #ffffff;        /* pure white card */
+    --primary: #7a4a30;        /* deeper terracotta — primary on cream */
+    --accent: #b88860;         /* warm ochre — secondary accent */
+    --alert: #c0473a;          /* warm dusty red */
+    --rose-dusk: #c97b6e;      /* dusk rose — kept for legacy components */
+    --cream: #3a2818;          /* dark warm brown — primary text on cream */
+    --ink-mid: #7a6555;        /* secondary text */
+    --ink-light: #a09080;      /* tertiary / muted text */
+    --border-soft: #e8dcc5;    /* subtle line color */
+    --fire: #d97757;           /* brighter ember — CTA */
+    --sage: #7a9080;           /* calm green */
 }
 
 body {
     font-family: 'Inter', sans-serif;
-    background-color: var(--bg-dark);
-    color: #ffffff;
+    background-color: var(--bg-dark);  /* now cream */
+    color: var(--cream);                /* warm brown ink */
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    /* Subtle warm-paper grain — barely visible but adds a parchment feel. */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.025'/%3E%3C/svg%3E");
 }
 
 .font-orbitron {
@@ -42,20 +47,68 @@ body {
     font-family: var(--font-mono);
 }
 
+/* CREAM CARD SURFACES — `.glass` and `.glass-panel` are now warm-white
+   cards rather than dark glass. Existing components that referenced
+   these classes get auto-re-skinned without needing JSX edits. */
 .glass {
-    background: rgba(22, 18, 16, 0.6);     /* warm-tinted glass */
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #ffffff;
+    border: 1px solid #e8dcc5;
 }
 .glass-panel {
-    /* Flatter than before — dropped the steep linear gradient for a single
-       warm-tinted surface. Subtle inset highlight remains. */
-    background: rgba(22, 18, 16, 0.45);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    background: #fbf6ec;
+    border: 1px solid #e8dcc5;
+    box-shadow: 0 1px 2px rgba(58, 40, 24, 0.04);
 }
+
+/* ───────────────── CREAM-THEME OVERRIDES ─────────────────
+   The app's components were written against a dark theme using Tailwind
+   utilities (text-white, bg-white/5, text-gray-XXX, border-white/10).
+   Rather than rewriting every component's JSX, we re-bind those classes
+   to cream-theme equivalents here. Components that import the cream
+   palette directly already use exact hex colors and aren't affected. */
+
+/* Text colors — flip white→ink, gray→warm-brown shades */
+.text-white { color: #3a2818 !important; }
+.text-gray-100,
+.text-gray-200,
+.text-gray-300 { color: #3a2818 !important; }
+.text-gray-400,
+.text-gray-500 { color: #7a6555 !important; }
+.text-gray-600,
+.text-gray-700 { color: #a09080 !important; }
+.text-gray-800,
+.text-gray-900 { color: #c4b8a4 !important; }
+
+/* Translucent white surfaces become cream cards */
+.bg-white\/5,
+.bg-white\/\[0\.03\],
+.bg-white\/\[0\.05\] { background-color: #fbf6ec !important; }
+.bg-white\/10,
+.bg-white\/\[0\.08\] { background-color: #f3ead9 !important; }
+
+/* Translucent white borders become cream beige */
+.border-white\/5,
+.border-white\/10,
+.border-white\/20 { border-color: #e8dcc5 !important; }
+
+/* Hard-coded near-black panels — flip to cream */
+.bg-\[\#0a0a0a\],
+.bg-\[\#0d0a08\],
+.bg-\[\#0f0f0f\],
+.bg-\[\#151515\],
+.bg-\[\#161210\],
+.bg-\[\#1a0f08\],
+.bg-\[\#1a1612\],
+.bg-\[\#1a1a1a\] { background-color: #f5ede1 !important; }
+
+/* Coach + onboarding chat backgrounds — alpha variants of the dark bg */
+.bg-\[\#050505\]\/95,
+.bg-\[\#0d0a08\]\/85,
+.bg-\[\#0d0a08\]\/95 { background-color: rgba(245, 237, 225, 0.95) !important; }
+
+/* Coach chat user bubble — was dark-rose; on cream it stays but with
+   ink-color text restored. */
+.bg-\[\#c97b6e\] { color: #ffffff !important; }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
