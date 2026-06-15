@@ -15,6 +15,7 @@ import { RestaurantHub } from './components/RestaurantHub';
 import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
+import { FuelHome } from './components/FuelHome';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
@@ -1971,210 +1972,26 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       )}
 
       {activeTab === 'dashboard' && (
-        <div className="space-y-5 pb-20 animate-fade-in">
-          {/* HERO STRIP — greeting, date, streak */}
-          <div className="px-1 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="text-white text-xl font-bold tracking-tight truncate">
-                {greeting}, {appState.profile.name?.trim() || 'Warrior'}
-              </h2>
-              <p className="text-gray-500 text-[11px] font-medium mt-0.5">{dateString}</p>
-            </div>
-            {streak >= 2 && (
-              <div className="flex items-center gap-1.5 bg-[#d97757]/10 border border-[#d97757]/30 px-3 py-1.5 rounded-full shrink-0 self-start mt-1">
-                <span className="text-base leading-none">🪶</span>
-                <span className="text-[#d4a55a] text-[10px] font-bold tracking-widest uppercase tabular-nums">
-                  {streak}-day trail
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* MACRO REACTOR — hero card */}
-          <section className="glass-panel border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] rounded-3xl p-6 relative overflow-hidden">
-            <MacroReactor
-              consumedCals={consumedMacros.calories}
-              targetCals={targetMacros.calories}
-              consumedProt={consumedMacros.protein}
-              targetProt={targetMacros.protein}
-              consumedCarbs={consumedMacros.carbs}
-              targetCarbs={targetMacros.carbs}
-              consumedFat={consumedMacros.fat}
-              targetFat={targetMacros.fat}
-            />
-          </section>
-
-          {/* ACTIVITY BURN — personalized kcal estimates per activity */}
-          <section className="glass-panel rounded-3xl p-5 relative overflow-hidden">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">Activity Burn</h3>
-              <span className="text-orange-400 text-xs font-bold font-mono tabular-nums">{appState.activityBurn} kcal today</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                { key: 'running', emoji: '🏃', label: 'Running',  minutes: 30, met: ACTIVITY_METS.running, btn: 'bg-red-500/10 border-red-500/20 hover:bg-red-500/20',       kcalClr: 'text-red-400' },
-                { key: 'weights', emoji: '🏋️', label: 'Weights',  minutes: 30, met: ACTIVITY_METS.weights, btn: 'bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20', kcalClr: 'text-purple-400' },
-                { key: 'cycling', emoji: '🚴', label: 'Cycling',  minutes: 30, met: ACTIVITY_METS.cycling, btn: 'bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20',     kcalClr: 'text-blue-400' },
-              ].map(a => {
-                const kcal = personalizedBurn(appState.profile.weight, a.met, a.minutes);
-                return (
-                  <button
-                    key={a.key}
-                    onClick={() => logActivity(kcal)}
-                    className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all group ${a.btn}`}
-                  >
-                    <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">{a.emoji}</span>
-                    <span className="text-[10px] text-white font-bold uppercase tracking-widest text-center">{a.label}</span>
-                    <span className={`text-[9px] font-bold mt-1 font-mono tabular-nums ${a.kcalClr}`}>+{kcal} kcal · {a.minutes}m</span>
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => {
-                  setActivityModalForm({ kind: 'running', minutes: 30, manualKcal: '' });
-                  setShowActivityModal(true);
-                }}
-                className="flex flex-col items-center justify-center p-3 rounded-2xl border bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/20 transition-all group"
-              >
-                <span className="text-2xl mb-1 group-hover:scale-110 transition-transform">➕</span>
-                <span className="text-[10px] text-white font-bold uppercase tracking-widest">Custom</span>
-                <span className="text-[9px] text-orange-400 font-bold mt-1">Pick activity</span>
-              </button>
-            </div>
-          </section>
-
-          {/* HYDRATION — compact one-row strip */}
-          <section className="glass-panel rounded-3xl p-4">
-            <div className="flex items-center gap-3">
-              <span className="text-blue-400 text-2xl leading-none">💧</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Hydration</span>
-                  <span className="text-blue-400 text-[11px] font-bold font-mono tabular-nums">
-                    {appState.waterIntake} / {waterTarget} oz
-                  </span>
-                </div>
-                <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-500"
-                    style={{ width: `${Math.min(100, (appState.waterIntake / waterTarget) * 100)}%` }}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-1.5 shrink-0">
-                <button onClick={() => updateWater(-8)} className="h-9 w-9 flex items-center justify-center bg-white/5 rounded-lg text-gray-400 text-base font-bold hover:bg-white/10">−</button>
-                <button onClick={() => updateWater(8)}  className="h-9 px-3 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-bold hover:bg-blue-500/20 uppercase tracking-wider">+8oz</button>
-                <button onClick={() => updateWater(16)} className="h-9 px-3 bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-lg text-[10px] font-bold hover:bg-blue-500/20 uppercase tracking-wider">+16</button>
-              </div>
-            </div>
-          </section>
-
-          {/* TODAY'S LOG — meal-grouped */}
-          <section className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Today's Log</h3>
-              {(appState.todayLog || []).length > 0 && (
-                <button
-                  onClick={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
-                  className="text-[10px] text-cyan-400 hover:text-cyan-300 uppercase tracking-widest font-bold"
-                >
-                  + Add food
-                </button>
-              )}
-            </div>
-
-            {(appState.todayLog || []).length === 0 ? (
-              <div className="glass-panel rounded-3xl py-12 text-center">
-                <div className="text-5xl mb-3 opacity-60">🍽️</div>
-                <p className="text-sm font-bold text-white mb-1">Nothing logged yet</p>
-                <p className="text-[11px] text-gray-500 mb-5">Add your first meal to start the day</p>
-                <button
-                  onClick={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
-                  className="px-5 py-2.5 bg-white text-black rounded-full text-[11px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-colors"
-                >
-                  + Log Food
-                </button>
-              </div>
-            ) : (
-              MEAL_DEFINITIONS.map(meal => {
-                const items = (appState.todayLog || []).filter(i => classifyMeal(i.timestamp) === meal.key);
-                if (items.length === 0) return null;
-                const subtotal = items.reduce((s, i) => s + (Number(i.calories) || 0), 0);
-                const protTotal = items.reduce((s, i) => s + (Number(i.protein) || 0), 0);
-
-                return (
-                  <div key={meal.key} className="space-y-2">
-                    <div className="flex items-center justify-between px-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base leading-none">{meal.emoji}</span>
-                        <span className="text-[11px] font-bold text-gray-300 uppercase tracking-widest">{meal.label}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[10px] font-mono tabular-nums">
-                        <span className="text-white font-bold">{Math.round(subtotal)} kcal</span>
-                        <span className="text-emerald-400">{Math.round(protTotal)}g P</span>
-                      </div>
-                    </div>
-
-                    {items.map(item => (
-                      <div
-                        key={item.id}
-                        className="bg-white/[0.03] hover:bg-white/[0.05] p-3.5 rounded-xl border border-white/5 hover:border-white/10 transition-colors group"
-                      >
-                        <div className="flex justify-between items-start gap-3">
-                          <div className="flex-1 min-w-0">
-                            <h5 className="font-bold text-white text-sm truncate">{item.name}</h5>
-                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[10px] font-medium tabular-nums">
-                              <span className="text-white"><span className="font-bold">{Math.round(Number(item.calories) || 0)}</span> <span className="text-gray-500">cal</span></span>
-                              <span className="text-emerald-400"><span className="font-bold">{Math.round(Number(item.protein) || 0)}</span><span className="text-emerald-700">p</span></span>
-                              <span className="text-blue-400"><span className="font-bold">{Math.round(Number(item.carbs) || 0)}</span><span className="text-blue-700">c</span></span>
-                              <span className="text-amber-400"><span className="font-bold">{Math.round(Number(item.fat) || 0)}</span><span className="text-amber-700">f</span></span>
-                              {item.fiber ? <span className="text-yellow-500/70"><span className="font-bold">{Math.round(Number(item.fiber))}</span><span className="text-yellow-700">fib</span></span> : null}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-[10px] text-gray-600 tabular-nums whitespace-nowrap">{item.timestamp}</span>
-                            <button
-                              onClick={() => deleteLog(item.id)}
-                              className="w-6 h-6 flex items-center justify-center rounded-full bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                              aria-label="Remove log entry"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })
-            )}
-          </section>
-
-          {/* WRAPPED LAUNCHER — quick jump to the Reflect tab where Wrapped
-              lives inline. Shown when the user has at least a few logged
-              days so the summary has something to celebrate. */}
-          {(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2 && (
-            <button
-              onClick={() => setActiveTab('reflect')}
-              className="w-full text-left rounded-3xl border border-white/10 bg-gradient-to-br from-[#d97757]/12 via-[#c97b6e]/8 to-[#d4a55a]/10 p-5 relative overflow-hidden group hover:border-[#d97757]/40 transition-colors"
-            >
-              <div className="absolute -top-12 -right-8 w-44 h-44 rounded-full bg-[#d97757]/15 blur-3xl pointer-events-none" />
-              <div className="relative flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-[#d97757] flex items-center justify-center shrink-0 shadow-md">
-                  <span className="text-xl">🪶</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#d4a55a]">Reflect</div>
-                  <div className="text-white font-bold mt-1 text-[15px]">Your week & month, recapped</div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">Top foods, trail, sessions, patterns</div>
-                </div>
-                <span className="text-gray-400 group-hover:text-white group-hover:translate-x-0.5 transition-all text-lg">→</span>
-              </div>
-            </button>
-          )}
-        </div>
+        <FuelHome
+          profile={appState.profile}
+          targets={targetMacros}
+          consumed={consumedMacros}
+          activityBurn={appState.activityBurn || 0}
+          waterIntake={appState.waterIntake || 0}
+          workoutCompletedToday={(() => {
+            const todayStr = new Date().toLocaleDateString();
+            return (appState.dailyLogs || []).some(l => l.date === todayStr && l.workoutCompleted) ||
+              weeklyCompletedWorkouts.includes(new Date().toLocaleDateString('en-US', { weekday: 'long' }));
+          })()}
+          streak={streak}
+          greeting={greeting}
+          dateString={dateString}
+          onQuickAddFood={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
+          onOpenReflect={() => setActiveTab('reflect')}
+          hasEnoughDataForWrapped={(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2}
+        />
       )}
+
 
       {activeTab === 'restaurants' && (
         <div className="animate-fade-in">
