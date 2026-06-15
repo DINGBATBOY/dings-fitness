@@ -6,6 +6,44 @@ import { Calendar, ChevronLeft, ChevronRight, Utensils, Droplets, Dumbbell, Tras
 import { analyzeDailyLog } from '../services/geminiService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+
+/**
+ * Cross-platform PDF save.
+ *
+ * - Web: jsPDF's built-in `doc.save()` triggers a browser download.
+ * - Native (iOS / Android via Capacitor): browser downloads do nothing in
+ *   a WebView. We save the PDF as base64 to the Documents directory and
+ *   open the system share sheet so the user can save to Files, send via
+ *   Mail/Messages, or AirDrop it.
+ */
+const savePdf = async (doc: jsPDF, filename: string): Promise<void> => {
+  if (!Capacitor.isNativePlatform()) {
+    doc.save(filename);
+    return;
+  }
+  try {
+    // jsPDF returns a data URI; strip the "data:application/pdf;base64," prefix.
+    const base64 = doc.output('datauristring').split(',')[1];
+    const result = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Documents,
+    });
+    await Share.share({
+      title: 'Ding! Fitness Report',
+      url: result.uri,
+      dialogTitle: 'Save or share your report',
+    });
+  } catch (err) {
+    console.error('[Journal] PDF export failed', err);
+    // Last-resort fallback: try the browser-style save so the user at least
+    // sees something rather than silent failure.
+    try { doc.save(filename); } catch { /* swallow */ }
+  }
+};
 
 interface JournalProps {
   dailyLogs: DailyLog[];
@@ -252,7 +290,7 @@ export const Journal: React.FC<JournalProps> = ({
     }
   };
 
-  const handleDownloadMonthlyPDF = () => {
+  const handleDownloadMonthlyPDF = async () => {
     const selectedMonth = new Date(selectedDate).getMonth();
     const selectedYear = new Date(selectedDate).getFullYear();
     const monthName = new Date(selectedDate).toLocaleString('default', { month: 'long' });
@@ -426,10 +464,10 @@ export const Journal: React.FC<JournalProps> = ({
     });
 
     addPageFooter(doc);
-    doc.save(`Ding-Monthly-${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}.pdf`);
+    await savePdf(doc, `Ding-Monthly-${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}.pdf`);
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const doc = new jsPDF();
     addBrandHeader(doc, selectedDate);
 
@@ -456,7 +494,7 @@ export const Journal: React.FC<JournalProps> = ({
       doc.setTextColor(...PDF_COLORS.mute);
       doc.text('Nothing was logged on this day.', 14, y);
       addPageFooter(doc);
-      doc.save(`Ding-Daily-${selectedDate.replace(/\//g, '-')}.pdf`);
+      await savePdf(doc, `Ding-Daily-${selectedDate.replace(/\//g, '-')}.pdf`);
       return;
     }
 
@@ -546,7 +584,7 @@ export const Journal: React.FC<JournalProps> = ({
     }
 
     addPageFooter(doc);
-    doc.save(`Ding-Daily-${selectedDate.replace(/\//g, '-')}.pdf`);
+    await savePdf(doc, `Ding-Daily-${selectedDate.replace(/\//g, '-')}.pdf`);
   };
 
   return (

@@ -45,5 +45,15 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- iOS REQUIRES these strings before allowing camera or photo library
+	     access. Without them the app crashes the moment <input type="file"
+	     capture> is triggered or the Capacitor Camera plugin is called.
+	     The strings appear in the system permission prompt the user sees. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Ding! Fitness uses your camera to scan food and nutrition labels for accurate macro tracking.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ding! Fitness needs photo library access so you can pick a profile picture or attach existing food photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ding! Fitness can save your exported reports and progress photos to your photo library.</string>
 </dict>
 </plist>

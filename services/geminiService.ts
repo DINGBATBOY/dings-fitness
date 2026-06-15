@@ -627,11 +627,51 @@ ${blocks}
 `;
 };
 
+// Detect non-chain restaurant intent in the user's text. Patterns covered:
+//   - Apostrophe-S names:           "Joe's pizza", "Ted Peters' salmon"
+//   - Possessive without apostrophe: "Mama lasagna", "Marios pizza"
+//   - Location phrases:              "at Frenchy's", "from Versailles Cafe"
+//   - Capitalized multi-word names FOLLOWED by a food noun:
+//                                    "Ted Peters salmon dinner",
+//                                    "Café Versailles palomilla"
+//
+// Conservative on purpose — false positives are cheap (we just ask Gemini to
+// search), false negatives are the bug we're fixing (defaulting to USDA
+// generics when the user named a specific place).
+export const detectIndieRestaurantIntent = (text: string): boolean => {
+  if (!text || text.length < 3) return false;
+  const t = text.trim();
+
+  // 1. Possessive: "Joe's", "Ted Peters'", "Mama's"
+  if (/\b[A-Z][a-zA-Z]+(\s+[A-Z][a-zA-Z]+)?'s?\b/.test(t)) return true;
+
+  // 2. Location phrases: "at X", "from X", "ordered from X", "@ X"
+  //    where X starts with a capital letter (a proper noun).
+  if (/\b(?:at|from|@)\s+[A-Z][a-zA-Z]+/.test(t)) return true;
+
+  // 3. Two-or-more capitalized words at the start, followed by a food noun.
+  //    Catches "Ted Peters salmon dinner", "Café Versailles palomilla" etc.
+  //    Excludes the obvious chains we already handle via detectRestaurantsInText.
+  const foodNouns = /\b(?:salmon|chicken|steak|burger|pizza|sandwich|burrito|bowl|salad|pasta|dinner|plate|combo|wrap|taco|sub|hoagie|hero|fish|shrimp|wings|ribs|rice|noodle|soup|stew|chili|breakfast|brunch|lunch|special|platter|entree|tenders|nuggets|dish|meal)\b/i;
+  if (
+    /^[A-Z][a-zA-Z]+\s+[A-Z][a-zA-Z]+(\s+[A-Z][a-zA-Z]+)?/.test(t) &&
+    foodNouns.test(t)
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 // Format Open Food Facts / USDA matches as authoritative reference data.
 // Injected when no restaurant chain is detected — gives the AI verified
 // macros for whole foods and branded packaged products before it falls back
 // to estimation.
-const formatNutritionContext = (matches: NutritionMatch[]): string => {
+//
+// `softenSearchBlock`: when true, the instruction allowing the AI to prefer
+// Google Search for restaurant-specific items overrides USDA for those items.
+// Set when indie restaurant intent is detected upstream.
+const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = false): string => {
   if (matches.length === 0) return '';
   const lines = matches.map(m => {
     const brand = m.brand ? ` (${m.brand})` : '';
@@ -639,6 +679,13 @@ const formatNutritionContext = (matches: NutritionMatch[]): string => {
     const sourceLabel = m.source === 'usda' ? 'USDA' : 'Open Food Facts';
     return `  - [${sourceLabel}, ${m.confidence} conf] ${m.name}${brand}: ${m.caloriesPer100g} cal, protein: ${m.proteinPer100g}g, carbs: ${m.carbsPer100g}g, fat: ${m.fatPer100g}g${fiber} (per 100g${m.servingSize ? `, serving: ${m.servingSize}` : ''})`;
   }).join('\n');
+
+  const searchPolicy = softenSearchBlock
+    ? `For RESTAURANT-NAMED items in the user's query, prefer Google Search
+results (per the Independent Restaurant block above) — USDA generics are
+wrong for a named restaurant's preparation. For generic ingredients or
+sides not tied to the restaurant ("french fries", "ketchup"), use USDA.`
+    : `Do NOT use Google Search for foods covered here.`;
 
   return `
 
@@ -650,7 +697,7 @@ chicken breast", "1 cup oatmeal", "2 slices bread"), scale these per-100g
 values to the user's portion in grams and SHOW THE MATH in the tip — e.g.
 "USDA chicken breast (raw) is 165 cal per 100g; 6 oz = 170g → 280 cal."
 Prefer USDA entries over Open Food Facts when both are present (higher data
-quality). Do NOT use Google Search for foods covered here.
+quality). ${searchPolicy}
 
 MANDATORY SOURCE LABELING: For ANY item whose macros came from this
 nutrition database section (whether directly or scaled), you MUST set
@@ -681,8 +728,35 @@ const buildFoodAnalysisPrompt = (
   // user-added custom items so the AI honors them on future requests.
   const matched = detectRestaurantsInText(textDescription);
   const restaurantContext = formatRestaurantContext(matched, textDescription, customMenuItems);
-  // If we have USDA/OFF matches, inject those too.
-  const nutritionContext = formatNutritionContext(nutritionMatches);
+
+  // Detect INDEPENDENT restaurant intent for queries that don't match a known
+  // chain. Examples: "Ted Peters salmon dinner", "Joe's pizza", "Mama's
+  // lasagna", "at Frenchy's", "from Versailles Cafe". When the user names a
+  // specific place, generic USDA matches ("salmon" = 175 cal) are wrong — we
+  // need Google Search to find that restaurant's actual preparation.
+  const hasIndieRestaurantIntent =
+    matched.length === 0 && detectIndieRestaurantIntent(textDescription);
+
+  // If we have USDA/OFF matches, inject those too. When indie restaurant
+  // intent is present we soften the "don't use search" instruction so Gemini
+  // can prefer restaurant-specific data over USDA generics.
+  const nutritionContext = formatNutritionContext(nutritionMatches, hasIndieRestaurantIntent);
+
+  const indieRestaurantHint = hasIndieRestaurantIntent ? `
+
+INDEPENDENT RESTAURANT DETECTED in the user's text — they named a specific
+non-chain restaurant (apostrophe-S name, "at [Place]", "from [Place]", or
+similar). For ANY items associated with that restaurant:
+1. USE the Google Search tool FIRST to find the restaurant's nutrition data,
+   menu photos, recipes, or reviews that describe portion sizes.
+2. Even if USDA matches were injected below, prefer search-derived numbers
+   for the restaurant-specific item — USDA's generic "salmon" or "potato
+   salad" is wrong for a named restaurant's preparation.
+3. Set "source": "restaurant_db" and "confidence": "medium" when search finds
+   the restaurant's data. Set "low" if you can only find similar dishes
+   from comparable restaurants.
+4. In "tip", state the restaurant + which search source you used.
+` : '';
 
   // Shared output schema description — same shape regardless of mode.
   const outputSchema = `
@@ -796,6 +870,7 @@ ${mealInstructions}
 
 ${userContext}
 ${restaurantContext}
+${indieRestaurantHint}
 ${nutritionContext}
 ${modeBlock}
 
