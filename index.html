@@ -14,6 +14,31 @@
          reliably reach esm.sh from capacitor://localhost. -->
 </head>
 <body>
+    <!-- TEMPORARY DEBUG STRIP — visible at top of every screen so we can
+         see if React is rendering and what the body bg actually resolves
+         to. Remove after diagnosing cream-theme launch. -->
+    <div id="boot-debug" style="position:fixed;top:0;left:0;right:0;padding:6px 12px;background:#d97757;color:#fff;font-family:monospace;font-size:10px;line-height:1.3;z-index:99999;text-align:center;">cream-boot · waiting for React…</div>
+    <script>
+      (function(){
+        var d = document.getElementById('boot-debug');
+        function log(m){ if(d) d.innerText = m; }
+        log('cream-boot · html loaded · bg=' + (getComputedStyle(document.body).backgroundColor || '?'));
+        window.addEventListener('error', function(e){
+          log('cream-boot ERR: ' + (e.message || e).slice(0,80));
+        });
+        window.__bootLog = log;
+        // Once React mounts something into #root, hide this debug strip.
+        var iv = setInterval(function(){
+          var r = document.getElementById('root');
+          if (r && r.children && r.children.length > 0) {
+            log('cream-boot · React mounted ✓ (bg=' + getComputedStyle(document.body).backgroundColor + ')');
+            // Leave it visible for 4s so you can read it, then hide.
+            setTimeout(function(){ if(d) d.style.display='none'; }, 4000);
+            clearInterval(iv);
+          }
+        }, 100);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
 </body>
