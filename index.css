@@ -64,51 +64,57 @@ body {
    The app's components were written against a dark theme using Tailwind
    utilities (text-white, bg-white/5, text-gray-XXX, border-white/10).
    Rather than rewriting every component's JSX, we re-bind those classes
-   to cream-theme equivalents here. Components that import the cream
-   palette directly already use exact hex colors and aren't affected. */
+   to cream-theme equivalents here.
 
-/* Text colors — flip white→ink, gray→warm-brown shades */
-.text-white { color: #3a2818 !important; }
-.text-gray-100,
-.text-gray-200,
-.text-gray-300 { color: #3a2818 !important; }
-.text-gray-400,
-.text-gray-500 { color: #7a6555 !important; }
-.text-gray-600,
-.text-gray-700 { color: #a09080 !important; }
-.text-gray-800,
-.text-gray-900 { color: #c4b8a4 !important; }
+   Wrapped in @layer utilities so these win the cascade against Tailwind
+   v4's own utility layer (where the `text-white` / `bg-white/5` / etc.
+   rules originate). Without the @layer wrap, Tailwind's classes silently
+   win and nothing reskins. */
 
-/* Translucent white surfaces become cream cards */
-.bg-white\/5,
-.bg-white\/\[0\.03\],
-.bg-white\/\[0\.05\] { background-color: #fbf6ec !important; }
-.bg-white\/10,
-.bg-white\/\[0\.08\] { background-color: #f3ead9 !important; }
+@layer utilities {
+  /* Text colors — flip white→ink, gray→warm-brown shades */
+  .text-white { color: #3a2818 !important; }
+  .text-gray-100,
+  .text-gray-200,
+  .text-gray-300 { color: #3a2818 !important; }
+  .text-gray-400,
+  .text-gray-500 { color: #7a6555 !important; }
+  .text-gray-600,
+  .text-gray-700 { color: #a09080 !important; }
+  .text-gray-800,
+  .text-gray-900 { color: #c4b8a4 !important; }
 
-/* Translucent white borders become cream beige */
-.border-white\/5,
-.border-white\/10,
-.border-white\/20 { border-color: #e8dcc5 !important; }
+  /* Translucent white surfaces become cream cards */
+  .bg-white\/5,
+  .bg-white\/\[0\.03\],
+  .bg-white\/\[0\.05\] { background-color: #fbf6ec !important; }
+  .bg-white\/10,
+  .bg-white\/\[0\.08\] { background-color: #f3ead9 !important; }
 
-/* Hard-coded near-black panels — flip to cream */
-.bg-\[\#0a0a0a\],
-.bg-\[\#0d0a08\],
-.bg-\[\#0f0f0f\],
-.bg-\[\#151515\],
-.bg-\[\#161210\],
-.bg-\[\#1a0f08\],
-.bg-\[\#1a1612\],
-.bg-\[\#1a1a1a\] { background-color: #f5ede1 !important; }
+  /* Translucent white borders become cream beige */
+  .border-white\/5,
+  .border-white\/10,
+  .border-white\/20 { border-color: #e8dcc5 !important; }
 
-/* Coach + onboarding chat backgrounds — alpha variants of the dark bg */
-.bg-\[\#050505\]\/95,
-.bg-\[\#0d0a08\]\/85,
-.bg-\[\#0d0a08\]\/95 { background-color: rgba(245, 237, 225, 0.95) !important; }
+  /* Hard-coded near-black panels — flip to cream */
+  .bg-\[\#0a0a0a\],
+  .bg-\[\#0d0a08\],
+  .bg-\[\#0f0f0f\],
+  .bg-\[\#151515\],
+  .bg-\[\#161210\],
+  .bg-\[\#1a0f08\],
+  .bg-\[\#1a1612\],
+  .bg-\[\#1a1a1a\] { background-color: #f5ede1 !important; }
 
-/* Coach chat user bubble — was dark-rose; on cream it stays but with
-   ink-color text restored. */
-.bg-\[\#c97b6e\] { color: #ffffff !important; }
+  /* Translucent alpha variants of the dark bg → translucent cream */
+  .bg-\[\#050505\]\/95,
+  .bg-\[\#0d0a08\]\/85,
+  .bg-\[\#0d0a08\]\/95 { background-color: rgba(245, 237, 225, 0.95) !important; }
+
+  /* Coach chat user bubble — was dark-rose; force white text since the
+     bubble itself stays colored on cream. */
+  .bg-\[\#c97b6e\] { color: #ffffff !important; }
+}
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {

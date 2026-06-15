@@ -22,27 +22,26 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'always',
-    // The web app already paints its own near-black background. Match it
-    // so there's no white flash between splash → web load.
-    backgroundColor: '#0d0a08',
+    // Mati-Watsā cream — matches the web app's body background so there's
+    // no flash between splash → web load. Was #0d0a08 (Dusk Trail dark).
+    backgroundColor: '#f5ede1',
   },
   plugins: {
     SplashScreen: {
-      // Auto-hide after 2 seconds. The React app has its own SplashScreen.tsx
-      // that animates in beneath/after this — the native one is purely a
-      // bridge while the WebView boots. Set launchAutoHide: false ONLY if
-      // your JS calls SplashScreen.hide() via @capacitor/splash-screen.
+      // Auto-hide after 2 seconds. React mounts its own splash beneath
+      // and takes over after the native splash fades.
       launchAutoHide: true,
       launchShowDuration: 2000,
-      backgroundColor: '#0d0a08',
+      backgroundColor: '#f5ede1',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
     },
     StatusBar: {
-      // Dusk Trail palette — light icons on the dark surface.
+      // Cream/parchment chrome. style:'DARK' = DARK CONTENT (dark icons +
+      // text in the status bar), which is what we want on a light bg.
       style: 'DARK',
-      backgroundColor: '#0d0a08',
+      backgroundColor: '#f5ede1',
       overlaysWebView: false,
     },
   },
