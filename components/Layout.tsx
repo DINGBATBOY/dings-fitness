@@ -91,7 +91,7 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
         style={{
           background: theme.dockBg,
           borderTop: `1px solid ${theme.dockBorder}`,
-          boxShadow: isCreamTab ? '0 -10px 40px rgba(58,40,24,0.08)' : '0 -10px 40px rgba(0,0,0,0.5)',
+          boxShadow: '0 -10px 40px rgba(58,40,24,0.08)',
         }}
       >
         {tabs.map(tab => {
