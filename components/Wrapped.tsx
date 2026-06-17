@@ -291,11 +291,12 @@ export const Wrapped: React.FC<WrappedProps> = ({
 
   // ---- Headline / vibe based on consistency ----
   const consistencyPct = stats.days / (period === 'week' ? 7 : 30);
+  // Cuodi voice vibe headlines — see VOICE.md
   const vibe = useMemo(() => {
-    if (consistencyPct >= 0.85) return { title: 'You showed up.', sub: 'Almost every day. That\'s the work.', tone: 'fire' };
-    if (consistencyPct >= 0.6)  return { title: 'You\'re building something.', sub: 'Real momentum is forming.', tone: 'growing' };
-    if (consistencyPct >= 0.3)  return { title: 'A foundation.', sub: 'Every logged day is a vote for who you\'re becoming.', tone: 'steady' };
-    return { title: 'A start is a start.', sub: 'The next ' + (period === 'week' ? 'week' : 'month') + ' is the one to commit to.', tone: 'fresh' };
+    if (consistencyPct >= 0.85) return { title: 'This is crazy', sub: 'you are more consistent then me and I\'m a program!', tone: 'fire' };
+    if (consistencyPct >= 0.6)  return { title: 'We love to see this!', sub: 'Keep this rolling.', tone: 'growing' };
+    if (consistencyPct >= 0.3)  return { title: 'Keep going!', sub: 'It can only get better from here.', tone: 'steady' };
+    return { title: 'Day by day it will get better', sub: '(if you, ya know use the app)', tone: 'fresh' };
   }, [consistencyPct, period]);
 
   // ----- RENDER ------------------------------------------------------------
@@ -664,12 +665,12 @@ export const Wrapped: React.FC<WrappedProps> = ({
                   <div className="absolute inset-0 bg-gradient-to-br from-[#d97757]/15 via-[#c97b6e]/10 to-[#d4a55a]/12 pointer-events-none" />
                   <div className="relative text-center">
                     <Feather className="w-6 h-6 text-orange-300 mx-auto mb-3" strokeWidth={1.5} />
-                    <div className="text-[10px] uppercase tracking-[0.25em] text-orange-300 font-bold">The trail continues</div>
+                    <div className="text-[10px] uppercase tracking-[0.25em] text-orange-300 font-bold">Your currently forged path</div>
                     <h3 className="text-xl font-bold text-white mt-2">
-                      Walk on, {firstName}.
+                      Walk on, {firstName}
                     </h3>
                     <p className="text-[12px] text-gray-400 mt-2 max-w-[28ch] mx-auto">
-                      Your next reflection is being written one day at a time.
+                      Your steps are forged. Take more.
                     </p>
                     <button
                       onClick={onClose}

@@ -106,7 +106,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.3em] font-medium" style={{ color: C.inkLight }}>{dateString}</p>
           <h2 className="text-xl font-medium tracking-tight mt-1 leading-tight" style={{ color: C.inkMid }}>
-            {greeting},
+            {greeting}
           </h2>
           <h1 className="text-3xl font-bold tracking-tight truncate leading-tight" style={{ color: C.ink }}>
             {firstName}
@@ -156,7 +156,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         >
           <div className="flex-1 min-w-0">
             <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.terracotta }}>
-              Trail adjusting
+              Adjusting your path
             </div>
             <div className="text-[12px] mt-1 leading-snug" style={{ color: C.ink }}>
               {adaptiveSuggestion.reason}

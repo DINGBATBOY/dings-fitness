@@ -124,7 +124,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em]">Trail begins here</p>
 
               <p className="text-[11px] text-gray-400 italic mt-3 h-4">
-                {showForgot ? '' : (isLogin ? "Welcome back. Let's get to work." : "Build something real. Starting today.")}
+                {showForgot ? '' : (isLogin ? "Thought I'd never see you again. No seriously I'm lonely sometimes" : "WELCOME your path begins here")}
               </p>
             </div>
 

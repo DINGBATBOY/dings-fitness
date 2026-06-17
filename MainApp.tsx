@@ -692,9 +692,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const currentHour = useMemo(() => new Date().getHours(), []);
   
   const greeting = useMemo(() => {
-    if (currentHour < 12) return "Good Morning";
-    if (currentHour < 18) return "Good Afternoon";
-    return "Good Evening";
+    // Cuodi voice greetings — see VOICE.md
+    if (currentHour < 12) return "MORNIN";
+    if (currentHour < 18) return "AFTERNOOOON!";
+    return "Good EVENINGGGG!";
   }, [currentHour]);
 
   // Display-formatted date for the hero strip — "Saturday, May 17".
@@ -789,6 +790,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           setIsGeneratingSplit(false);
       }
   }
+
+  // Pick a random voice line from a list. Used so the same toast feels less
+  // robotic on repeat exposure — see VOICE.md for the source samples.
+  const pickVoice = (lines: string[]) => lines[Math.floor(Math.random() * lines.length)];
 
   const triggerToast = (msg: string, durationMs = 3000) => {
     setToastMessage(msg);
@@ -915,7 +920,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     setPendingActivityUndo({ amount: calories, expiresAt });
     // Toast duration matches the undo window so the Undo button stays
     // visible the whole time.
-    triggerToast(`${calories} kcal · movement noted`, 5000);
+    triggerToast(pickVoice([
+      'Mhm getting to work I see',
+      'Another step in the right direction. Keep workin',
+    ]), 5000);
     // Auto-clear the undo window after it expires.
     setTimeout(() => {
       setPendingActivityUndo(curr =>
@@ -945,7 +953,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         todayLog: (prev.todayLog || []).filter(i => !idsToRemove.has(i.id)),
     }));
     setPendingFoodUndo(null);
-    triggerToast('Removed from your trail');
+    triggerToast(pickVoice([
+      'So you just didnt eat that?',
+      'was it really that bad?',
+      "Yeah I'd remove that too",
+    ]));
   };
 
   // Restore the last deleted food item. We splice it back at its original
@@ -1213,7 +1225,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const handleAnalyzeFood = async () => {
     if (foodImages.length === 0 && !foodDescription) return;
     setIsAnalyzingFood(true);
-    setAnalysisTip('');
+    setAnalysisTip(pickVoice([
+      'Trying to figure out what the hell you are eating....',
+      'This (whatever it is, im still figuring it out..) looks yummy',
+    ]));
     try {
       const result = await analyzeFoodEntry(foodImages, foodDescription, 'auto', appState.customMenuItems);
       
@@ -1252,7 +1267,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       setAnalysisNutritionMatchCount((result as any).nutritionMatchCount ?? 0);
       setAnalysisNutritionSkipped((result as any).nutritionSourcesSkipped ?? []);
     } catch (e) {
-      triggerToast('Analysis failed. Try manual entry.');
+      triggerToast("Hm yeah so I dont know what you are eating, you sure its food?");
       console.error(e);
       setAddFoodMode('manual');
     } finally {
@@ -1436,7 +1451,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       const undoExpiresAt = Date.now() + 5000;
       const undoLabel = items.length > 1 ? `${items.length} items` : items[0]?.name || 'item';
       setPendingFoodUndo({ ids: items.map(i => i.id), label: undoLabel, expiresAt: undoExpiresAt });
-      triggerToast(items.length > 1 ? `${items.length} items marked` : 'Marked', 5000);
+      triggerToast(
+        items.length > 1
+          ? `${items.length} items down. Damn you ate huh`
+          : pickVoice([
+              'That must have been yummy',
+              'Really you ate that? HAHA Just kidding',
+            ]),
+        5000,
+      );
       setTimeout(() => {
         setPendingFoodUndo(curr =>
           curr && curr.expiresAt <= Date.now() ? null : curr,
@@ -1460,7 +1483,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           // 5-second undo window. Same pattern as activity-burn / food-add undo.
           const expiresAt = Date.now() + 5000;
           setPendingDeleteUndo({ item: snapshot, index, expiresAt });
-          triggerToast(`Removed ${snapshot.name}`, 5000);
+          triggerToast(pickVoice([
+            `So you just didnt eat that ${snapshot.name}?`,
+            `${snapshot.name}? Was it really that bad?`,
+            `Yeah I'd remove ${snapshot.name} too`,
+          ]), 5000);
           setTimeout(() => {
               setPendingDeleteUndo(curr =>
                   curr && curr.expiresAt <= Date.now() ? null : curr,
@@ -2835,7 +2862,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                             ? "Profile updated. Calories capped at safety minimum."
                             : workoutPrefsChanged
                               ? "Saved. Regenerate Protocol to apply your new preferences."
-                              : "Profile Updated"
+                              : "Yep saved that, you are here forever(okay legally not actually..chill)"
                         );
                     }} className="flex-1 py-3 rounded-xl bg-cyan-500 text-black font-bold uppercase tracking-widest text-xs">Save</button>
                 </div>

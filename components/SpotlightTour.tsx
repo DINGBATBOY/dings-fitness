@@ -84,7 +84,7 @@ interface SpotlightTourProps {
 export const SpotlightTour: React.FC<SpotlightTourProps> = ({
   stops = DEFAULT_TOUR_STOPS,
   onClose,
-  closingLine = "Thats it. Trail starts now — see you tomorrow.",
+  closingLine = "So whats next? Oh yeah im supposed to know sorry! Your path starts here: The steps you take will always be yours. No matter how long your strides are just keeping moving forwards.",
 }) => {
   const [idx, setIdx] = useState(0);
   const [showClosing, setShowClosing] = useState(false);
@@ -183,18 +183,18 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
             className="rounded-3xl w-full max-w-sm p-7"
             style={{ background: C.bg, border: `1px solid ${C.terracotta}30` }}
           >
-            <div className="text-[10px] uppercase tracking-[0.25em] font-bold mb-2" style={{ color: C.terracotta }}>
-              All set
+            <div className="text-[10px] uppercase tracking-[0.25em] font-bold mb-3" style={{ color: C.terracotta }}>
+              Your path begins
             </div>
-            <h2 className="text-2xl font-bold leading-tight" style={{ color: C.ink }}>
+            <p className="text-[15px] leading-snug" style={{ color: C.ink }}>
               {closingLine}
-            </h2>
+            </p>
             <button
               onClick={handleFinish}
               className="mt-6 w-full rounded-full py-3 text-sm font-bold uppercase tracking-widest text-white transition-opacity active:opacity-80"
               style={{ background: C.fire }}
             >
-              Let's go
+              LETS GO
             </button>
           </motion.div>
         </motion.div>
