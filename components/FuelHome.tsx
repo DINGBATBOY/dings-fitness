@@ -59,6 +59,15 @@ interface FuelHomeProps {
   /** Opens the full activity modal for HIIT / Yoga / Manual entries. */
   onOpenActivityModal: () => void;
   hasEnoughDataForWrapped: boolean;
+  /** Adaptive TDEE banner — surfaced when the user has logged ~2 weeks of
+   *  weight + intake data and the engine has a target adjustment to suggest. */
+  adaptiveSuggestion?: {
+    hasEnoughData: boolean;
+    adjustmentKcal?: number;
+    suggestedTdee?: number;
+    reason?: string;
+  };
+  onAcceptAdaptiveSuggestion?: () => void;
 }
 
 export const FuelHome: React.FC<FuelHomeProps> = ({
@@ -76,6 +85,8 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   onLogActivity,
   onOpenActivityModal,
   hasEnoughDataForWrapped,
+  adaptiveSuggestion,
+  onAcceptAdaptiveSuggestion,
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
 
@@ -129,6 +140,42 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           remaining={remainingCal}
         />
       </div>
+
+      {/* ─────── Adaptive TDEE banner ───────
+          Surfaces when the engine has logged enough weight data to suggest
+          a target change. Tap "Accept" to apply. Hidden when adjustment
+          is trivial (<50 kcal) — no point asking the user. */}
+      {adaptiveSuggestion?.hasEnoughData &&
+       Math.abs(adaptiveSuggestion.adjustmentKcal || 0) >= 50 && (
+        <div
+          className="rounded-2xl p-4 mb-4 flex items-start gap-3"
+          style={{
+            background: `${C.terracotta}10`,
+            border: `1px solid ${C.terracotta}40`,
+          }}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.terracotta }}>
+              Trail adjusting
+            </div>
+            <div className="text-[12px] mt-1 leading-snug" style={{ color: C.ink }}>
+              {adaptiveSuggestion.reason}
+            </div>
+            <div className="flex gap-2 mt-2.5">
+              <button
+                onClick={onAcceptAdaptiveSuggestion}
+                className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest text-white"
+                style={{ background: C.fire }}
+              >
+                Accept
+              </button>
+              <span className="text-[10px] self-center" style={{ color: C.inkLight }}>
+                or keep current target
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─────── Tracking ─────── */}
       <SectionTitle label="Tracking" small />

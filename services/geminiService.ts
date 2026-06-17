@@ -332,6 +332,46 @@ export const generateSmartSplit = async (
       "Use unilateral and tempo variations for progression.",
   };
 
+  // Pairing template by daysPerWeek — proven splits used across the lifting
+  // literature. Gemini gets the template as a STRONG suggestion (not a rigid
+  // rule) so it shapes a coherent week rather than improvising six different
+  // "upper body" days.
+  const pairingTemplate: Record<number, string> = {
+    3: "Full-body 3x: each session hits squat-pattern, hinge-pattern, push, pull, and a core/conditioning finisher. 48hrs rest between sessions ideal.",
+    4: "Upper/Lower 4x: Upper A (horizontal push + vertical pull focus) / Lower A (squat focus) / Upper B (vertical push + horizontal pull focus) / Lower B (hinge focus).",
+    5: "Push/Pull/Legs/Upper/Lower OR Bro split: Mon=Chest, Tue=Back, Wed=Legs, Thu=Shoulders+arms, Fri=Posterior chain. Pick whichever fits the user's goal — PPL for general, bro for hypertrophy bias.",
+    6: "Push/Pull/Legs 2x: PPL Mon-Wed (heavy), PPL Thu-Sat (volume), Sunday rest. Lower volume per session but each muscle hits twice weekly.",
+  };
+
+  // Rest periods by intensity, in seconds — for the rest_seconds hint we ask
+  // Gemini to set per exercise.
+  const restPeriodGuide = `
+Rest periods (mandatory hint per exercise):
+  • Heavy compound (squat, deadlift, bench, OHP) — 120-180s
+  • Moderate compound (rows, presses, pulldowns) — 90-120s
+  • Isolation (curls, lateral raises, leg curls) — 60-90s
+  • Cardio/conditioning intervals — 30-60s or as prescribed`;
+
+  const periodizationGuide = `
+Periodization — week 1 of a 4-week mesocycle:
+  • Volume: at the lower end of the prescription range (e.g. 3 sets, not 5)
+  • Intensity: leave 2-3 reps in reserve (RIR) per working set
+  • This baseline lets the user progress weight/reps over weeks 2-4 before deloading on week 5.
+  • Mention RIR in the exercise notes field so users see it.`;
+
+  const exerciseVarietyRules = `
+Exercise variety rules — non-negotiable:
+  1. Do NOT repeat the exact same exercise within the same training week.
+     (Variation is fine: "Barbell Back Squat" Monday and "Front Squat" Friday is OK; same exercise twice is not.)
+  2. Each training day must include AT LEAST ONE compound (multi-joint) movement.
+  3. Avoid more than 3 isolation exercises per session — if you find yourself
+     prescribing 4+, drop one and add a compound.
+  4. For 5- or 6-day splits, vary the rep ranges across the week:
+     some days low-rep heavy (4-6), some moderate (8-12), some high (12-20).
+  5. ALWAYS include at least one posterior-chain exercise per week
+     (hinge, row, face-pull, reverse-fly, RDL, hip thrust, etc.) — this is
+     the most common gap in self-generated programs.`;
+
   const prompt = `Generate a 7-day workout split (Monday-Sunday) tailored to this user.
 
 GOAL: ${sanitize(goal, 200)}
@@ -354,6 +394,15 @@ Aim for ${exerciseCount[sessionMinutes]} per workout day.
 EQUIPMENT CONSTRAINTS:
 ${equipmentGuide[equipment]}
 
+PAIRING TEMPLATE — start here, then adapt to the user's goal:
+${pairingTemplate[daysPerWeek]}
+
+${exerciseVarietyRules}
+
+${restPeriodGuide}
+
+${periodizationGuide}
+
 REQUIREMENTS:
 1. Schedule exactly ${daysPerWeek} TRAINING days and ${7 - daysPerWeek} REST days across the week.
 2. Put training days on high-energy days when possible; rest/light on busy days.
@@ -361,9 +410,18 @@ REQUIREMENTS:
 4. Use specific exercise names (e.g. "Goblet Squat" not just "Legs").
 5. Match exercises to the equipment constraint above — do NOT prescribe equipment the user doesn't have.
 6. For each training day, set "intensity" to one of: "Light", "Moderate", "High".
-7. For each training day, set "label" to something descriptive like "Upper Push" or "Lower + Core" — not just the day name.
-8. For rest days, set "exercises" to an empty array [] and "label" to "Rest" (or "Active Recovery" if user is Very/Extra active).
-9. For each exercise, provide both a gymAlternative AND a homeAlternative so users can adapt if their equipment situation changes.
+   Pair intensity with the user's high-energy days (High goes on those days).
+7. For each training day, set "label" descriptively — name the focus AND the
+   pattern: e.g. "Upper Push · Heavy Bench", "Lower · Squat Focus", "Pull Day
+   · Vertical & Horizontal". Don't write generic "Upper Day".
+8. For rest days, set "exercises" to an empty array [] and "label" to "Rest"
+   (or "Active Recovery: walk / mobility" if user is Very/Extra active).
+9. For each exercise, provide both a gymAlternative AND a homeAlternative
+   so users can adapt if their equipment situation changes.
+10. End each session with a SHORT compound finisher when there's time
+    (carry, sled, jump rope, plank, hill sprint) for goals other than pure
+    hypertrophy bulking.
+11. ${goal?.toLowerCase().includes('bulk') ? 'BULK: bias toward 8-12 rep hypertrophy range, longer rest, more isolation work in the back half of the week.' : goal?.toLowerCase().includes('weight loss') || goal?.toLowerCase().includes('lean') ? 'CUT/LEAN: keep working sets to 3-4, add short conditioning finishers to 4 of the training days, avoid grinding singles.' : goal?.toLowerCase().includes('recomp') ? 'RECOMP: heavy compound work early week (4-6 reps), volume isolations late week, one conditioning day.' : goal?.toLowerCase().includes('performance') ? 'PERFORMANCE: prioritize power output (3-5 reps on main lifts) and movement quality. Include sport-specific carry-over.' : 'GENERAL: balanced mix of strength, hypertrophy, and conditioning across the week.'}
 `;
 
   const response = await callGeminiProxy({

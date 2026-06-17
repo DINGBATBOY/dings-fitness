@@ -64,6 +64,28 @@ export interface WorkoutPreferences {
   equipment?: EquipmentAccess;
 }
 
+// ============================================================================
+//  Macro Split Preferences
+// ============================================================================
+// Controls how the leftover calories (after protein) are divided between
+// carbs and fat. 'balanced' is the default — matches the formula we shipped
+// originally (55/45 carb/fat of remaining). Other modes shift the ratio.
+export type MacroSplit = 'balanced' | 'low-carb' | 'high-protein' | 'keto';
+
+// ============================================================================
+//  Adaptive TDEE State (per-user, persisted)
+// ============================================================================
+// When the adaptive TDEE engine has enough data to suggest a target update,
+// we cache the result so we don't recompute on every render. `lastAppliedAt`
+// gates how often we re-prompt the user (e.g. weekly).
+export interface AdaptiveTDEEState {
+  suggestedTdee: number;
+  adjustmentKcal: number;
+  computedAt: string;     // ISO timestamp when computeAdaptiveTDEE last ran
+  lastAppliedAt?: string; // ISO timestamp when the user last accepted a change
+  reason: string;
+}
+
 export interface UserProfile {
   name: string;
   age: number;
@@ -86,6 +108,11 @@ export interface UserProfile {
   // When true (default), items logged 5+ times are auto-favorited.
   // Set to false explicitly to disable.
   autoFavoriteEnabled?: boolean;
+  // Macro split preference — controls how non-protein calories are divided
+  // between carbs and fat. Defaults to 'balanced' if unset.
+  macroSplit?: MacroSplit;
+  // Cached adaptive TDEE state. Recomputed weekly; cleared on profile reset.
+  adaptiveTdee?: AdaptiveTDEEState;
 }
 
 export interface WorkoutExercise {

@@ -206,11 +206,35 @@ export interface MacroResult {
   minSafeCalories: number;     // The floor we used
 }
 
+// Macro split presets — controls the carb/fat ratio of remaining calories
+// (after protein). Each preset also gets a slight protein bump if appropriate.
+//
+//   • balanced       — 55% carbs / 45% fat (the original default)
+//   • low-carb       — 30% carbs / 70% fat
+//   • high-protein   — 60% carbs / 40% fat + bumped protein ratio
+//   • keto           — 10% carbs / 90% fat (ketogenic — protein moderate)
+export type MacroSplitMode = 'balanced' | 'low-carb' | 'high-protein' | 'keto';
+
+interface SplitRules {
+  carbFraction: number;
+  fatFraction: number;
+  /** Override on top of the goal-based protein ratio. */
+  proteinBoost?: number;
+}
+
+const SPLIT_RULES: Record<MacroSplitMode, SplitRules> = {
+  'balanced':      { carbFraction: 0.55, fatFraction: 0.45 },
+  'low-carb':      { carbFraction: 0.30, fatFraction: 0.70 },
+  'high-protein':  { carbFraction: 0.60, fatFraction: 0.40, proteinBoost: 0.15 },
+  'keto':          { carbFraction: 0.10, fatFraction: 0.90 },
+};
+
 export const CALCULATE_MACROS = (
   tdee: number,
   goal: string,
   weightLbs: number,
   sex?: string,
+  splitMode: MacroSplitMode = 'balanced',
 ): MacroResult => {
   let targetCalories = tdee;
   let proteinRatio = 0.85; // Default Lean/Athletic
@@ -234,6 +258,10 @@ export const CALCULATE_MACROS = (
       targetCalories = tdee - 300;
   }
 
+  // Apply split-mode protein boost (e.g. high-protein mode adds 0.15 g/lb).
+  const rules = SPLIT_RULES[splitMode] || SPLIT_RULES['balanced'];
+  proteinRatio += rules.proteinBoost || 0;
+
   // SAFETY FLOOR: clamp to the higher of (sex-based absolute floor, 75% of TDEE).
   // This protects against unsafe deficits regardless of how aggressive the
   // user's goal is. We track whether we clamped so the UI can surface it.
@@ -244,10 +272,10 @@ export const CALCULATE_MACROS = (
 
   const protein = Math.round(weightLbs * proteinRatio);
   const proteinCalories = protein * 4;
-  const remainingCalories = finalCalories - proteinCalories;
+  const remainingCalories = Math.max(0, finalCalories - proteinCalories);
 
-  const carbs = Math.max(0, Math.round((remainingCalories * 0.55) / 4));
-  const fat = Math.max(0, Math.round((remainingCalories * 0.45) / 9));
+  const carbs = Math.max(0, Math.round((remainingCalories * rules.carbFraction) / 4));
+  const fat = Math.max(0, Math.round((remainingCalories * rules.fatFraction) / 9));
 
   return {
     calories: finalCalories,

@@ -16,6 +16,7 @@ import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
 import { FuelHome } from './components/FuelHome';
+import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
@@ -154,20 +155,59 @@ const safeFloat = (val: any): number => {
 //  Dashboard helpers
 // ============================================================================
 
-// METs from the Compendium of Physical Activities (Ainsworth et al.).
+// METs from the Compendium of Physical Activities (Ainsworth et al., 2011).
 // Used to estimate calorie burn = MET × weight_kg × hours.
-const ACTIVITY_METS = {
-  running: 9.8,   // 6 mph
-  weights: 5.0,   // vigorous strength training
-  cycling: 8.0,   // 12-14 mph
-  walking: 4.3,   // brisk walk
-  hiit: 8.0,
-  yoga: 3.0,
-} as const;
+//
+// Each activity has three intensity levels. A flat default = moderate so
+// quick-tap pills on the home screen stay one-shot, while the activity
+// modal lets the user pick easy/moderate/hard explicitly.
+type Intensity = 'easy' | 'moderate' | 'hard';
+type ActivityKind =
+  | 'running' | 'weights' | 'cycling' | 'walking' | 'hiit' | 'yoga'
+  | 'swimming' | 'hiking' | 'rowing' | 'elliptical' | 'jump-rope'
+  | 'basketball' | 'soccer' | 'tennis' | 'dance';
+
+const ACTIVITY_METS_BY_INTENSITY: Record<ActivityKind, Record<Intensity, number>> = {
+  // Cardio — running scales fastest with intensity (jog → sprint).
+  running:    { easy: 6.0,  moderate: 9.8,  hard: 12.5 },
+  cycling:    { easy: 4.0,  moderate: 8.0,  hard: 11.0 },
+  walking:    { easy: 2.5,  moderate: 4.3,  hard: 5.5  },
+  swimming:   { easy: 4.5,  moderate: 7.0,  hard: 10.0 },
+  hiking:     { easy: 4.5,  moderate: 6.5,  hard: 8.5  },
+  rowing:     { easy: 5.0,  moderate: 7.5,  hard: 9.5  },
+  elliptical: { easy: 4.5,  moderate: 6.5,  hard: 8.5  },
+  'jump-rope':{ easy: 8.0,  moderate: 11.0, hard: 12.5 },
+  // Strength — MET stays moderate-ish; hard ≈ supersets/circuit work.
+  weights:    { easy: 3.5,  moderate: 5.0,  hard: 6.5  },
+  // HIIT/conditioning
+  hiit:       { easy: 6.0,  moderate: 8.0,  hard: 10.5 },
+  // Mind-body / flexibility
+  yoga:       { easy: 2.0,  moderate: 3.0,  hard: 5.0  }, // hard ≈ power vinyasa
+  // Sports — pickup-game pace assumed for "moderate."
+  basketball: { easy: 5.0,  moderate: 7.0,  hard: 9.0  },
+  soccer:     { easy: 6.0,  moderate: 8.0,  hard: 10.0 },
+  tennis:     { easy: 5.0,  moderate: 7.0,  hard: 8.5  },
+  dance:      { easy: 3.5,  moderate: 5.0,  hard: 7.5  },
+};
+
+// Backward-compat default (moderate) for existing call sites.
+const ACTIVITY_METS = Object.fromEntries(
+  Object.entries(ACTIVITY_METS_BY_INTENSITY).map(([k, v]) => [k, v.moderate]),
+) as Record<ActivityKind, number>;
 
 const personalizedBurn = (weightLbs: number, met: number, minutes: number = 30): number => {
   const weightKg = (weightLbs || 150) / 2.20462;
   return Math.round(met * weightKg * (minutes / 60));
+};
+
+const personalizedBurnAt = (
+  weightLbs: number,
+  kind: ActivityKind,
+  intensity: Intensity = 'moderate',
+  minutes: number = 30,
+): number => {
+  const met = ACTIVITY_METS_BY_INTENSITY[kind]?.[intensity] ?? 5;
+  return personalizedBurn(weightLbs, met, minutes);
 };
 
 // Meal categorization based on item timestamp.
@@ -350,10 +390,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // Quick-add custom activity modal (replaces the old window.prompt() UX).
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [activityModalForm, setActivityModalForm] = useState<{
-    kind: 'running' | 'weights' | 'cycling' | 'walking' | 'hiit' | 'yoga' | 'manual';
+    kind: ActivityKind | 'manual';
+    intensity: Intensity;
     minutes: number;
     manualKcal: string; // string for input control
-  }>({ kind: 'running', minutes: 30, manualKcal: '' });
+  }>({ kind: 'running', intensity: 'moderate', minutes: 30, manualKcal: '' });
   const [activityLogValue, setActivityLogValue] = useState('');
 
   // Profile Edit State
@@ -749,8 +790,64 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.sex,
       bf,
     );
-    return CALCULATE_MACROS(tdee, appState.profile.goal, appState.profile.weight, appState.profile.sex);
+    return CALCULATE_MACROS(tdee, appState.profile.goal, appState.profile.weight, appState.profile.sex, appState.profile.macroSplit);
   }, [appState.profile, appState.nutritionTargets]);
+
+  // Adaptive TDEE — re-estimates the user's maintenance level from their
+  // logged weight trend + intake. Returns hasEnoughData=false until ~10 days
+  // of weight logs are available. The suggestion is offered to the user
+  // (in the dashboard banner); they accept by tapping a button which writes
+  // it back to the profile's nutrition targets.
+  const adaptiveSuggestion = useMemo(() => {
+    if (!appState.profile || !appState.dailyLogs) {
+      return { hasEnoughData: false };
+    }
+    const bf = appState.profile.inBodyData?.pbf ?? appState.profile.bodyFat;
+    const formulaTDEE = CALCULATE_TDEE(
+      appState.profile.weight,
+      appState.profile.height,
+      appState.profile.age,
+      appState.profile.activityLevel,
+      appState.profile.sex,
+      bf,
+    );
+    return computeAdaptiveTDEE(appState.profile, appState.dailyLogs, formulaTDEE);
+  }, [appState.profile, appState.dailyLogs]);
+
+  // Apply an adaptive suggestion by recomputing macros at the new TDEE
+  // and writing them as the user's persistent nutrition targets.
+  const acceptAdaptiveSuggestion = useCallback(() => {
+    if (!appState.profile || !adaptiveSuggestion.hasEnoughData || !adaptiveSuggestion.suggestedTdee) return;
+    const newMacros = CALCULATE_MACROS(
+      adaptiveSuggestion.suggestedTdee,
+      appState.profile.goal,
+      appState.profile.weight,
+      appState.profile.sex,
+      appState.profile.macroSplit,
+    );
+    const newTargets = {
+      calories: newMacros.calories,
+      protein: newMacros.protein,
+      carbs: newMacros.carbs,
+      fat: newMacros.fat,
+    };
+    handleUpdateAppState(prev => ({
+      ...prev,
+      nutritionTargets: newTargets,
+      profile: prev.profile ? {
+        ...prev.profile,
+        adaptiveTdee: {
+          suggestedTdee: adaptiveSuggestion.suggestedTdee!,
+          adjustmentKcal: adaptiveSuggestion.adjustmentKcal || 0,
+          computedAt: new Date().toISOString(),
+          lastAppliedAt: new Date().toISOString(),
+          reason: adaptiveSuggestion.reason || '',
+        },
+      } : prev.profile,
+    }));
+    const dir = (adaptiveSuggestion.adjustmentKcal || 0) > 0 ? 'raised' : 'lowered';
+    triggerToast(`Target ${dir} to ${newTargets.calories} kcal`, 4000);
+  }, [appState.profile, adaptiveSuggestion]);
 
   const consumedMacros = useMemo(() => {
     const today = appState.todayLog || [];
@@ -2038,6 +2135,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           }}
           onOpenActivityModal={() => setShowActivityModal(true)}
           hasEnoughDataForWrapped={(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2}
+          adaptiveSuggestion={adaptiveSuggestion}
+          onAcceptAdaptiveSuggestion={acceptAdaptiveSuggestion}
         />
       )}
 
@@ -2526,6 +2625,41 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         </select>
                     </div>
 
+                    {/* MACRO SPLIT — how the non-protein calories divide between
+                        carbs and fat. Defaults to 'balanced'. Picker recomputes
+                        the user's daily macros on save. */}
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Macro Split</label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            {([
+                                { value: 'balanced',     display: 'Balanced',     hint: '55C / 45F' },
+                                { value: 'high-protein', display: 'High-protein', hint: '+ protein' },
+                                { value: 'low-carb',     display: 'Low-carb',     hint: '30C / 70F' },
+                                { value: 'keto',         display: 'Keto',         hint: '10C / 90F' },
+                            ] as const).map(opt => {
+                                const current = (editProfileData.macroSplit !== undefined
+                                    ? editProfileData.macroSplit
+                                    : appState.profile?.macroSplit) || 'balanced';
+                                const selected = current === opt.value;
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => setEditProfileData(prev => ({...prev, macroSplit: opt.value as any}))}
+                                        className={`flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-all ${
+                                            selected
+                                                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
+                                                : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        <span className="text-[11px] font-bold uppercase tracking-widest">{opt.display}</span>
+                                        <span className="text-[9px] mt-0.5 opacity-70">{opt.hint}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     {/* WORKOUT PREFERENCES — drives the AI-generated workout split.
                         Existing users (onboarded before this section existed) can
                         fill these in here without going through full onboarding. */}
@@ -2640,7 +2774,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         // Body-composition-aware BMR: prefer InBody scan, fall back to manual bodyFat entry.
                         const bf = newProfile.inBodyData?.pbf ?? newProfile.bodyFat;
                         const tdee = CALCULATE_TDEE(newProfile.weight, newProfile.height, newProfile.age, newProfile.activityLevel, newProfile.sex, bf);
-                        const macroResult = CALCULATE_MACROS(tdee, newProfile.goal, newProfile.weight, newProfile.sex);
+                        const macroResult = CALCULATE_MACROS(tdee, newProfile.goal, newProfile.weight, newProfile.sex, newProfile.macroSplit);
                         // Strip MacroResult to NutritionTargets shape (drop floor metadata).
                         const targets = {
                             calories: macroResult.calories,
@@ -2734,31 +2868,67 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             {/* Activity picker */}
             <div>
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Activity</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2 max-h-44 overflow-y-auto pr-1">
                 {[
-                  { key: 'running', emoji: '🏃', label: 'Running' },
-                  { key: 'weights', emoji: '🏋️', label: 'Weights' },
-                  { key: 'cycling', emoji: '🚴', label: 'Cycling' },
-                  { key: 'walking', emoji: '🚶', label: 'Walking' },
-                  { key: 'hiit',    emoji: '🔥', label: 'HIIT' },
-                  { key: 'yoga',    emoji: '🧘', label: 'Yoga' },
-                  { key: 'manual',  emoji: '✏️', label: 'Manual' },
+                  { key: 'running',    emoji: '🏃',  label: 'Running' },
+                  { key: 'weights',    emoji: '🏋️',  label: 'Weights' },
+                  { key: 'cycling',    emoji: '🚴',  label: 'Cycling' },
+                  { key: 'walking',    emoji: '🚶',  label: 'Walking' },
+                  { key: 'hiking',     emoji: '🥾',  label: 'Hiking' },
+                  { key: 'swimming',   emoji: '🏊',  label: 'Swim' },
+                  { key: 'rowing',     emoji: '🚣',  label: 'Rowing' },
+                  { key: 'elliptical', emoji: '⚙️',  label: 'Elliptical' },
+                  { key: 'jump-rope',  emoji: '⤵️',  label: 'Jump Rope' },
+                  { key: 'hiit',       emoji: '🔥',  label: 'HIIT' },
+                  { key: 'yoga',       emoji: '🧘',  label: 'Yoga' },
+                  { key: 'basketball', emoji: '🏀',  label: 'Basketball' },
+                  { key: 'soccer',     emoji: '⚽',  label: 'Soccer' },
+                  { key: 'tennis',     emoji: '🎾',  label: 'Tennis' },
+                  { key: 'dance',      emoji: '💃',  label: 'Dance' },
+                  { key: 'manual',     emoji: '✏️',  label: 'Manual' },
                 ].map(opt => (
                   <button
                     key={opt.key}
                     onClick={() => setActivityModalForm({ ...activityModalForm, kind: opt.key as any })}
-                    className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[9px] font-bold uppercase tracking-wider transition-all ${
                       activityModalForm.kind === opt.key
                         ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
                         : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
                     }`}
                   >
-                    <span className="text-xl mb-0.5">{opt.emoji}</span>
+                    <span className="text-lg mb-0.5">{opt.emoji}</span>
                     {opt.label}
                   </button>
                 ))}
               </div>
             </div>
+
+            {/* Intensity picker — hidden for manual entry */}
+            {activityModalForm.kind !== 'manual' && (
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Intensity</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { value: 'easy',     label: 'Easy',     hint: 'conversational' },
+                    { value: 'moderate', label: 'Moderate', hint: 'breathing harder' },
+                    { value: 'hard',     label: 'Hard',     hint: "can't talk" },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setActivityModalForm({ ...activityModalForm, intensity: opt.value })}
+                      className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition-all ${
+                        activityModalForm.intensity === opt.value
+                          ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+                          : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                      }`}
+                    >
+                      <span className="text-[10px] font-bold uppercase tracking-widest">{opt.label}</span>
+                      <span className="text-[9px] mt-0.5 opacity-70">{opt.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Duration (for MET-based) or manual kcal entry */}
             {activityModalForm.kind === 'manual' ? (
@@ -2798,10 +2968,14 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             {/* Estimated burn preview */}
             {(() => {
               const isManual = activityModalForm.kind === 'manual';
-              const met = isManual ? 0 : ACTIVITY_METS[activityModalForm.kind as keyof typeof ACTIVITY_METS];
               const estimated = isManual
                 ? Number(activityModalForm.manualKcal) || 0
-                : personalizedBurn(appState.profile.weight, met, activityModalForm.minutes);
+                : personalizedBurnAt(
+                    appState.profile.weight,
+                    activityModalForm.kind as ActivityKind,
+                    activityModalForm.intensity,
+                    activityModalForm.minutes,
+                  );
               return (
                 <div className="bg-orange-500/8 border border-orange-500/25 rounded-xl px-4 py-3 flex items-center justify-between">
                   <span className="text-[10px] font-bold text-orange-300 uppercase tracking-widest">Estimated burn</span>
@@ -2823,10 +2997,14 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               <button
                 onClick={() => {
                   const isManual = activityModalForm.kind === 'manual';
-                  const met = isManual ? 0 : ACTIVITY_METS[activityModalForm.kind as keyof typeof ACTIVITY_METS];
                   const kcal = isManual
                     ? Number(activityModalForm.manualKcal) || 0
-                    : personalizedBurn(appState.profile.weight, met, activityModalForm.minutes);
+                    : personalizedBurnAt(
+                        appState.profile.weight,
+                        activityModalForm.kind as ActivityKind,
+                        activityModalForm.intensity,
+                        activityModalForm.minutes,
+                      );
                   if (kcal > 0) logActivity(kcal);
                   setShowActivityModal(false);
                 }}
