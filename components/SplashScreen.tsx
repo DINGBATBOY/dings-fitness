@@ -1,90 +1,147 @@
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
 
+/**
+ * SplashScreen — Mati-Watsā era.
+ *
+ * Replaces the cyberpunk "DINGS OS" splash with a quieter cream-themed
+ * moment: a feather-fletched arrow draws itself across the screen, the
+ * fletching unfurls, the word "DING!" lands beneath. About 2.5 seconds
+ * total before the parent calls onComplete.
+ *
+ * The arrow is intentionally simple line art — a few SVG paths. No
+ * gradients, no neon glow. Made to feel like ink on parchment.
+ */
+
 interface SplashScreenProps {
   onComplete: () => void;
 }
 
+// ───────────── Cream palette (kept inline so this file has no deps) ─────────
+const C = {
+  bg: '#f5ede1',
+  ink: '#3a2818',
+  inkMid: '#7a6555',
+  inkLight: '#a09080',
+  terracotta: '#7a4a30',
+  ochre: '#b88860',
+  fire: '#d97757',
+};
+
 export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onComplete();
-    }, 2700); // Wait 2.4s + 300ms fade out, trigger a bit after 2400ms. We will trigger around 2500ms
+    const timer = setTimeout(onComplete, 2700);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
+  // Length of the arrow shaft in user units, used for the draw-in animation.
+  const SHAFT_LENGTH = 168;
+
   return (
     <motion.div
-      className="fixed inset-0 bg-[#0d0a08] z-50 flex flex-col items-center justify-center overflow-hidden noise-bg"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden noise-bg"
+      style={{ background: C.bg }}
       initial={{ opacity: 1 }}
       animate={{ opacity: 0 }}
       transition={{ delay: 2.4, duration: 0.3 }}
-      onAnimationComplete={() => {
-        // We'll rely on the setTimeout to actually unmount or change phase
-      }}
     >
-      {/* Background Orbs — warmer dusk tones */}
-      <div className="absolute top-0 left-0 w-[200px] md:w-[400px] h-[200px] md:h-[400px] rounded-full opacity-[0.04] blur-[100px] md:blur-[200px] translate-x-[-20%] translate-y-[-20%]" style={{ background: '#d97757' }} />
-      <div className="absolute bottom-0 right-0 w-[200px] md:w-[400px] h-[200px] md:h-[400px] rounded-full opacity-[0.04] blur-[100px] md:blur-[200px] translate-x-[20%] translate-y-[20%]" style={{ background: '#d4a55a' }} />
-
-      <div className="relative flex flex-col items-center">
-        {/* Phase 2: Dot -> Phase 3: Line */}
-        <div className="relative flex items-center justify-center h-16 w-[300px]">
-          {/* The dusk-terracotta dot / line */}
-          <div
-            className="absolute h-[2px] rounded-full"
-            style={{ background: '#d97757' }}
-            style={{
-              animation: 'splashDot 0.5s ease 0.4s forwards, splashLine 0.5s ease 0.9s forwards',
-              opacity: 0,
-              width: '80px', // final width after line animation
-            }}
+      <div className="relative flex flex-col items-center" style={{ width: 280 }}>
+        {/* ───────────── Feather arrow ───────────── */}
+        <svg width={280} height={100} viewBox="0 0 280 100" fill="none" aria-hidden>
+          {/* Arrow shaft — draws in left-to-right */}
+          <motion.line
+            x1={56} y1={50} x2={56 + SHAFT_LENGTH} y2={50}
+            stroke={C.terracotta}
+            strokeWidth={2}
+            strokeLinecap="round"
+            initial={{ pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 1 }}
+            transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
           />
-          
-          {/* DINGS OS text */}
-          <div
-            className="absolute flex items-center gap-24"
-            style={{
-              opacity: 0,
-              animation: 'statusIn 0.5s ease 0.9s forwards',
-            }}
-          >
-            <span className="font-orbitron font-bold text-white text-4xl tracking-tighter">DINGS</span>
-            <span className="font-orbitron font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#d97757] to-[#d4a55a] text-4xl tracking-tighter">OS</span>
-          </div>
-        </div>
 
-        {/* Phase 4: Progress Bar */}
-        <div className="mt-8 flex flex-col items-center">
-          <div 
-            className="w-[120px] h-[2px] bg-gray-800 rounded-full overflow-hidden"
-            style={{ opacity: 0, animation: 'statusIn 0.3s ease 1.4s forwards' }}
-          >
-            <div
-              className="h-full bg-gradient-to-r from-[#d97757] to-[#d4a55a]"
-              style={{ animation: 'splashProgress 0.6s ease-out 1.4s forwards' }}
+          {/* Arrowhead — appears once the shaft has drawn in */}
+          <motion.polygon
+            points={`${56 + SHAFT_LENGTH + 18},50 ${56 + SHAFT_LENGTH - 2},42 ${56 + SHAFT_LENGTH - 2},58`}
+            fill={C.terracotta}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.25, delay: 0.85, ease: 'backOut' }}
+            style={{ transformOrigin: `${56 + SHAFT_LENGTH}px 50px` }}
+          />
+
+          {/* Fletching — three feathers fanning out from the tail */}
+          <g style={{ transformOrigin: '56px 50px' }}>
+            {/* Upper feather */}
+            <motion.path
+              d="M 56 50 Q 38 36, 22 28 Q 30 38, 44 46 Z"
+              fill={C.fire}
+              stroke={C.terracotta}
+              strokeWidth={1}
+              strokeLinejoin="round"
+              initial={{ opacity: 0, x: 8, y: 8 }}
+              animate={{ opacity: 1, x: 0, y: 0 }}
+              transition={{ duration: 0.35, delay: 1.0, ease: 'easeOut' }}
             />
-          </div>
-          <div
-            className="mt-3 text-[8px] text-gray-600 uppercase tracking-[0.3em]"
-            style={{ opacity: 0, animation: 'statusIn 0.3s ease 1.4s forwards' }}
-          >
-            GATHERING STRENGTH
-          </div>
-        </div>
+            {/* Center feather */}
+            <motion.path
+              d="M 56 50 Q 36 50, 18 50 Q 30 50, 44 50 Z"
+              fill={C.ochre}
+              stroke={C.terracotta}
+              strokeWidth={1}
+              strokeLinejoin="round"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.35, delay: 1.1, ease: 'easeOut' }}
+            />
+            {/* Lower feather */}
+            <motion.path
+              d="M 56 50 Q 38 64, 22 72 Q 30 62, 44 54 Z"
+              fill={C.fire}
+              stroke={C.terracotta}
+              strokeWidth={1}
+              strokeLinejoin="round"
+              initial={{ opacity: 0, x: 8, y: -8 }}
+              animate={{ opacity: 1, x: 0, y: 0 }}
+              transition={{ duration: 0.35, delay: 1.2, ease: 'easeOut' }}
+            />
+            {/* Feather spines (subtle interior detail) */}
+            <motion.g
+              stroke={C.terracotta}
+              strokeWidth={0.6}
+              strokeLinecap="round"
+              opacity={0.6}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.6 }}
+              transition={{ duration: 0.4, delay: 1.4 }}
+            >
+              <line x1={30} y1={36} x2={50} y2={48} />
+              <line x1={26} y1={50} x2={50} y2={50} />
+              <line x1={30} y1={64} x2={50} y2={52} />
+            </motion.g>
+          </g>
+        </svg>
 
-        {/* Phase 5: Status lines — warrior-coded, serene framing */}
-        <div className="mt-12 flex flex-col items-center gap-2">
-          <div className="status-line text-[9px] font-mono text-gray-500" style={{ animationDelay: '1.9s' }}>
-            🪶 TRAIL PREPARED
-          </div>
-          <div className="status-line text-[9px] font-mono text-gray-500" style={{ animationDelay: '2.05s' }}>
-            ▸ STRENGTH GATHERED
-          </div>
-          <div className="status-line text-[9px] font-mono" style={{ animationDelay: '2.2s', color: '#d4a55a' }}>
-            ▸ READY
-          </div>
-        </div>
+        {/* ───────────── DING! wordmark ───────────── */}
+        <motion.div
+          className="font-orbitron font-bold tracking-tight text-5xl mt-3 select-none"
+          style={{ color: C.ink, letterSpacing: '-0.02em' }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 1.5, ease: 'easeOut' }}
+        >
+          DING<span style={{ color: C.fire }}>!</span>
+        </motion.div>
+
+        {/* ───────────── Subtle subtitle ───────────── */}
+        <motion.div
+          className="text-[10px] uppercase tracking-[0.3em] mt-3"
+          style={{ color: C.inkLight }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4, delay: 1.85 }}
+        >
+          Walk the trail
+        </motion.div>
       </div>
     </motion.div>
   );

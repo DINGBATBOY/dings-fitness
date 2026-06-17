@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { marked } from 'marked';
 import { Layout } from './components/Layout';
 import { ProgressRing } from './components/ProgressRing';
@@ -288,6 +288,17 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
+  // Direction of the page-turn transition. Positive when moving to a
+  // later tab (forward), negative when going back. Recomputed inside the
+  // tab-switch handler below. Default forward feels right on first paint.
+  const TAB_ORDER = ['dashboard', 'restaurants', 'journal', 'reflect', 'workouts', 'coach', 'profile'];
+  const [pageTurnDirection, setPageTurnDirection] = useState<1 | -1>(1);
+  const switchTab = useCallback((next: string) => {
+    setPageTurnDirection(
+      TAB_ORDER.indexOf(next) >= TAB_ORDER.indexOf(activeTab) ? 1 : -1,
+    );
+    setActiveTab(next);
+  }, [activeTab]);
   const [isGeneratingSplit, setIsGeneratingSplit] = useState(false);
   const [showAddFood, setShowAddFood] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -1478,7 +1489,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const waterTarget = Math.round(currentProfile.weight * 0.5);
 
   return (
-    <Layout activeTab={activeTab} onTabChange={setActiveTab} profile={currentProfile}>
+    <Layout activeTab={activeTab} onTabChange={switchTab} profile={currentProfile}>
       {showToast && (() => {
         // Pick the active undo, preferring the MOST RECENTLY set one (each
         // new action overwrites the prior toast anyway, so the freshest
@@ -1971,6 +1982,38 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             </div>
       )}
 
+      {/* ───────────── Page-turn tab transition ─────────────
+          Wrap all the tab content blocks in a single motion.div whose
+          `key` is activeTab. AnimatePresence sees the key change, exits
+          the outgoing page with a subtle 3D rotateY + slide, and brings
+          the incoming page in from the opposite direction. The `custom`
+          prop carries the direction (1 = forward in TAB_ORDER, -1 = back). */}
+      <div style={{ perspective: 1200 }}>
+        <AnimatePresence mode="wait" custom={pageTurnDirection}>
+          <motion.div
+            key={activeTab}
+            custom={pageTurnDirection}
+            variants={{
+              enter: (d: number) => ({
+                opacity: 0,
+                rotateY: d > 0 ? 28 : -28,
+                x: d > 0 ? 60 : -60,
+                transformOrigin: d > 0 ? '0% 50%' : '100% 50%',
+              }),
+              center: { opacity: 1, rotateY: 0, x: 0 },
+              exit: (d: number) => ({
+                opacity: 0,
+                rotateY: d > 0 ? -28 : 28,
+                x: d > 0 ? -60 : 60,
+                transformOrigin: d > 0 ? '100% 50%' : '0% 50%',
+              }),
+            }}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.35, ease: [0.32, 0.72, 0.36, 1] }}
+            style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
+          >
       {activeTab === 'dashboard' && (
         <FuelHome
           profile={appState.profile}
@@ -1987,7 +2030,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           greeting={greeting}
           dateString={dateString}
           onQuickAddFood={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
-          onOpenReflect={() => setActiveTab('reflect')}
+          onOpenReflect={() => switchTab('reflect')}
           onLogActivity={(kind, minutes) => {
             const met = ACTIVITY_METS[kind];
             const kcal = personalizedBurn(appState.profile?.weight ?? 150, met, minutes);
@@ -2418,6 +2461,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
            <p className="text-center text-[9px] text-gray-700 uppercase tracking-widest mt-8">Dings Fitness OS v2.1</p>
         </div>
       )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
       {/* EDIT PROFILE MODAL */}
       {isEditingProfile && (
