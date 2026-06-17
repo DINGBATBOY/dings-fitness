@@ -132,7 +132,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
       <SectionTitle label="Daily Balance" />
 
       {/* ─────── Daily Balance ring ─────── */}
-      <div className="flex flex-col items-center mt-2 mb-4">
+      <div className="flex flex-col items-center mt-2 mb-4" data-tour="macro-ring">
         <CalorieRing
           consumed={consumed.calories}
           target={targets.calories}

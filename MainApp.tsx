@@ -16,6 +16,7 @@ import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
 import { FuelHome } from './components/FuelHome';
+import { SpotlightTour } from './components/SpotlightTour';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
@@ -407,6 +408,33 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // disclaimer step. App Store / Play Store policy requires every user to see
   // and accept it at least once. Triggered below once profile is loaded.
   const [showHealthDisclaimer, setShowHealthDisclaimer] = useState(false);
+
+  // First-launch spotlight tour. Fires once per user (gated by a uid-namespaced
+  // localStorage flag). Triggered on first profile load OR via the "Show tour
+  // again" button in Profile.
+  const tourSeenKey = userId ? `dings_tour_seen_${userId}` : null;
+  const [showTour, setShowTour] = useState(false);
+  useEffect(() => {
+    if (!tourSeenKey || !appState.profile) return;
+    // Only auto-fire once. Manual re-trigger uses setShowTour(true) directly.
+    let seen = false;
+    try { seen = localStorage.getItem(tourSeenKey) === '1'; } catch { /* private mode */ }
+    if (!seen) {
+      // Small delay so the dashboard has time to render before we measure
+      // the macro-ring target.
+      const t = setTimeout(() => setShowTour(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, [tourSeenKey, appState.profile]);
+  const handleCloseTour = useCallback(() => {
+    setShowTour(false);
+    try { if (tourSeenKey) localStorage.setItem(tourSeenKey, '1'); } catch { /* ignore */ }
+  }, [tourSeenKey]);
+  const handleReplayTour = useCallback(() => {
+    // Switch to dashboard so the tour's targets are reachable, then fire.
+    switchTab('dashboard');
+    setTimeout(() => setShowTour(true), 350);
+  }, [switchTab]);
 
   // Helper to Save State to DB AND LocalStorage
   const saveToCloud = useCallback(async (updates: Partial<AppState>) => {
@@ -1621,7 +1649,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
       {/* FLOATING ACTION BUTTON FOR ADD FOOD - GLOBAL (Hidden on Coach tab) */}
       {!showAddFood && activeTab !== 'coach' && (
-          <button 
+          <button
+            data-tour="add-food-fab"
             onClick={() => setShowAddFood(true)}
             className="fixed bottom-28 right-6 w-14 h-14 bg-[#d97757] rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.4)] z-[60] flex items-center justify-center text-2xl text-white hover:scale-110 transition-transform"
           >
@@ -2541,6 +2570,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               >
                   Contact Support
               </button>
+              <button
+                  onClick={handleReplayTour}
+                  className="text-[10px] text-gray-500 underline underline-offset-4 hover:text-[#d97757] transition-colors uppercase tracking-widest"
+              >
+                  Show me around again
+              </button>
               {isAdminUser(userId) && (
                 <button
                     onClick={() => setShowUsageDashboard(true)}
@@ -2820,6 +2855,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       {showUsageDashboard && isAdminUser(userId) && (
         <UsageDashboard onClose={() => setShowUsageDashboard(false)} />
       )}
+
+      {/* SPOTLIGHT TOUR — fires once after first profile load (and on demand
+          from Profile's "Show tour again" button). Dims the screen and walks
+          the user through 4 stops in Cuodi-voice. */}
+      {showTour && <SpotlightTour onClose={handleCloseTour} />}
 
       {/* WRAPPED OVERLAY — Spotify-Wrapped-style personalized summary.
           Launched from the dashboard launcher card or auto-prompted at the

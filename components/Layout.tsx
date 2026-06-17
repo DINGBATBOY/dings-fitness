@@ -99,6 +99,7 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
           return (
             <button
               key={tab.id}
+              data-tour={tab.id === 'restaurants' ? 'eats-tab' : tab.id === 'reflect' ? 'reflect-tab' : undefined}
               onClick={() => onTabChange(tab.id)}
               className="flex-1 flex flex-col items-center py-2 h-[60px] justify-center transition-all duration-300 relative group"
             >
