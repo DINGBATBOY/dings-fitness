@@ -1687,27 +1687,43 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
       {/* ADD FOOD BOTTOM SHEET MODAL */}
       {showAddFood && (
-            <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/80 backdrop-blur-sm" onClick={() => setShowAddFood(false)}>
-              <div 
-                className="bg-[#0f0f0f] w-full max-w-md rounded-t-[2rem] p-6 border-t border-white/10 shadow-2xl overflow-y-auto max-h-[85vh] animate-slide-up"
+            <div
+              className="fixed inset-0 z-[100] flex items-end justify-center"
+              style={{ background: 'rgba(58, 40, 24, 0.55)', backdropFilter: 'blur(6px)' }}
+              onClick={() => setShowAddFood(false)}
+            >
+              <div
+                className="w-full max-w-md rounded-t-[2.5rem] shadow-2xl overflow-y-auto max-h-[88vh] animate-slide-up"
+                style={{
+                  background: '#f5ede1',
+                  borderTop: '1px solid #e8dcc5',
+                }}
                 onClick={e => e.stopPropagation()}
               >
-                {/* ... existing food modal content ... */}
-                <div className="w-12 h-1 bg-white/10 rounded-full mx-auto mb-4"></div>
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-orbitron font-bold text-white flex items-center gap-2">
-                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#d97757] to-[#c97b6e]">LOG</span> FUEL
-                  </h2>
-                  {/* Explicit close X — tap-outside dismissal still works,
-                      but users on first launch can't always discover that. */}
-                  <button
-                    onClick={() => setShowAddFood(false)}
-                    className="w-9 h-9 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-                    aria-label="Close"
-                  >
-                    ✕
-                  </button>
+                {/* Top grip + hero header — fully cream, prominent as a piece */}
+                <div className="px-6 pt-3 pb-5">
+                  <div className="w-12 h-1.5 rounded-full mx-auto mb-5" style={{ background: '#d4c3a0' }}></div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: '#7a4a30' }}>
+                        Log fuel
+                      </div>
+                      <h2 className="text-3xl font-bold leading-tight mt-1" style={{ color: '#3a2818' }}>
+                        What did you eat?
+                      </h2>
+                    </div>
+                    <button
+                      onClick={() => setShowAddFood(false)}
+                      className="w-9 h-9 flex items-center justify-center rounded-full shrink-0 transition-colors"
+                      style={{ background: '#fff', border: '1px solid #e8dcc5', color: '#7a6555' }}
+                      aria-label="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
+
+                <div className="px-6 pb-6">
                 
                 {/* QUICK ADD PILLS - Now using Grouped History */}
                 {appState.foodHistory && appState.foodHistory.length > 0 && addFoodMode === 'manual' && scannedItems.length === 0 && (
@@ -2131,6 +2147,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         </div>
                     </form>
                 )}
+                </div>
               </div>
             </div>
       )}

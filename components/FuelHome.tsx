@@ -128,11 +128,8 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         )}
       </div>
 
-      {/* ─────── Section title with arrow underline ─────── */}
-      <SectionTitle label="Daily Balance" />
-
-      {/* ─────── Daily Balance ring ─────── */}
-      <div className="flex flex-col items-center mt-2 mb-4" data-tour="macro-ring">
+      {/* ─────── Hero ring (centerpiece — no section title above) ─────── */}
+      <div className="flex flex-col items-center mt-1 mb-1" data-tour="macro-ring">
         <CalorieRing
           consumed={consumed.calories}
           target={targets.calories}
@@ -177,9 +174,8 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         </div>
       )}
 
-      {/* ─────── Tracking ─────── */}
-      <SectionTitle label="Tracking" small />
-      <div className="grid grid-cols-3 gap-2.5 mt-2">
+      {/* ─────── Macros — sit right under the ring, no label ─────── */}
+      <div className="grid grid-cols-3 gap-2.5 mt-1">
         <TrackingCard
           icon={<Beef className="w-5 h-5" strokeWidth={1.5} style={{ color: C.terracotta }} />}
           label="Protein"
@@ -203,10 +199,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         />
       </div>
 
-      {/* ─────── Today's Movement ─────── */}
-      <div className="mt-6">
-        <SectionTitle label="Today's Movement" small />
-        <div className="grid grid-cols-3 gap-2.5 mt-2">
+      {/* ─────── Movement (label-free, scannable row) ─────── */}
+      <div className="mt-4">
+        <div className="grid grid-cols-3 gap-2.5">
           <MovementCard
             icon={<Dumbbell className="w-5 h-5" strokeWidth={1.5} style={{ color: C.terracotta }} />}
             label="Workout"
@@ -261,10 +256,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         </div>
       </div>
 
-      {/* ─────── My Track ─────── */}
-      <div className="mt-6">
-        <SectionTitle label="My Track" small />
-        <div className="grid grid-cols-2 gap-2.5 mt-2">
+      {/* ─────── Quick jumps (label-free) ─────── */}
+      <div className="mt-4">
+        <div className="grid grid-cols-2 gap-2.5">
           {/* Log meal — quick-add CTA */}
           <button
             onClick={onQuickAddFood}
@@ -385,47 +379,43 @@ const CalorieRing: React.FC<{
   ratio: number;
   remaining: number;
 }> = ({ consumed, target, ratio, remaining }) => {
-  // Semi-circle math: 180° arc, radius 90, total path length ≈ π·r ≈ 283.
-  const r = 90;
-  const cx = 110, cy = 100;
+  // Bigger semi-circle now that the ring is the home-screen centerpiece.
+  // 180° arc, radius 110, total path length ≈ π·r ≈ 346.
+  const r = 110;
   const circumference = Math.PI * r;
   const dashOffset = circumference * (1 - ratio);
 
-  // Sage "remaining" partial arc — visual cue for what's left.
-  const remainingRatio = Math.max(0, 1 - ratio);
-  const sageOffset = circumference * (1 - remainingRatio);
-
   return (
-    <div className="relative" style={{ width: 220, height: 130 }}>
-      <svg width={220} height={130} viewBox="0 0 220 130">
+    <div className="relative" style={{ width: 280, height: 160 }}>
+      <svg width={280} height={160} viewBox="0 0 280 160">
         {/* Background track */}
         <path
-          d={`M 20 100 A ${r} ${r} 0 0 1 200 100`}
+          d={`M 20 130 A ${r} ${r} 0 0 1 260 130`}
           fill="none"
           stroke={C.border}
-          strokeWidth="14"
+          strokeWidth="16"
           strokeLinecap="round"
         />
         {/* Progress (terracotta) */}
         <path
-          d={`M 20 100 A ${r} ${r} 0 0 1 200 100`}
+          d={`M 20 130 A ${r} ${r} 0 0 1 260 130`}
           fill="none"
           stroke={C.fire}
-          strokeWidth="14"
+          strokeWidth="16"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={dashOffset}
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center pt-3">
-        <div className="text-4xl font-bold tabular-nums" style={{ color: C.ink }}>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pt-6">
+        <div className="text-[64px] leading-none font-bold tabular-nums" style={{ color: C.ink }}>
           {Math.round(consumed)}
         </div>
-        <div className="text-[11px] mt-0.5 tabular-nums" style={{ color: C.inkMid }}>
-          / {target.toLocaleString()} kcal
+        <div className="text-[11px] mt-1 tabular-nums" style={{ color: C.inkMid }}>
+          of {target.toLocaleString()} kcal
         </div>
         {remaining > 0 && (
-          <div className="text-[10px] mt-1 tabular-nums" style={{ color: C.sage }}>
+          <div className="text-[10px] mt-0.5 tabular-nums" style={{ color: C.sage }}>
             {Math.round(remaining)} left
           </div>
         )}
