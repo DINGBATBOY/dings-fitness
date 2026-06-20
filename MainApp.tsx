@@ -2199,6 +2199,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           streak={streak}
           greeting={greeting}
           dateString={dateString}
+          dailyLogs={appState.dailyLogs || []}
           onQuickAddFood={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
           onOpenReflect={() => switchTab('reflect')}
           onLogActivity={(kind, minutes) => {

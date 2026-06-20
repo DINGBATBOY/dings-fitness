@@ -22,10 +22,26 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).toUpperCase().replace(',', ' ·');
   const firstInitial = profile?.name ? profile.name.charAt(0).toUpperCase() : '?';
 
-  // Cream/parchment chrome tokens. Kept inline rather than imported so
-  // Layout has no external dependency on the cream-theme util — they're
-  // identical values, just convenient to inline at the root of the app.
-  const theme = {
+  // Dashboard goes warm-charcoal (gym-companion look). Other tabs stay
+  // cream while we phase the redesign in. The whole theme object swaps
+  // based on activeTab — header chrome and dock follow the body.
+  const isWarmDark = activeTab === 'dashboard';
+  const theme = isWarmDark ? {
+    rootBg: '#161210',
+    headerBg: 'linear-gradient(180deg, rgba(22,18,16,0.96) 0%, rgba(22,18,16,0.88) 100%)',
+    headerBorder: 'rgba(255,255,255,0.06)',
+    wordmarkFrom: '#d97757',
+    wordmarkTo: '#d4a55a',
+    wordmarkText: '#f5ede1',
+    dateText: '#a09080',
+    avatarBorder: 'rgba(255,255,255,0.08)',
+    dockBg: 'rgba(22,18,16,0.96)',
+    dockBorder: 'rgba(255,255,255,0.06)',
+    iconActive: '#d97757',
+    iconInactive: 'rgba(245,237,225,0.40)',
+    activeLabel: '#f5ede1',
+    activeIndicator: '#d97757',
+  } : {
     rootBg: '#f5ede1',
     headerBg: 'linear-gradient(180deg, rgba(245,237,225,0.96) 0%, rgba(245,237,225,0.88) 100%)',
     headerBorder: 'rgba(58,40,24,0.10)',
@@ -68,7 +84,7 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
           <button
             onClick={() => onTabChange('profile')}
             className="w-9 h-9 rounded-full p-0.5 overflow-hidden shadow-lg relative flex items-center justify-center transition-colors"
-            style={{ border: `1px solid ${theme.avatarBorder}`, background: '#fff' }}
+            style={{ border: `1px solid ${theme.avatarBorder}`, background: isWarmDark ? '#1d1815' : '#fff' }}
             aria-label="Open profile"
           >
             {profile?.profilePicture ? (
@@ -91,7 +107,7 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
         style={{
           background: theme.dockBg,
           borderTop: `1px solid ${theme.dockBorder}`,
-          boxShadow: '0 -10px 40px rgba(58,40,24,0.08)',
+          boxShadow: isWarmDark ? '0 -10px 40px rgba(0,0,0,0.4)' : '0 -10px 40px rgba(58,40,24,0.08)',
         }}
       >
         {tabs.map(tab => {
