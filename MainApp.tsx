@@ -17,6 +17,7 @@ import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
 import { FuelHome } from './components/FuelHome';
 import { SpotlightTour } from './components/SpotlightTour';
+import { FeatherCelebration } from './components/FeatherCelebration';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
@@ -414,6 +415,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // again" button in Profile.
   const tourSeenKey = userId ? `dings_tour_seen_${userId}` : null;
   const [showTour, setShowTour] = useState(false);
+  // Feather/arrow celebration overlay — pops when food gets logged.
+  const [showCelebration, setShowCelebration] = useState(false);
   useEffect(() => {
     if (!tourSeenKey || !appState.profile) return;
     // Only auto-fire once. Manual re-trigger uses setShowTour(true) directly.
@@ -1466,6 +1469,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             ]),
         5000,
       );
+      // Celebrate the log — feathers + arrows fly across the screen.
+      setShowCelebration(true);
       setTimeout(() => {
         setPendingFoodUndo(curr =>
           curr && curr.expiresAt <= Date.now() ? null : curr,
@@ -1695,33 +1700,33 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       {showAddFood && (
             <div
               className="fixed inset-0 z-[100] flex items-end justify-center"
-              style={{ background: 'rgba(58, 40, 24, 0.55)', backdropFilter: 'blur(6px)' }}
+              style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(6px)' }}
               onClick={() => setShowAddFood(false)}
             >
               <div
                 className="w-full max-w-md rounded-t-[2.5rem] shadow-2xl overflow-y-auto max-h-[88vh] animate-slide-up"
                 style={{
-                  background: '#f5ede1',
-                  borderTop: '1px solid #e8dcc5',
+                  background: '#161210',
+                  borderTop: '1px solid rgba(255,255,255,0.08)',
                 }}
                 onClick={e => e.stopPropagation()}
               >
-                {/* Top grip + hero header — fully cream, prominent as a piece */}
+                {/* Top grip + hero header */}
                 <div className="px-6 pt-3 pb-5">
-                  <div className="w-12 h-1.5 rounded-full mx-auto mb-5" style={{ background: '#d4c3a0' }}></div>
+                  <div className="w-12 h-1.5 rounded-full mx-auto mb-5" style={{ background: 'rgba(255,255,255,0.12)' }}></div>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: '#7a4a30' }}>
+                      <div className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: '#d97757' }}>
                         Log fuel
                       </div>
-                      <h2 className="text-3xl font-bold leading-tight mt-1" style={{ color: '#3a2818' }}>
+                      <h2 className="text-3xl font-bold leading-tight mt-1" style={{ color: '#f5ede1' }}>
                         What did you eat?
                       </h2>
                     </div>
                     <button
                       onClick={() => setShowAddFood(false)}
                       className="w-9 h-9 flex items-center justify-center rounded-full shrink-0 transition-colors"
-                      style={{ background: '#fff', border: '1px solid #e8dcc5', color: '#7a6555' }}
+                      style={{ background: '#1d1815', border: '1px solid rgba(255,255,255,0.1)', color: '#c4b8a4' }}
                       aria-label="Close"
                     >
                       ✕
@@ -2911,6 +2916,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           from Profile's "Show tour again" button). Dims the screen and walks
           the user through 4 stops in Cuodi-voice. */}
       {showTour && <SpotlightTour onClose={handleCloseTour} />}
+
+      {/* FEATHER CELEBRATION — fires every time food is logged.
+          Self-dismisses after ~1.6s. Stacked above everything. */}
+      <FeatherCelebration show={showCelebration} onDone={() => setShowCelebration(false)} />
 
       {/* WRAPPED OVERLAY — Spotify-Wrapped-style personalized summary.
           Launched from the dashboard launcher card or auto-prompted at the

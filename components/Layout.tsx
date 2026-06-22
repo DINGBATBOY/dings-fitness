@@ -22,18 +22,15 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).toUpperCase().replace(',', ' ·');
   const firstInitial = profile?.name ? profile.name.charAt(0).toUpperCase() : '?';
 
-  // Dashboard goes warm-charcoal (gym-companion look). Other tabs stay
-  // cream while we phase the redesign in. The whole theme object swaps
-  // based on activeTab — header chrome and dock follow the body.
-  const isWarmDark = activeTab === 'dashboard';
-  const theme = isWarmDark ? {
+  // Warm-dark app-wide. Header + dock all share one theme.
+  const theme = {
     rootBg: '#161210',
     headerBg: 'linear-gradient(180deg, rgba(22,18,16,0.96) 0%, rgba(22,18,16,0.88) 100%)',
     headerBorder: 'rgba(255,255,255,0.06)',
     wordmarkFrom: '#d97757',
-    wordmarkTo: '#d4a55a',
+    wordmarkTo: '#e8a85a',
     wordmarkText: '#f5ede1',
-    dateText: '#a09080',
+    dateText: '#8b7e6e',
     avatarBorder: 'rgba(255,255,255,0.08)',
     dockBg: 'rgba(22,18,16,0.96)',
     dockBorder: 'rgba(255,255,255,0.06)',
@@ -41,22 +38,8 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
     iconInactive: 'rgba(245,237,225,0.40)',
     activeLabel: '#f5ede1',
     activeIndicator: '#d97757',
-  } : {
-    rootBg: '#f5ede1',
-    headerBg: 'linear-gradient(180deg, rgba(245,237,225,0.96) 0%, rgba(245,237,225,0.88) 100%)',
-    headerBorder: 'rgba(58,40,24,0.10)',
-    wordmarkFrom: '#7a4a30',
-    wordmarkTo: '#b88860',
-    wordmarkText: '#3a2818',
-    dateText: '#a09080',
-    avatarBorder: 'rgba(58,40,24,0.15)',
-    dockBg: 'rgba(245,237,225,0.96)',
-    dockBorder: 'rgba(58,40,24,0.10)',
-    iconActive: '#7a4a30',
-    iconInactive: '#a09080',
-    activeLabel: '#3a2818',
-    activeIndicator: '#7a4a30',
   };
+  const isWarmDark = true; // legacy var used by avatar bg + dock shadow below
 
   return (
     <div className="min-h-screen pb-32 max-w-md mx-auto relative transition-colors duration-300" style={{ background: theme.rootBg }}>

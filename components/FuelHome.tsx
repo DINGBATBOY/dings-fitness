@@ -29,21 +29,24 @@ import {
 import type { UserProfile, NutritionTargets, DailyLog } from '../types';
 
 // ───────────────────── Warm-dark palette ─────────────────────
+// Brighter, more saturated accent set so the dashboard reads
+// "colorful gym companion" rather than monochrome.
 const C = {
-  bg: '#161210',            // warm charcoal background
-  card: '#1d1815',          // slightly lighter card surface
+  bg: '#161210',
+  card: '#1d1815',
   cardSoft: '#221d19',
   border: 'rgba(255,255,255,0.06)',
   borderStrong: 'rgba(255,255,255,0.10)',
-  ink: '#f5ede1',           // warm cream primary text
+  ink: '#f5ede1',
   inkMid: '#c4b8a4',
   inkLight: '#8b7e6e',
-  fire: '#d97757',          // terracotta — primary CTA
-  ochre: '#d4a55a',         // gold accent
-  sage: '#7a9080',
-  emerald: '#7ab896',       // softer green for "good"
-  sky: '#6fa8c4',
-  rose: '#c97b6e',
+  fire: '#d97757',          // terracotta — primary CTA / streak
+  ochre: '#e8a85a',          // bright gold — carbs
+  emerald: '#7ab896',        // emerald sage — fat / good metric
+  sky: '#6fa8c4',            // muted blue — water
+  rose: '#c97b6e',           // dusk rose — accent
+  protein: '#e3614a',        // vivid coral — protein (more energy)
+  sage: '#7a9080',           // calmer green — habits, weigh-in
 };
 
 interface FuelHomeProps {
@@ -102,14 +105,14 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   // For macro bars — show either consumed/target or remaining/target.
   const macroData = macroView === 'consumed'
     ? [
-        { label: 'Protein', current: Math.round(consumed.protein), target: targets.protein, color: C.fire, icon: <Beef className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Carbs',   current: Math.round(consumed.carbs),   target: targets.carbs,   color: C.ochre, icon: <Wheat className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Fat',     current: Math.round(consumed.fat),     target: targets.fat,     color: C.rose, icon: <Flame className="w-3.5 h-3.5" strokeWidth={1.5} /> },
+        { label: 'Protein', current: Math.round(consumed.protein), target: targets.protein, color: C.protein, icon: <Beef className="w-3.5 h-3.5" strokeWidth={1.5} /> },
+        { label: 'Carbs',   current: Math.round(consumed.carbs),   target: targets.carbs,   color: C.ochre,   icon: <Wheat className="w-3.5 h-3.5" strokeWidth={1.5} /> },
+        { label: 'Fat',     current: Math.round(consumed.fat),     target: targets.fat,     color: C.emerald, icon: <Flame className="w-3.5 h-3.5" strokeWidth={1.5} /> },
       ]
     : [
-        { label: 'Protein', current: Math.max(0, Math.round(targets.protein - consumed.protein)), target: targets.protein, color: C.fire, icon: <Beef className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Carbs',   current: Math.max(0, Math.round(targets.carbs - consumed.carbs)),     target: targets.carbs,   color: C.ochre, icon: <Wheat className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Fat',     current: Math.max(0, Math.round(targets.fat - consumed.fat)),         target: targets.fat,     color: C.rose, icon: <Flame className="w-3.5 h-3.5" strokeWidth={1.5} /> },
+        { label: 'Protein', current: Math.max(0, Math.round(targets.protein - consumed.protein)), target: targets.protein, color: C.protein, icon: <Beef className="w-3.5 h-3.5" strokeWidth={1.5} /> },
+        { label: 'Carbs',   current: Math.max(0, Math.round(targets.carbs - consumed.carbs)),     target: targets.carbs,   color: C.ochre,   icon: <Wheat className="w-3.5 h-3.5" strokeWidth={1.5} /> },
+        { label: 'Fat',     current: Math.max(0, Math.round(targets.fat - consumed.fat)),         target: targets.fat,     color: C.emerald, icon: <Flame className="w-3.5 h-3.5" strokeWidth={1.5} /> },
       ];
 
   // ───────── Habits — last 30 days ─────────
@@ -421,6 +424,12 @@ const ThreeNumberRing: React.FC<{
   );
 };
 
+/**
+ * MacroBar — drawn as an arrow on the trail. Subtle dashed track shows
+ * the full path to your goal; the colored arrow grows along it as you
+ * eat. Arrowhead chevron at the tip of the fill makes it feel like
+ * forward motion, not a static gauge.
+ */
 const MacroBar: React.FC<{
   label: string;
   icon: React.ReactNode;
@@ -429,11 +438,12 @@ const MacroBar: React.FC<{
   color: string;
   view: 'consumed' | 'remaining';
 }> = ({ label, icon, current, target, color, view }) => {
-  // The bar always represents how much has been EATEN (consumed/target).
-  // `current` is the display number — in 'consumed' view it IS consumed;
-  // in 'remaining' view it's the count left, so eaten = target - current.
   const eaten = view === 'consumed' ? current : Math.max(0, target - current);
   const fill = Math.max(0, Math.min(1, eaten / Math.max(1, target)));
+
+  // SVG drawing — viewBox is 100 wide × 12 tall. Arrow nocks at x=2,
+  // tip moves to (fill * 96) so it never clips the right edge.
+  const TIP = Math.max(6, fill * 96); // min 6 so arrow shape is always visible
 
   return (
     <div>
@@ -447,12 +457,40 @@ const MacroBar: React.FC<{
           <span className="opacity-60"> / {target}g</span>
         </div>
       </div>
-      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.bg }}>
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${fill * 100}%`, background: color }}
+
+      <svg width="100%" height="12" viewBox="0 0 100 12" preserveAspectRatio="none">
+        {/* Subtle dashed track for the full path */}
+        <line
+          x1="2" y1="6" x2="98" y2="6"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="0.6"
+          strokeDasharray="2 2"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
         />
-      </div>
+        {/* Nock dot at the start */}
+        <circle cx="2" cy="6" r="1.6" fill={color} />
+        {/* Shaft — grows with fill */}
+        <line
+          x1="2" y1="6" x2={TIP} y2="6"
+          stroke={color}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+          style={{ transition: 'all 500ms' }}
+        />
+        {/* Chevron arrowhead at the tip */}
+        <polyline
+          points={`${TIP - 2.6},3.5 ${TIP},6 ${TIP - 2.6},8.5`}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+          style={{ transition: 'all 500ms' }}
+        />
+      </svg>
     </div>
   );
 };
