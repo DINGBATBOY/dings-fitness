@@ -18,10 +18,16 @@ export default function App() {
   // True once Firebase auth has fired its first event after this page load.
   // Before this, a null user could mean either "logged out" OR "still
   // rehydrating from IndexedDB / localStorage" — they're indistinguishable.
-  // Showing the sign-in screen during a rehydrate causes a visible flash
-  // back to Auth every time the app comes out of background. We hold the
-  // splash phase until we know.
   const [authResolved, setAuthResolved] = useState(false);
+  // True once we've attempted to load the user's Firestore profile (success
+  // or failure). Important: a null profile alone doesn't mean "needs
+  // onboarding" — it might mean "fetch still in flight." Transitioning to
+  // onboarding without this flag was the bug that yanked logged-in users
+  // straight into the new-user signup flow.
+  const [profileResolved, setProfileResolved] = useState(false);
+  // True once the splash timer (2.7s) has fired. Decoupled from authResolved
+  // so we can hold splash until BOTH are true and we know what to do next.
+  const [splashCompleted, setSplashCompleted] = useState(false);
 
   useEffect(() => {
     // Auth listener begins immediately, but we don't act on it
@@ -46,65 +52,55 @@ export default function App() {
 
       setUser(u);
       if (u) {
+        // New user-state arriving — profile fetch starts now. Mark unresolved
+        // so the phase-transition effect waits for it.
+        setProfileResolved(false);
         try {
           const profileSnap = await getDoc(doc(db, "users", u.uid));
-          if (profileSnap.exists()) {
-            setProfile(profileSnap.data() as UserProfile);
-          } else {
-            setProfile(null);
-          }
+          setProfile(profileSnap.exists() ? (profileSnap.data() as UserProfile) : null);
         } catch (e) {
           console.error("Error loading profile", e);
+          setProfile(null);
+        } finally {
+          setProfileResolved(true);
         }
       } else {
         setProfile(null);
-        // Only transition to 'auth' when we're not in splash AND we're
-        // already past initial resolution. This prevents the brief null
-        // that happens during background-resume from yanking the user
-        // back to the sign-in screen.
-        setPhase((p) => {
-          if (p === 'splash') return p;
-          // If we've already shown the app phase to this user, treat a null
-          // user as a sign-out (intentional). The auth listener's initial
-          // null on a fresh page load is handled by the splash gate.
-          return 'auth';
-        });
+        setProfileResolved(true); // no user => no profile to wait for
+        // Only transition to 'auth' when we're past splash. The brief null
+        // that happens during background-resume rehydrate is handled by the
+        // splash gate (we stay on splash until authResolved).
+        setPhase((p) => (p === 'splash' ? p : 'auth'));
       }
     });
     return () => unsub();
-  }, [authResolved]);
+  }, []);
 
+  // Splash done = the 2.7s timer fired. We don't transition phases here;
+  // the effect below handles it once auth + profile are both resolved.
   const handleSplashComplete = () => {
-    // If auth hasn't resolved yet (e.g., slow IndexedDB rehydrate on
-    // background-resume), stay on splash a tick longer rather than flashing
-    // the auth screen. Once authResolved flips true the effect below will
-    // transition us out.
-    if (!authResolved) return;
-    if (user) {
-      if (profile) {
-        setPhase('app');
-      } else {
-        setPhase('onboarding');
-      }
-    } else {
-      setPhase('auth');
-    }
+    setSplashCompleted(true);
   };
 
-  // Once auth resolves AND splash is done, drop into the right phase.
-  // Covers the case where the splash timer fired before auth resolved.
+  // Single source of truth for transitioning OUT of splash.
+  // Three gates must all be true: splash timer done, auth fired at least
+  // once, AND (if there's a user) the profile fetch has completed.
+  // Without the profile gate, this fires while the fetch is still in flight
+  // and yanks logged-in users straight into the new-user signup flow.
   useEffect(() => {
-    if (!authResolved) return;
     if (phase !== 'splash') return;
-    // Splash's onComplete will fire its own handleSplashComplete shortly;
-    // if it already did and we're here because authResolved flipped after,
-    // run the same logic now.
-    if (user) {
-      setPhase(profile ? 'app' : 'onboarding');
-    } else {
+    if (!splashCompleted || !authResolved) return;
+    if (user && !profileResolved) return; // logged in, profile still loading
+
+    if (!user) {
       setPhase('auth');
+    } else if (profile) {
+      setPhase('app');
+    } else {
+      // Authenticated but no profile doc exists → genuine new user
+      setPhase('onboarding');
     }
-  }, [authResolved, phase, user, profile]);
+  }, [phase, splashCompleted, authResolved, user, profile, profileResolved]);
 
   const handleLogin = async (u: any) => {
     setUser(u);
