@@ -215,14 +215,7 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
               height="100%"
               viewBox={`0 0 ${typeof window !== 'undefined' ? window.innerWidth : 400} ${vh}`}
               preserveAspectRatio="none"
-              style={{ position: 'absolute', inset: 0, pointerEvents: 'auto' }}
-              onClick={(e) => {
-                // Don't dismiss when tapping the cutout area itself — only
-                // when tapping outside the bubble + spotlight.
-                if ((e.target as Element).tagName === 'svg' || (e.target as Element).tagName === 'rect') {
-                  // Tap outside the bubble: do nothing (use Next button to advance).
-                }
-              }}
+              style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
             >
               <defs>
                 <mask id="spotlight-mask">
@@ -261,23 +254,38 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
             <div className="absolute inset-0" style={{ background: 'rgba(58, 40, 24, 0.78)' }} />
           )}
 
-          {/* Speech bubble */}
+          {/* Speech bubble — wrapper handles positioning + centering via
+              flexbox so Motion can own `transform` for the entrance animation
+              without colliding with translateX(-50%) centering. Without this
+              split, Motion's transform wipes the centering and the bubble
+              (and its Next button) drift off-screen. */}
           {cutout && (
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                display: 'flex',
+                justifyContent: 'center',
+                padding: '0 24px',
+                top: bubbleBelow ? cutout.y + cutout.h + 16 : undefined,
+                bottom: bubbleBelow ? undefined : vh - cutout.y + 16,
+                pointerEvents: 'none', // wrapper passes clicks through to bubble
+              }}
+            >
             <motion.div
               key={`bubble-${idx}`}
               initial={{ opacity: 0, y: bubbleBelow ? -10 : 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, delay: 0.1 }}
-              className="absolute rounded-3xl px-5 py-4 max-w-[320px]"
+              className="rounded-3xl px-5 py-4"
               style={{
                 background: C.bg,
                 border: `1px solid ${C.terracotta}30`,
                 boxShadow: '0 10px 40px rgba(58, 40, 24, 0.25)',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                top: bubbleBelow ? cutout.y + cutout.h + 16 : undefined,
-                bottom: bubbleBelow ? undefined : vh - cutout.y + 16,
-                width: 'calc(100% - 48px)',
+                width: '100%',
+                maxWidth: 360,
+                pointerEvents: 'auto', // re-enable on the bubble itself
               }}
             >
               {/* Header row: stop count + skip */}
@@ -327,6 +335,7 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
                 </button>
               </div>
             </motion.div>
+            </div>
           )}
         </motion.div>
       )}

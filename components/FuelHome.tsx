@@ -255,9 +255,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         <StatTile
           icon={<Droplets className="w-4 h-4" strokeWidth={1.5} />}
           color={C.sky}
-          label="Water · mini"
+          label="Water"
           value={`${waterIntake}`}
-          sublabel={`/ ${waterTarget} oz`}
+          sublabel={`/ ${waterTarget} oz · mini`}
         />
       </div>
 
@@ -391,46 +391,31 @@ const ThreeNumberRing: React.FC<{
   const offset = circ * (1 - ratio);
 
   return (
-    <div className="relative" style={{ height: 200 }}>
-      <svg width="100%" height={200} viewBox="0 0 240 200" preserveAspectRatio="xMidYMid meet">
-        {/* Background track — 270° arc starting at 135° (lower-left), ending at 45° (lower-right) */}
-        <path
-          d="M 49.4 174 A 86 86 0 1 1 190.6 174"
-          fill="none"
-          stroke={C.border}
-          strokeWidth="14"
-          strokeLinecap="round"
-        />
-        {/* Progress — same path, dashed */}
-        <path
-          d="M 49.4 174 A 86 86 0 1 1 190.6 174"
-          fill="none"
-          stroke={C.fire}
-          strokeWidth="14"
-          strokeLinecap="round"
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
-        />
-      </svg>
-
-      {/* Center: big consumed number */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">
-        <div className="text-[56px] leading-none font-bold tabular-nums" style={{ color: C.ink }}>
-          {Math.round(consumed)}
+    <div>
+      <div className="relative" style={{ height: 170 }}>
+        <svg width="100%" height={170} viewBox="0 0 240 170" preserveAspectRatio="xMidYMid meet">
+          <path d="M 49.4 144 A 86 86 0 1 1 190.6 144" fill="none" stroke={C.border} strokeWidth="14" strokeLinecap="round" />
+          <path d="M 49.4 144 A 86 86 0 1 1 190.6 144" fill="none" stroke={C.fire} strokeWidth="14" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} />
+        </svg>
+        {/* Center: big consumed number */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">
+          <div className="text-[60px] leading-none font-bold tabular-nums" style={{ color: C.ink }}>
+            {Math.round(consumed)}
+          </div>
+          <div className="text-[10px] mt-1.5 uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>Consumed</div>
         </div>
-        <div className="text-[11px] mt-1 uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Consumed</div>
       </div>
 
-      {/* Left flag — Remaining */}
-      <div className="absolute" style={{ left: 12, bottom: 6, textAlign: 'center', width: 70 }}>
-        <div className="text-[22px] font-bold tabular-nums" style={{ color: C.ink }}>{Math.round(remaining)}</div>
-        <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Remaining</div>
-      </div>
-
-      {/* Right flag — Target */}
-      <div className="absolute" style={{ right: 12, bottom: 6, textAlign: 'center', width: 70 }}>
-        <div className="text-[22px] font-bold tabular-nums" style={{ color: C.ink }}>{target.toLocaleString()}</div>
-        <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Target</div>
+      {/* Remaining / Target — sit cleanly under the ring as a row, no overlap */}
+      <div className="grid grid-cols-2 gap-3 mt-2 px-3">
+        <div className="text-left">
+          <div className="text-[20px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>{Math.round(remaining)}</div>
+          <div className="text-[9px] mt-1 uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Remaining</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[20px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>{target.toLocaleString()}</div>
+          <div className="text-[9px] mt-1 uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Target</div>
+        </div>
       </div>
     </div>
   );
@@ -444,21 +429,11 @@ const MacroBar: React.FC<{
   color: string;
   view: 'consumed' | 'remaining';
 }> = ({ label, icon, current, target, color, view }) => {
-  const ratio = view === 'consumed'
-    ? Math.max(0, Math.min(1, current / Math.max(1, target)))
-    : Math.max(0, Math.min(1, (target - current) / Math.max(1, target))); // for remaining, the bar represents what's been EATEN
-  // Actually for the "remaining" view, the bar should still show consumed progress
-  // since that's the more useful visual. We just show different numbers below.
-
-  // Recompute: bar always shows consumed/target progress regardless of view.
-  // current here is the displayed number (consumed OR remaining); we need a
-  // different number for the bar fill. Simplest: always show progress as
-  // consumed_total/target.
-  // We don't have the raw consumed in this child when view=remaining, so the
-  // bar fill = (target - current) / target when view=remaining.
-  const fill = view === 'consumed'
-    ? Math.max(0, Math.min(1, current / Math.max(1, target)))
-    : Math.max(0, Math.min(1, (target - current) / Math.max(1, target)));
+  // The bar always represents how much has been EATEN (consumed/target).
+  // `current` is the display number — in 'consumed' view it IS consumed;
+  // in 'remaining' view it's the count left, so eaten = target - current.
+  const eaten = view === 'consumed' ? current : Math.max(0, target - current);
+  const fill = Math.max(0, Math.min(1, eaten / Math.max(1, target)));
 
   return (
     <div>

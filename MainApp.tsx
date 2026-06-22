@@ -422,7 +422,13 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     if (!seen) {
       // Small delay so the dashboard has time to render before we measure
       // the macro-ring target.
-      const t = setTimeout(() => setShowTour(true), 600);
+      const t = setTimeout(() => {
+        setShowTour(true);
+        // Mark seen IMMEDIATELY when the tour starts, not when it ends.
+        // Otherwise if the user backgrounds the app mid-tour or kills it,
+        // the tour replays on next launch — which is jarring.
+        try { localStorage.setItem(tourSeenKey, '1'); } catch { /* ignore */ }
+      }, 600);
       return () => clearTimeout(t);
     }
   }, [tourSeenKey, appState.profile]);
