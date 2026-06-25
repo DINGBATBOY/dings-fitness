@@ -10,6 +10,22 @@ import { UserProfile } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 
 type AppPhase = 'splash' | 'auth' | 'onboarding' | 'app';
+type UserDocument = {
+  profile?: UserProfile;
+  nutritionTargets?: unknown;
+} & Partial<UserProfile>;
+
+const extractProfile = (data: UserDocument | undefined): UserProfile | null => {
+  if (!data) return null;
+  if (data.profile && typeof data.profile === 'object') {
+    return data.profile;
+  }
+  // Legacy fallback for older documents that stored profile fields at the root.
+  if (typeof data.name === 'string' && typeof data.weight === 'number' && data.goal) {
+    return data as UserProfile;
+  }
+  return null;
+};
 
 export default function App() {
   const [phase, setPhase] = useState<AppPhase>('splash');
@@ -57,7 +73,7 @@ export default function App() {
         setProfileResolved(false);
         try {
           const profileSnap = await getDoc(doc(db, "users", u.uid));
-          setProfile(profileSnap.exists() ? (profileSnap.data() as UserProfile) : null);
+          setProfile(profileSnap.exists() ? extractProfile(profileSnap.data() as UserDocument) : null);
         } catch (e) {
           console.error("Error loading profile", e);
           setProfile(null);
@@ -107,8 +123,9 @@ export default function App() {
     try {
       const profileSnap = await getDoc(doc(db, "users", u.uid));
       if (profileSnap.exists()) {
-        setProfile(profileSnap.data() as UserProfile);
-        setPhase('app');
+        const loadedProfile = extractProfile(profileSnap.data() as UserDocument);
+        setProfile(loadedProfile);
+        setPhase(loadedProfile ? 'app' : 'onboarding');
       } else {
         setPhase('onboarding');
       }

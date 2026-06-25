@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../services/firebase';
-import { marked } from 'marked';
+import { SafeMarkdown } from './SafeMarkdown';
 import { ChefHat, Utensils, Loader2, FastForward } from 'lucide-react';
 
 interface FoodCuratorProps {
@@ -142,10 +142,7 @@ export const FoodCurator: React.FC<FoodCuratorProps> = ({ targetMacros, consumed
       {suggestion && (
         <div className="glass-panel p-6 rounded-3xl">
           <h3 className="text-lg font-orbitron font-bold text-white mb-4">Curated Suggestion</h3>
-          <div 
-            className="prose prose-invert prose-sm max-w-none text-gray-300"
-            dangerouslySetInnerHTML={{ __html: marked.parse(suggestion) as string }}
-          />
+          <SafeMarkdown className="prose prose-invert prose-sm max-w-none text-gray-300" text={suggestion} />
         </div>
       )}
     </div>

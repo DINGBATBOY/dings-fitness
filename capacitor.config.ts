@@ -22,9 +22,9 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'always',
-    // Mati-Watsā cream — matches the web app's body background so there's
-    // no flash between splash → web load. Was #0d0a08 (Dusk Trail dark).
-    backgroundColor: '#f5ede1',
+    // Match the warm-dark web shell so native launch does not flash cream
+    // before React paints the app/auth screens.
+    backgroundColor: '#161210',
   },
   plugins: {
     SplashScreen: {
@@ -32,16 +32,15 @@ const config: CapacitorConfig = {
       // and takes over after the native splash fades.
       launchAutoHide: true,
       launchShowDuration: 2000,
-      backgroundColor: '#f5ede1',
+      backgroundColor: '#161210',
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
       showSpinner: false,
     },
     StatusBar: {
-      // Cream/parchment chrome. style:'DARK' = DARK CONTENT (dark icons +
-      // text in the status bar), which is what we want on a light bg.
-      style: 'DARK',
-      backgroundColor: '#f5ede1',
+      // Dark shell with light status bar content.
+      style: 'LIGHT',
+      backgroundColor: '#161210',
       overlaysWebView: false,
     },
   },

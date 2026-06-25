@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DailyLog, FoodItem, UserProfile, NutritionTargets } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, ChevronLeft, ChevronRight, Utensils, Droplets, Dumbbell, Trash2, Plus, Sparkles, AlertCircle, CheckCircle2, TrendingUp, Loader2, Download } from 'lucide-react';
@@ -220,7 +220,7 @@ export const Journal: React.FC<JournalProps> = ({
   };
 
   // Reset analysis when date changes
-  useMemo(() => {
+  useEffect(() => {
     setAnalysis(null);
     setError(null);
   }, [selectedDate]);
@@ -370,7 +370,7 @@ export const Journal: React.FC<JournalProps> = ({
 
     // ----- BEST DAYS -----
     y = addSectionHeader(doc, 'Standout Days', y);
-    const sortBy = <T,>(arr: T[], pick: (x: T) => number) => [...arr].sort((a, b) => pick(b) - pick(a));
+    const sortBy = (arr: DailyLog[], pick: (x: DailyLog) => number) => [...arr].sort((a, b) => pick(b) - pick(a));
     const topProtein = sortBy(monthlyLogs, l => l.proteinConsumed)[0];
     const topFiber   = sortBy(monthlyLogs, l => l.fiberConsumed || 0)[0];
     const topWater   = sortBy(monthlyLogs, l => l.waterIntake)[0];

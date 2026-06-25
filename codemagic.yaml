@@ -77,6 +77,10 @@ workflows:
         script: |
           npm ci
 
+      - name: Typecheck
+        script: |
+          npm run typecheck
+
       - name: Build web bundle (Vite)
         script: |
           npm run build

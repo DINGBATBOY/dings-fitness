@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { marked } from 'marked';
 import { Layout } from './components/Layout';
 import { ProgressRing } from './components/ProgressRing';
 import { MacroReactor } from './components/MacroReactor';
@@ -18,6 +17,7 @@ import { Wrapped } from './components/Wrapped';
 import { FuelHome } from './components/FuelHome';
 import { SpotlightTour } from './components/SpotlightTour';
 import { FeatherCelebration } from './components/FeatherCelebration';
+import { SafeMarkdown } from './components/SafeMarkdown';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
@@ -2483,7 +2483,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               {chatHistory.map((msg, idx) => (
                   <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed shadow-md ${msg.role === 'user' ? 'bg-[#c97b6e] text-white rounded-tr-sm' : 'glass-panel text-gray-200 rounded-tl-sm border border-white/10'}`}>
-                          <div className="markdown-body" dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) as string }} />
+                          <SafeMarkdown className="markdown-body" text={msg.text} />
                       </div>
                   </div>
               ))}
