@@ -26,5 +26,11 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "dist",
+    "functions",
+    "ios",
+    "node_modules"
+  ]
 }
