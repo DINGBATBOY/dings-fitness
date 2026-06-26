@@ -2,10 +2,10 @@ import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
 
 /**
- * SplashScreen — Mati-Watsā era.
+ * SplashScreen — a quiet Ding! opening moment.
  *
- * Replaces the cyberpunk "DINGS OS" splash with a quieter cream-themed
- * moment: a feather-fletched arrow draws itself across the screen, the
+ * Replaces the cyberpunk splash with a quieter Ding! moment
+ * A feather-fletched arrow draws itself across the screen, the
  * fletching unfurls, the word "DING!" lands beneath. About 2.5 seconds
  * total before the parent calls onComplete.
  *
@@ -17,14 +17,14 @@ interface SplashScreenProps {
   onComplete: () => void;
 }
 
-// ───────────── Cream palette (kept inline so this file has no deps) ─────────
+// Warm-dark palette kept inline so this file has no deps.
 const C = {
-  bg: '#f5ede1',
-  ink: '#3a2818',
-  inkMid: '#7a6555',
-  inkLight: '#a09080',
-  terracotta: '#7a4a30',
-  ochre: '#b88860',
+  bg: '#161210',
+  ink: '#f5ede1',
+  inkMid: '#c4b8a4',
+  inkLight: '#8b7e6e',
+  terracotta: '#d97757',
+  ochre: '#e8a85a',
   fire: '#d97757',
 };
 
@@ -140,7 +140,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.4, delay: 1.85 }}
         >
-          Walk the trail
+          Little things add up
         </motion.div>
       </div>
     </motion.div>

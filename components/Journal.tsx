@@ -811,7 +811,7 @@ export const Journal: React.FC<JournalProps> = ({
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <Sparkles className="w-5 h-5 text-emerald-400" />
-                            <h3 className="text-emerald-400 font-bold uppercase tracking-widest text-xs">Dings AI Analysis</h3>
+                            <h3 className="text-emerald-400 font-bold uppercase tracking-widest text-xs">Ding! read</h3>
                         </div>
                         <div className="flex items-center gap-2 bg-emerald-500/20 px-3 py-1 rounded-full">
                             <TrendingUp className="w-3 h-3 text-emerald-400" />

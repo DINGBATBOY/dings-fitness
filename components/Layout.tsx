@@ -15,8 +15,8 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
     { id: 'restaurants', label: 'Eats',    Icon: Utensils },
     { id: 'journal',     label: 'Log',     Icon: BookOpen },
     { id: 'reflect',     label: 'Reflect', Icon: Feather },
-    { id: 'workouts',    label: 'Dings',   Icon: Zap },
-    { id: 'coach',       label: 'Coach',   Icon: MessageCircle },
+    { id: 'workouts',    label: 'Train',   Icon: Zap },
+    { id: 'coach',       label: 'Ask',     Icon: MessageCircle },
   ];
 
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).toUpperCase().replace(',', ' ·');
@@ -50,12 +50,12 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
         <div className="relative flex justify-between items-center z-10">
           <div>
             <h1 className="text-xl font-orbitron font-bold tracking-tighter leading-none flex items-center" style={{ color: theme.wordmarkText }}>
-              DINGS
+              DING
               <span
                 className="text-transparent bg-clip-text ml-1 mr-2"
                 style={{ backgroundImage: `linear-gradient(to right, ${theme.wordmarkFrom}, ${theme.wordmarkTo})` }}
               >
-                FITNESS
+                !
               </span>
               {activeTab === 'dashboard' && (
                 <span className="inline-flex h-1.5 w-1.5 rounded-full" style={{ background: theme.activeIndicator }}></span>

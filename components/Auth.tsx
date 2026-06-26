@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { auth } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { Mail, Lock, Zap } from 'lucide-react';
+import { Mail, Lock, CheckCircle2 } from 'lucide-react';
 import { LegalModal } from './LegalModal';
 
 interface AuthProps {
@@ -114,17 +114,16 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full fill-none" strokeWidth="4" style={{ stroke: '#d97757' }}>
                   <polygon points="50 3, 93 25, 93 75, 50 97, 7 75, 7 25" />
                 </svg>
-                <Zap className="w-5 h-5" style={{ color: '#d97757', fill: '#d97757' }} />
+                <CheckCircle2 className="w-5 h-5" style={{ color: '#d97757' }} />
               </div>
 
-              <h1 className="text-4xl font-orbitron font-bold text-white tracking-tighter leading-none mb-1">
-                DINGS <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#d97757] to-[#d4a55a]">OS</span>
+              <h1 className="text-5xl font-orbitron font-bold text-white tracking-tighter leading-none mb-2">
+                DING<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#d97757] to-[#d4a55a]">!</span>
               </h1>
-              <p className="text-[10px] font-mono text-gray-600 mb-2">v2.1</p>
-              <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em]">Trail begins here</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-[0.2em]">Food, movement, and progress</p>
 
-              <p className="text-[11px] text-gray-400 italic mt-3 h-4">
-                {showForgot ? '' : (isLogin ? "Thought I'd never see you again. No seriously I'm lonely sometimes" : "WELCOME your path begins here")}
+              <p className="text-[12px] text-gray-400 mt-3 min-h-4 leading-snug">
+                {showForgot ? 'We will get you back in.' : (isLogin ? "Welcome back. Let's see how today is going." : 'Start simple. Log a meal, move a little, keep going.')}
               </p>
             </div>
 
@@ -281,7 +280,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 disabled={isLoading || (!isLogin && !showForgot && !canSubmit)}
                 className="w-full py-4 mt-2 bg-[#d97757] hover:bg-[#c46844] text-white font-bold font-orbitron uppercase tracking-widest rounded-xl shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors relative overflow-hidden btn-shimmer"
               >
-                {isLoading ? 'Processing...' : (showForgot ? 'Send Reset Link' : (isLogin ? 'Initialize Session' : 'Create Identity'))}
+                {isLoading ? 'Working...' : (showForgot ? 'Send reset link' : (isLogin ? 'Sign in' : 'Create account'))}
               </button>
             </form>
 

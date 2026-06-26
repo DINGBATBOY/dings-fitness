@@ -794,7 +794,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           console.error("Split gen failed, using fallback", e);
           setWorkoutSplit(FALLBACK_SPLIT);
           saveWorkoutToCloud(FALLBACK_SPLIT, weeklyCompletedWorkouts);
-          triggerToast("Used Default Protocol (AI Busy)");
+          triggerToast("Used a simple starter split");
       } finally {
           setIsGeneratingSplit(false);
       }
@@ -1209,7 +1209,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               }
           ]
       }));
-      triggerToast("MISSION COMPLETE (+XP)");
+      triggerToast("Workout logged");
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2307,7 +2307,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                 disabled={isGeneratingSplit}
                 className="text-[9px] font-bold uppercase tracking-widest text-blue-400 border border-blue-400/30 px-3 py-1.5 rounded-full hover:bg-blue-400/10 transition-colors"
              >
-                 {isGeneratingSplit ? 'Generating...' : 'Regenerate Protocol'}
+                 {isGeneratingSplit ? 'Generating...' : 'Refresh Plan'}
              </button>
           </div>
 
@@ -2321,7 +2321,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                 
                 {isToday && (
                      <div className="absolute top-4 right-4 z-20">
-                         <span className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-[9px] font-bold uppercase px-3 py-1 rounded-full animate-pulse shadow-lg">Active Protocol</span>
+                         <span className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-[9px] font-bold uppercase px-3 py-1 rounded-full animate-pulse shadow-lg">Today</span>
                      </div>
                 )}
 
@@ -2427,9 +2427,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         className={`w-full mt-6 py-4 rounded-xl font-bold font-orbitron uppercase tracking-widest transition-all duration-300 relative overflow-hidden group ${isCompleted ? 'bg-green-600 text-white cursor-not-allowed opacity-50' : 'bg-white text-black hover:scale-[1.02] shadow-lg'}`}
                     >
                         {isCompleted ? (
-                             <span className="flex items-center justify-center gap-2">MISSION COMPLETE ✓</span>
+                             <span className="flex items-center justify-center gap-2">Workout logged</span>
                         ) : (
-                             <span className="relative z-10">COMPLETE MISSION</span>
+                             <span className="relative z-10">Log workout</span>
                         )}
                         {!isCompleted && <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left opacity-10"></div>}
                     </button>
@@ -2477,8 +2477,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
            {/* ... existing coach content ... */}
           <div className="flex-1 space-y-6 pr-2 pb-4 pt-2">
               <div className="text-center opacity-30 my-4">
-                  <span className="text-4xl">🤖</span>
-                  <p className="text-[10px] font-bold uppercase mt-2">Dings AI Coach Online</p>
+                  <span className="text-4xl font-orbitron font-bold text-[#f5ede1]">Ding!</span>
+                  <p className="text-[10px] font-bold uppercase mt-2">Ask about food, training, or today</p>
               </div>
               {chatHistory.map((msg, idx) => (
                   <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -2519,7 +2519,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                     value={chatInput} 
                     onChange={e => setChatInput(e.target.value)} 
                     onKeyDown={e => e.key === 'Enter' && handleSendMessage()} 
-                    placeholder="Ask Dings anything..." 
+                    placeholder="Ask Ding! anything..." 
                     className="w-full bg-[#151515] border border-white/10 rounded-xl pl-5 pr-12 py-4 text-white placeholder-gray-600 focus:outline-none focus:border-pink-500/50 focus:bg-[#1a1a1a] transition-all shadow-inner text-sm" 
                   />
                   <button 
@@ -2648,7 +2648,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               </button>
            </div>
 
-           <p className="text-center text-[9px] text-gray-700 uppercase tracking-widest mt-8">Dings Fitness OS v2.1</p>
+           <p className="text-center text-[9px] text-gray-700 uppercase tracking-widest mt-8">Ding! v2.1</p>
         </div>
       )}
           </motion.div>
@@ -2890,7 +2890,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                           macroResult.floorApplied
                             ? "Profile updated. Calories capped at safety minimum."
                             : workoutPrefsChanged
-                              ? "Saved. Regenerate Protocol to apply your new preferences."
+                              ? "Saved. Refresh your plan to apply your new preferences."
                               : "Yep saved that, you are here forever(okay legally not actually..chill)"
                         );
                     }} className="flex-1 py-3 rounded-xl bg-cyan-500 text-black font-bold uppercase tracking-widest text-xs">Save</button>

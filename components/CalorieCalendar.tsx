@@ -50,7 +50,7 @@ export const CalorieCalendar: React.FC<CalorieCalendarProps> = ({ logs, targetCa
     <div className="w-full">
         <div className="flex justify-between items-center mb-4">
             <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                {today.toLocaleString('default', { month: 'long' })} Protocol
+                {today.toLocaleString('default', { month: 'long' })} rhythm
             </h4>
             <div className="flex gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-500/50"></div>

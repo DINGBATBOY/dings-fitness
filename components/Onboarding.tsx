@@ -452,7 +452,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                   <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-pink-500/10 pointer-events-none" />
                   
                   <h2 className="text-2xl font-orbitron font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-pink-500 uppercase tracking-widest mb-4">
-                     {macroResult.protocolName || "YOUR PROTOCOL"}
+                     {macroResult.protocolName || "Your daily targets"}
                   </h2>
                   
                   <p className="text-sm text-gray-300 italic mb-6 leading-relaxed relative z-10">"{macroResult.coachMessage}"</p>
@@ -664,4 +664,3 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     </div>
   );
 };
-
