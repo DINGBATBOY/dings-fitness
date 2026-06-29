@@ -244,13 +244,3 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
     </div>
   );
 };
-              {tab.label}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-    </div>
-  );
-};

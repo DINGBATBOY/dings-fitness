@@ -3251,32 +3251,3 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 };
 
 export default MainApp;
-
-              <button
-                onClick={() => {
-                  // Persist acceptance so we never prompt again.
-                  handleUpdateAppState(prev => ({
-                    ...prev,
-                    profile: prev.profile
-                      ? {
-                          ...prev.profile,
-                          acceptedHealthDisclaimer: true,
-                          disclaimerAcceptedAt: new Date().toISOString(),
-                        }
-                      : prev.profile,
-                  }));
-                  setShowHealthDisclaimer(false);
-                }}
-                className="w-full py-4 rounded-2xl bg-white text-black font-orbitron font-bold text-sm tracking-widest hover:bg-gray-200 transition-colors"
-              >
-                I UNDERSTAND & AGREE
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </Layout>
-  );
-};
-
-export default MainApp;
