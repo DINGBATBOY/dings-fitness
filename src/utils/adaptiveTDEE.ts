@@ -18,7 +18,7 @@
  *     week's TDEE estimate (smoothing — don't whipsaw the user).
  */
 
-import type { DailyLog, UserProfile } from '../../types';
+import type { DailyLog, UserProfile, WeightEntry } from '../../types';
 
 const KCAL_PER_LB = 3500;
 // How much of the observed error we apply each week. 0.4 = 40% — fast
@@ -73,15 +73,15 @@ export const computeAdaptiveTDEE = (
   profile: UserProfile,
   dailyLogs: DailyLog[],
   currentFormulaTDEE: number,
+  weighIns: WeightEntry[] = [],
 ): AdaptiveResult => {
-  // Filter to logs with a real weight reading.
-  const weighed = (dailyLogs || [])
-    .filter(l => (l.weight || 0) > 50 && (l.weight || 0) < 700) // sanity range
-    .map(l => ({
-      date: new Date(l.date),
-      weight: l.weight,
-      calories: l.caloriesConsumed || 0,
-      burn: l.caloriesBurned || 0,
+  // Only explicit check-ins count. Daily nutrition/workout logs may contain a
+  // legacy profile-weight snapshot, which is not a real measurement.
+  const weighed = (weighIns || [])
+    .filter(entry => entry.weight > 50 && entry.weight < 700)
+    .map(entry => ({
+      date: new Date(`${entry.date}T12:00:00`),
+      weight: entry.weight,
     }))
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -118,16 +118,22 @@ export const computeAdaptiveTDEE = (
     };
   }
 
-  // Average daily NET intake (consumed minus activity burn) across the window.
-  const recentWindow = weighed.slice(Math.max(0, N - windowDays));
+  // Average daily NET intake across complete food-log days in the same window.
+  // A weigh-in and a food log do not need to happen on the same day.
+  const windowStart = baseline[0].date.getTime();
+  const windowEnd = recent[recent.length - 1].date.getTime();
+  const recentWindow = (dailyLogs || []).filter(log => {
+    const date = new Date(log.date).getTime();
+    return date >= windowStart && date <= windowEnd && (log.caloriesConsumed || 0) >= 500;
+  });
   const dayCount = recentWindow.length;
   if (dayCount === 0) {
-    return { hasEnoughData: false, reason: 'No log days in trend window.' };
+    return { hasEnoughData: false, reason: 'Log meals alongside weigh-ins to tune your targets.' };
   }
   const avgNetIntake =
-    recentWindow.reduce((a, b) => a + (b.calories - b.burn), 0) / dayCount;
+    recentWindow.reduce((a, b) => a + ((b.caloriesConsumed || 0) - (b.caloriesBurned || 0)), 0) / dayCount;
   const avgIntakeKcal = Math.round(
-    recentWindow.reduce((a, b) => a + b.calories, 0) / dayCount,
+    recentWindow.reduce((a, b) => a + (b.caloriesConsumed || 0), 0) / dayCount,
   );
 
   // Inferred actual TDEE: if avgNetIntake > actualTDEE, you'd gain. We solve

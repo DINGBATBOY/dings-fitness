@@ -278,7 +278,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
               <button
                 type="submit"
                 disabled={isLoading || (!isLogin && !showForgot && !canSubmit)}
-                className="w-full py-4 mt-2 bg-[#d97757] hover:bg-[#c46844] text-white font-bold font-orbitron uppercase tracking-widest rounded-xl shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors relative overflow-hidden btn-shimmer"
+                className="w-full py-4 mt-2 bg-[#d97757] hover:bg-[#c46844] text-white font-semibold text-sm rounded-xl shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors relative overflow-hidden btn-shimmer"
               >
                 {isLoading ? 'Working...' : (showForgot ? 'Send reset link' : (isLogin ? 'Sign in' : 'Create account'))}
               </button>

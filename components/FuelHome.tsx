@@ -15,7 +15,7 @@
  *   4. Macro bars row: Protein / Carbs / Fat with horizontal progress
  *   5. Consumed / Remaining toggle (data view selector)
  *   6. Movement row + quick-burn pills
- *   7. Habits section: Weigh-In + Food Logging 30-day grids (NEW)
+ *   7. Weight check-in + recent meal rhythm
  *   8. Adaptive TDEE banner (when applicable)
  *   9. Quick-jump tiles + Wrapped launcher
  *   10. Hidatsa credit footer
@@ -24,9 +24,10 @@
 import React, { useMemo, useState } from 'react';
 import {
   Feather, Beef, Wheat, Droplets, Dumbbell, Flame, Plus, ChevronRight,
-  Bike, Footprints, MoreHorizontal,
+  Bike, Footprints, MoreHorizontal, Scale, TrendingDown, TrendingUp, Minus,
+  X, Check,
 } from 'lucide-react';
-import type { UserProfile, NutritionTargets, DailyLog } from '../types';
+import type { UserProfile, NutritionTargets, DailyLog, WeightEntry } from '../types';
 
 // ───────────────────── Warm-dark palette ─────────────────────
 // Brighter, more saturated accent set so the dashboard reads
@@ -61,6 +62,8 @@ interface FuelHomeProps {
   dateString: string;
   /** Last ~30 days of logs — used for the Habits grids. */
   dailyLogs: DailyLog[];
+  weighIns: WeightEntry[];
+  onLogWeight: (weight: number) => boolean;
   onQuickAddFood: () => void;
   onOpenReflect: () => void;
   onLogActivity: (kind: 'running' | 'weights' | 'cycling' | 'walking', minutes: number) => void;
@@ -86,6 +89,8 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   greeting,
   dateString,
   dailyLogs,
+  weighIns,
+  onLogWeight,
   onQuickAddFood,
   onOpenReflect,
   onLogActivity,
@@ -96,6 +101,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
   const [macroView, setMacroView] = useState<'consumed' | 'remaining'>('consumed');
+  const [showWeightCheckIn, setShowWeightCheckIn] = useState(false);
+  const [weightInput, setWeightInput] = useState(String(profile.weight || ''));
+  const [weightError, setWeightError] = useState('');
 
   // ───────── Math ─────────
   const calRatio = Math.max(0, Math.min(1, consumed.calories / Math.max(1, targets.calories)));
@@ -117,41 +125,84 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
 
   // ───────── Habits — last 30 days ─────────
   const days30 = useMemo(() => {
-    const out: { date: string; hadWeigh: boolean; hadFood: boolean }[] = [];
+    const out: { date: string; hadFood: boolean }[] = [];
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const byDate = new Map<string, DailyLog>();
-    (dailyLogs || []).forEach(l => { if (l.date) byDate.set(l.date, l); });
+    (dailyLogs || []).forEach(l => {
+      if (!l.date) return;
+      const parsed = new Date(l.date);
+      const key = Number.isNaN(parsed.getTime()) ? l.date : parsed.toLocaleDateString();
+      byDate.set(key, l);
+    });
     for (let i = 29; i >= 0; i--) {
       const d = new Date(today); d.setDate(d.getDate() - i);
       const dateStr = d.toLocaleDateString();
       const log = byDate.get(dateStr);
       out.push({
         date: dateStr,
-        hadWeigh: !!(log && (log.weight || 0) > 0),
-        hadFood: !!(log && ((log.caloriesConsumed || 0) > 0 || (log.foodItems?.length || 0) > 0)),
+        hadFood: (i === 0 && (consumed.calories > 0 || consumed.protein > 0 || consumed.carbs > 0 || consumed.fat > 0)) ||
+          !!(log && ((log.caloriesConsumed || 0) > 0 || (log.foodItems?.length || 0) > 0)),
       });
     }
     return out;
-  }, [dailyLogs]);
-  const weighInThisWeek = days30.slice(-7).filter(d => d.hadWeigh).length;
+  }, [dailyLogs, consumed]);
   const foodLogThisWeek = days30.slice(-7).filter(d => d.hadFood).length;
+
+  const weightSummary = useMemo(() => {
+    const sorted = [...(weighIns || [])]
+      .filter(entry => entry.weight > 50 && entry.weight < 700)
+      .sort((a, b) => new Date(`${a.date}T12:00:00`).getTime() - new Date(`${b.date}T12:00:00`).getTime());
+    const latest = sorted[sorted.length - 1];
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 6);
+    const thisWeek = sorted.filter(entry => new Date(`${entry.date}T12:00:00`) >= cutoff);
+    const average = thisWeek.length
+      ? thisWeek.reduce((sum, entry) => sum + entry.weight, 0) / thisWeek.length
+      : undefined;
+    const change = thisWeek.length >= 2
+      ? thisWeek[thisWeek.length - 1].weight - thisWeek[0].weight
+      : undefined;
+    const today = new Date();
+    const todayKey = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('-');
+    return { latest, average, change, thisWeekCount: thisWeek.length, checkedInToday: latest?.date === todayKey };
+  }, [weighIns]);
+
+  const openWeightCheckIn = () => {
+    setWeightInput(String(weightSummary.latest?.weight || profile.weight || ''));
+    setWeightError('');
+    setShowWeightCheckIn(true);
+  };
+
+  const submitWeight = (event: React.FormEvent) => {
+    event.preventDefault();
+    const weight = Number(weightInput);
+    if (!Number.isFinite(weight) || weight < 50 || weight > 700) {
+      setWeightError('Enter a weight between 50 and 700 lbs.');
+      return;
+    }
+    if (onLogWeight(weight)) setShowWeightCheckIn(false);
+  };
 
   return (
     <div className="pb-20 -mx-4 px-4" style={{ background: C.bg, color: C.ink }}>
       {/* ─────── Hero greeting ─────── */}
-      <div className="px-1 pt-1 pb-3 flex items-start justify-between gap-3">
+      {/* The user's name now lives in the global header, so we drop the
+          giant name h1 here. Compact one-line greeting + streak badge. */}
+      <div className="px-1 pt-1 pb-2 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>{dateString}</p>
-          <h2 className="text-base font-medium tracking-tight mt-1 leading-tight" style={{ color: C.inkMid }}>
-            {greeting}
+          <h2 className="text-lg font-medium tracking-tight mt-1 leading-tight truncate" style={{ color: C.ink }}>
+            {greeting}, <span style={{ color: C.inkMid }}>{firstName}</span>
           </h2>
-          <h1 className="text-3xl font-bold tracking-tight truncate leading-tight mt-0.5" style={{ color: C.ink }}>
-            {firstName}
-          </h1>
         </div>
         {streak >= 2 && (
           <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0 self-start mt-1"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
             style={{ background: `${C.fire}1a`, border: `1px solid ${C.fire}40` }}
           >
             <Feather className="w-3.5 h-3.5" strokeWidth={1.5} style={{ color: C.fire }} />
@@ -165,10 +216,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         )}
       </div>
 
-      {/* ─────── Daily Nutrition section header (subtle arrow underline) ─────── */}
-      <SectionHeader label="Daily Nutrition" />
-
       {/* ─────── 3-number ring + macro bars card ─────── */}
+      {/* Section header dropped — the card is self-explanatory and section
+          chrome is real estate we want back for compactness. */}
       <div className="rounded-3xl p-5 mt-2" style={{ background: C.card, border: `1px solid ${C.border}` }} data-tour="macro-ring">
         <ThreeNumberRing
           consumed={consumed.calories}
@@ -238,34 +288,32 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         </div>
       )}
 
-      {/* ─────── Movement row ─────── */}
-      <SectionHeader label="Today's Movement" className="mt-6" />
-      <div className="grid grid-cols-3 gap-2.5 mt-2">
-        <StatTile
-          icon={<Dumbbell className="w-4 h-4" strokeWidth={1.5} />}
+      {/* ─────── Movement strip (compact, no section header) ─────── */}
+      <div className="grid grid-cols-3 gap-2 mt-3">
+        <MovementChip
+          icon={<Dumbbell className="w-3.5 h-3.5" strokeWidth={1.7} />}
           color={C.fire}
           label="Workout"
           value={workoutCompletedToday ? 'Done' : '—'}
-          sublabel={workoutCompletedToday ? 'session logged' : 'not yet'}
         />
-        <StatTile
-          icon={<Flame className="w-4 h-4" strokeWidth={1.5} />}
+        <MovementChip
+          icon={<Flame className="w-3.5 h-3.5" strokeWidth={1.7} />}
           color={C.fire}
           label="Burn"
           value={`${activityBurn}`}
-          sublabel="kcal · today"
+          unit="kcal"
         />
-        <StatTile
-          icon={<Droplets className="w-4 h-4" strokeWidth={1.5} />}
+        <MovementChip
+          icon={<Droplets className="w-3.5 h-3.5" strokeWidth={1.7} />}
           color={C.sky}
           label="Water"
           value={`${waterIntake}`}
-          sublabel={`/ ${waterTarget} oz · mini`}
+          unit={`/${waterTarget}`}
         />
       </div>
 
       {/* Quick-burn pills */}
-      <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-1 scrollbar-hide">
+      <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 scrollbar-hide">
         <QuickBurnPill label="Run"  icon={<Footprints className="w-3.5 h-3.5" strokeWidth={1.5} />} onClick={() => onLogActivity('running', 30)} />
         <QuickBurnPill label="Lift" icon={<Dumbbell className="w-3.5 h-3.5"   strokeWidth={1.5} />} onClick={() => onLogActivity('weights', 30)} />
         <QuickBurnPill label="Bike" icon={<Bike className="w-3.5 h-3.5"       strokeWidth={1.5} />} onClick={() => onLogActivity('cycling', 30)} />
@@ -273,88 +321,14 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         <QuickBurnPill label="Other" icon={<MoreHorizontal className="w-3.5 h-3.5" strokeWidth={1.5} />} onClick={onOpenActivityModal} muted />
       </div>
 
-      {/* ─────── Habits — 30-day grids ─────── */}
-      <SectionHeader label="Habits" className="mt-6" />
-      <div className="grid grid-cols-2 gap-2.5 mt-2">
-        <HabitTile
-          title="Weigh-In"
-          subtitle="Last 30 days"
-          days={days30}
-          dayHadFn={(d) => d.hadWeigh}
-          color={C.emerald}
-          countThisWeek={weighInThisWeek}
-        />
-        <HabitTile
-          title="Food Logging"
-          subtitle="Last 30 days"
-          days={days30}
-          dayHadFn={(d) => d.hadFood}
-          color={C.sky}
-          countThisWeek={foodLogThisWeek}
-        />
+      {/* ─────── Check-in + Meals (the two interactive habit cards) ─────── */}
+      {/* The Quick Jumps tile row and the larger Wrapped launcher card were
+          removed — both were redundant with the dock and with these two
+          cards' own CTAs. */}
+      <div className="mt-4">
+        <WeightCheckInCard summary={weightSummary} onOpen={openWeightCheckIn} />
       </div>
-
-      {/* ─────── Quick jumps + Wrapped launcher ─────── */}
-      <div className="grid grid-cols-2 gap-2.5 mt-3">
-        <button
-          onClick={onQuickAddFood}
-          className="rounded-2xl text-left transition-all active:scale-[0.98] overflow-hidden"
-          style={{ background: C.card, border: `1px solid ${C.border}` }}
-        >
-          <div className="p-4 flex flex-col items-start gap-3">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: C.fire }}>
-              <Plus className="w-5 h-5 text-white" strokeWidth={2} />
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>Meals</div>
-              <div className="text-[15px] font-bold mt-0.5" style={{ color: C.ink }}>Log a meal</div>
-              <div className="text-[10px] mt-0.5" style={{ color: C.inkMid }}>Quick add to today</div>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={onOpenReflect}
-          disabled={!hasEnoughDataForWrapped}
-          className="rounded-2xl text-left transition-all active:scale-[0.98] overflow-hidden disabled:opacity-60"
-          style={{ background: C.card, border: `1px solid ${C.border}` }}
-        >
-          <div className="p-4 flex flex-col items-start gap-3">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: `${C.fire}20` }}>
-              <Feather className="w-5 h-5" strokeWidth={1.5} style={{ color: C.fire }} />
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>Reflect</div>
-              <div className="text-[15px] font-bold mt-0.5" style={{ color: C.ink }}>Your trail</div>
-              <div className="text-[10px] mt-0.5" style={{ color: C.inkMid }}>
-                {hasEnoughDataForWrapped ? 'Week & month recap' : 'Log a few more days'}
-              </div>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      {hasEnoughDataForWrapped && (
-        <button
-          onClick={onOpenReflect}
-          className="w-full mt-3 rounded-2xl text-left overflow-hidden relative transition-all active:scale-[0.99]"
-          style={{
-            background: `linear-gradient(135deg, ${C.fire}1a, ${C.ochre}10)`,
-            border: `1px solid ${C.fire}30`,
-          }}
-        >
-          <div className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: C.fire }}>
-              <Feather className="w-5 h-5 text-white" strokeWidth={1.5} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.fire }}>Your Wrapped</div>
-              <div className="text-[14px] font-bold mt-0.5" style={{ color: C.ink }}>See your week, recapped</div>
-            </div>
-            <ChevronRight className="w-5 h-5" strokeWidth={1.5} style={{ color: C.inkMid }} />
-          </div>
-        </button>
-      )}
+      <MealRhythmCard days={days30} countThisWeek={foodLogThisWeek} onLogMeal={onQuickAddFood} />
 
       {/* ─────── Hidatsa credit footer ─────── */}
       <p className="text-center text-[9px] mt-8 uppercase tracking-[0.3em]" style={{ color: C.inkLight }}>
@@ -363,6 +337,70 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
       <p className="text-center text-[8px] mt-1.5 italic" style={{ color: C.inkLight, opacity: 0.7 }}>
         Vocabulary supported by the MHA Language Project
       </p>
+
+      {showWeightCheckIn && (
+        <div
+          className="fixed inset-0 z-[220] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3"
+          onClick={(event) => { if (event.target === event.currentTarget) setShowWeightCheckIn(false); }}
+        >
+          <form
+            onSubmit={submitWeight}
+            className="w-full max-w-sm rounded-2xl p-5 shadow-2xl"
+            style={{ background: C.cardSoft, border: `1px solid ${C.borderStrong}` }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.emerald }}>Today</div>
+                <h3 className="text-xl font-bold mt-1" style={{ color: C.ink }}>
+                  {weightSummary.checkedInToday ? 'Update your check-in' : 'Quick weight check-in'}
+                </h3>
+                <p className="text-[12px] mt-1 leading-relaxed" style={{ color: C.inkMid }}>
+                  No judgment. This helps Ding notice the trend, not obsess over one day.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWeightCheckIn(false)}
+                className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center"
+                style={{ background: C.bg, color: C.inkMid }}
+                aria-label="Close weight check-in"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <label className="block mt-5">
+              <span className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>Weight</span>
+              <div className="flex items-center gap-3 mt-2 rounded-xl px-4" style={{ background: C.bg, border: `1px solid ${weightError ? C.fire : C.borderStrong}` }}>
+                <input
+                  autoFocus
+                  type="number"
+                  inputMode="decimal"
+                  min="50"
+                  max="700"
+                  step="0.1"
+                  value={weightInput}
+                  onChange={(event) => { setWeightInput(event.target.value); setWeightError(''); }}
+                  className="min-w-0 flex-1 bg-transparent py-4 text-3xl font-bold outline-none tabular-nums"
+                  style={{ color: C.ink }}
+                  aria-describedby={weightError ? 'weight-error' : undefined}
+                />
+                <span className="text-sm font-bold" style={{ color: C.inkLight }}>lbs</span>
+              </div>
+              {weightError && <span id="weight-error" className="block text-[11px] mt-2" style={{ color: C.fire }}>{weightError}</span>}
+            </label>
+
+            <button
+              type="submit"
+              className="w-full mt-5 py-3.5 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white"
+              style={{ background: C.fire }}
+            >
+              <Check className="w-4 h-4" strokeWidth={2.5} />
+              Save check-in
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
@@ -495,20 +533,32 @@ const MacroBar: React.FC<{
   );
 };
 
-const StatTile: React.FC<{
+/**
+ * MovementChip — slim, single-line replacement for the old StatTile.
+ *
+ * Used in the 3-column row under the macro card to give a glance at today's
+ * workout / burn / water without spending the vertical room a full tile
+ * needs. Visual: icon + value on top, label below in fine print.
+ */
+const MovementChip: React.FC<{
   icon: React.ReactNode;
   color: string;
   label: string;
   value: string;
-  sublabel: string;
-}> = ({ icon, color, label, value, sublabel }) => (
-  <div className="rounded-2xl p-3 flex flex-col items-start" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-    <div className="flex items-center justify-between w-full mb-2">
-      <span style={{ color }}>{icon}</span>
-      <span className="text-[8px] uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>{label}</span>
+  unit?: string;
+}> = ({ icon, color, label, value, unit }) => (
+  <div
+    className="rounded-xl px-3 py-2 flex items-center gap-2"
+    style={{ background: C.card, border: `1px solid ${C.border}` }}
+  >
+    <span className="shrink-0" style={{ color }}>{icon}</span>
+    <div className="min-w-0 flex-1">
+      <div className="flex items-baseline gap-1 leading-none">
+        <span className="text-[15px] font-bold tabular-nums" style={{ color: C.ink }}>{value}</span>
+        {unit && <span className="text-[9px]" style={{ color: C.inkLight }}>{unit}</span>}
+      </div>
+      <div className="text-[8px] uppercase tracking-[0.2em] font-bold mt-0.5 truncate" style={{ color: C.inkLight }}>{label}</div>
     </div>
-    <div className="text-[20px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>{value}</div>
-    <div className="text-[10px] mt-1" style={{ color: C.inkMid }}>{sublabel}</div>
   </div>
 );
 
@@ -532,61 +582,103 @@ const QuickBurnPill: React.FC<{
   </button>
 );
 
-/**
- * HabitTile — 30-day grid showing whether the user did a specific thing each day.
- *
- * Days are rendered as a 7×5 grid (35 cells; we only fill 30, leave 5 blank).
- * Lit cells = the user did the thing that day. Greyed cells = they didn't.
- * Bottom of the tile shows "X / 7 this week".
- *
- * Beautiful because it's honest: you see your pattern at a glance without
- * shaming a missed day. The trail just has gaps where it has gaps.
- */
-const HabitTile: React.FC<{
-  title: string;
-  subtitle: string;
-  days: { date: string; hadWeigh: boolean; hadFood: boolean }[];
-  dayHadFn: (d: { hadWeigh: boolean; hadFood: boolean }) => boolean;
-  color: string;
-  countThisWeek: number;
-}> = ({ title, subtitle, days, dayHadFn, color, countThisWeek }) => {
-  // 7 columns × however many rows we need. days is 30, so we render 7×5 with
-  // 5 leading blanks (so today lands at the end).
-  const BLANKS = 35 - days.length;
-  return (
-    <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-      <div className="text-[14px] font-bold leading-tight" style={{ color: C.ink }}>{title}</div>
-      <div className="text-[10px] mt-0.5" style={{ color: C.inkLight }}>{subtitle}</div>
+/** Weight trend and check-in action, intentionally focused on averages. */
+const WeightCheckInCard: React.FC<{
+  summary: {
+    latest?: WeightEntry;
+    average?: number;
+    change?: number;
+    thisWeekCount: number;
+    checkedInToday: boolean;
+  };
+  onOpen: () => void;
+}> = ({ summary, onOpen }) => {
+  const TrendIcon = summary.change === undefined ? Minus : summary.change < 0 ? TrendingDown : TrendingUp;
+  const trendText = summary.change === undefined
+    ? `${summary.thisWeekCount} reading${summary.thisWeekCount === 1 ? '' : 's'} this week`
+    : `${summary.change > 0 ? '+' : ''}${summary.change.toFixed(1)} lb this week`;
 
-      <div className="grid grid-cols-7 gap-[3px] mt-3">
-        {Array.from({ length: BLANKS }).map((_, i) => (
-          <div key={`b${i}`} style={{ width: '100%', aspectRatio: '1 / 1' }} />
-        ))}
-        {days.map((d, i) => {
-          const lit = dayHadFn(d);
-          return (
-            <div
-              key={d.date + i}
-              style={{
-                width: '100%',
-                aspectRatio: '1 / 1',
-                background: lit ? color : 'rgba(255,255,255,0.05)',
-                borderRadius: 3,
-              }}
-            />
-          );
-        })}
+  return (
+    <div className="rounded-2xl p-4 mt-2" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center" style={{ background: `${C.emerald}18`, color: C.emerald }}>
+          <Scale className="w-5 h-5" strokeWidth={1.7} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>Latest</div>
+              <div className="text-2xl font-bold tabular-nums mt-0.5" style={{ color: C.ink }}>
+                {(summary.latest?.weight ?? 0) > 0 ? summary.latest!.weight.toFixed(1) : '--'}
+                <span className="text-xs ml-1" style={{ color: C.inkLight }}>lb</span>
+              </div>
+            </div>
+            {summary.average !== undefined && (
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>7-day avg</div>
+                <div className="text-base font-bold tabular-nums mt-0.5" style={{ color: C.ink }}>{summary.average.toFixed(1)}</div>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: C.inkMid }}>
+            <TrendIcon className="w-3.5 h-3.5" strokeWidth={1.7} style={{ color: C.emerald }} />
+            <span>{trendText}</span>
+          </div>
+        </div>
       </div>
 
-      <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>
-        <div className="text-[11px]" style={{ color: C.inkMid }}>
-          <span className="font-bold tabular-nums" style={{ color: C.ink }}>{countThisWeek}</span>
-          <span style={{ color: C.inkLight }}> / 7 this week</span>
-        </div>
-        <ChevronRight className="w-3.5 h-3.5" strokeWidth={1.5} style={{ color: C.inkLight }} />
+      <div className="flex items-center gap-3 mt-4 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
+        <p className="flex-1 text-[10px] leading-relaxed" style={{ color: C.inkLight }}>
+          A few readings help Ding tune your targets.
+        </p>
+        <button
+          onClick={onOpen}
+          className="shrink-0 px-3.5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest text-white"
+          style={{ background: C.fire }}
+        >
+          {summary.checkedInToday ? 'Update today' : 'Check in'}
+        </button>
       </div>
     </div>
   );
 };
+
+const MealRhythmCard: React.FC<{
+  days: { date: string; hadFood: boolean }[];
+  countThisWeek: number;
+  onLogMeal: () => void;
+}> = ({ days, countThisWeek, onLogMeal }) => (
+  <button
+    onClick={onLogMeal}
+    className="w-full rounded-2xl p-4 mt-2 text-left transition-all active:scale-[0.99]"
+    style={{ background: C.card, border: `1px solid ${C.border}` }}
+  >
+    <div className="flex items-start gap-3">
+      <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center" style={{ background: `${C.sky}18`, color: C.sky }}>
+        <Plus className="w-5 h-5" strokeWidth={2} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[15px] font-bold" style={{ color: C.ink }}>What did you eat?</div>
+            <div className="text-[10px] mt-0.5" style={{ color: C.inkMid }}>
+              {countThisWeek > 0 ? `${countThisWeek} day${countThisWeek === 1 ? '' : 's'} logged this week` : 'Tell Ding and keep moving'}
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 shrink-0" strokeWidth={1.5} style={{ color: C.inkLight }} />
+        </div>
+        <div className="grid grid-cols-10 gap-[3px] mt-3" aria-label="Meal history for the last 30 days">
+          {days.map((day, index) => (
+            <span
+              key={day.date + index}
+              className="block rounded-sm"
+              style={{ aspectRatio: '1 / 1', background: day.hadFood ? C.sky : 'rgba(255,255,255,0.05)' }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  </button>
+);
 
 export default FuelHome;

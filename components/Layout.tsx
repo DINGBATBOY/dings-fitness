@@ -1,9 +1,19 @@
 
-import React from 'react';
-import { Feather, Flame, Utensils, BookOpen, Zap, MessageCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Feather, Flame, Utensils, BookOpen, Zap, MessageCircle, Pencil, X, Check } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, onTabChange: (tab: string) => void, profile?: UserProfile }> = ({ children, activeTab, onTabChange, profile }) => {
+interface LayoutProps {
+  children: React.ReactNode;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  profile?: UserProfile;
+  /** Persist a new display name. If omitted, the header username chip is
+   *  rendered as a static label instead of an editable button. */
+  onUpdateName?: (name: string) => void;
+}
+
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, profile, onUpdateName }) => {
   // Whole app is on the cream/parchment Mati-Watsā theme. The header +
   // dock chrome are warm cream with soft warm-brown line icons.
   //
@@ -21,6 +31,30 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
 
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit' }).toUpperCase().replace(',', ' ·');
   const firstInitial = profile?.name ? profile.name.charAt(0).toUpperCase() : '?';
+  const displayName = (profile?.name || '').trim();
+  const firstName = displayName.split(/\s+/)[0] || '';
+
+  // Header username editor — small modal that opens when the user taps the
+  // name chip between the wordmark and avatar. Pre-fills with the current
+  // first name; trims and validates on save. Closing without saving leaves
+  // the profile untouched.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(firstName);
+  const [nameError, setNameError] = useState('');
+
+  useEffect(() => {
+    if (editingName) setNameDraft(firstName);
+  }, [editingName, firstName]);
+
+  const submitName = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = nameDraft.trim();
+    if (!trimmed) { setNameError('Pick a name.'); return; }
+    if (trimmed.length > 30) { setNameError('30 characters max.'); return; }
+    onUpdateName?.(trimmed);
+    setNameError('');
+    setEditingName(false);
+  };
 
   // Warm-dark app-wide. Header + dock all share one theme.
   const theme = {
@@ -47,8 +81,8 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
         className="fixed top-0 left-0 right-0 z-40 px-6 py-4 max-w-md mx-auto overflow-hidden transition-colors duration-300"
         style={{ background: theme.headerBg, borderBottom: `1px solid ${theme.headerBorder}` }}
       >
-        <div className="relative flex justify-between items-center z-10">
-          <div>
+        <div className="relative flex items-center gap-3 z-10">
+          <div className="min-w-0 shrink-0">
             <h1 className="text-xl font-orbitron font-bold tracking-tighter leading-none flex items-center" style={{ color: theme.wordmarkText }}>
               DING
               <span
@@ -63,10 +97,34 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
             </h1>
             <p className="text-[9px] font-mono uppercase tracking-[0.2em] mt-1" style={{ color: theme.dateText }}>{currentDate}</p>
           </div>
+
+          {/* Username chip — slots between the wordmark and the avatar.
+              Tappable when onUpdateName is supplied; opens an inline editor.
+              flex-1 lets it absorb extra space while truncating long names. */}
+          {firstName && (
+            <button
+              onClick={() => onUpdateName && setEditingName(true)}
+              disabled={!onUpdateName}
+              className="flex-1 min-w-0 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-full transition-colors group disabled:cursor-default"
+              style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: `1px solid ${theme.avatarBorder}`,
+              }}
+              aria-label={onUpdateName ? 'Edit your name' : undefined}
+            >
+              <span className="text-[12px] font-bold truncate" style={{ color: theme.wordmarkText, letterSpacing: '0.02em' }}>
+                {firstName}
+              </span>
+              {onUpdateName && (
+                <Pencil className="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60 group-active:opacity-80 transition-opacity" strokeWidth={2} style={{ color: theme.dateText }} />
+              )}
+            </button>
+          )}
+
           {/* Avatar — tap to navigate to profile. Border adapts to theme. */}
           <button
             onClick={() => onTabChange('profile')}
-            className="w-9 h-9 rounded-full p-0.5 overflow-hidden shadow-lg relative flex items-center justify-center transition-colors"
+            className="w-9 h-9 rounded-full p-0.5 overflow-hidden shadow-lg relative flex items-center justify-center transition-colors shrink-0"
             style={{ border: `1px solid ${theme.avatarBorder}`, background: isWarmDark ? '#1d1815' : '#fff' }}
             aria-label="Open profile"
           >
@@ -79,6 +137,64 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
             )}
           </button>
         </div>
+
+        {editingName && (
+          <div
+            className="fixed inset-0 z-[210] flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 pt-24"
+            onClick={(e) => { if (e.target === e.currentTarget) setEditingName(false); }}
+          >
+            <form
+              onSubmit={submitName}
+              className="w-full max-w-sm rounded-2xl p-5 shadow-2xl"
+              style={{ background: '#1d1815', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: theme.activeIndicator }}>Your name</div>
+                  <h3 className="text-lg font-bold mt-1" style={{ color: theme.wordmarkText }}>
+                    What should Ding call you?
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingName(false)}
+                  className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center"
+                  style={{ background: 'rgba(255,255,255,0.04)', color: theme.dateText }}
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <label className="block mt-4">
+                <input
+                  autoFocus
+                  type="text"
+                  value={nameDraft}
+                  onChange={(e) => { setNameDraft(e.target.value); setNameError(''); }}
+                  maxLength={30}
+                  className="w-full bg-transparent py-3 px-4 text-lg font-bold outline-none rounded-xl"
+                  style={{
+                    color: theme.wordmarkText,
+                    background: 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${nameError ? '#e3614a' : 'rgba(255,255,255,0.08)'}`,
+                  }}
+                  placeholder="Name"
+                />
+                {nameError && <span className="block text-[11px] mt-2" style={{ color: '#e3614a' }}>{nameError}</span>}
+              </label>
+
+              <button
+                type="submit"
+                className="w-full mt-4 py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white"
+                style={{ background: theme.activeIndicator }}
+              >
+                <Check className="w-4 h-4" strokeWidth={2.5} />
+                Save
+              </button>
+            </form>
+          </div>
+        )}
       </header>
 
       <main className="pt-24 px-4 fade-in">
@@ -119,6 +235,16 @@ export const Layout: React.FC<{ children: React.ReactNode, activeTab: string, on
               {isActive && (
                 <span className="text-[8px] font-bold mt-1 uppercase tracking-widest animate-fade-in" style={{ color: theme.activeLabel }}>
                   {tab.label}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+};
+              {tab.label}
                 </span>
               )}
             </button>

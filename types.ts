@@ -189,6 +189,14 @@ export interface DailyLog {
   foodItems?: FoodItem[];
 }
 
+export interface WeightEntry {
+  id: string;
+  date: string; // Local YYYY-MM-DD date for grouping one check-in per day
+  weight: number;
+  createdAt: string;
+  source: 'check-in' | 'chat';
+}
+
 export interface SavedNote {
   id: string;
   content: string;
@@ -224,6 +232,7 @@ export interface AppState {
   activityBurn: number; // Current day activity burn in calories
   waterIntake: number; // Current day water in oz
   dailyLogs: DailyLog[];
+  weighIns?: WeightEntry[];
   milestones: string[];
   savedNotes: SavedNote[];
   mealHistory: Meal[];

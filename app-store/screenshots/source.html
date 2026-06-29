@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ding! App Store Screenshots</title>
+  <style>
+    :root {
+      --bg: #161210;
+      --card: #1d1815;
+      --card2: #221d19;
+      --ink: #f5ede1;
+      --muted: #c4b8a4;
+      --soft: #8b7e6e;
+      --primary: #d97757;
+      --gold: #e8a85a;
+      --green: #7ab896;
+      --blue: #6fa8c4;
+      --rose: #c97b6e;
+      --line: rgba(255,255,255,0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 1290px; min-height: 2796px; background: var(--bg); }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      overflow: auto;
+    }
+
+    .shot {
+      width: 1290px;
+      height: 2796px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 18% 16%, rgba(217,119,87,0.22), transparent 30%),
+        radial-gradient(circle at 90% 20%, rgba(111,168,196,0.18), transparent 28%),
+        radial-gradient(circle at 50% 100%, rgba(232,168,90,0.18), transparent 35%),
+        linear-gradient(180deg, #1a1411 0%, #100d0b 100%);
+    }
+
+    .grain {
+      position: absolute;
+      inset: 0;
+      opacity: 0.22;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(circle at center, black 0%, transparent 82%);
+    }
+
+    .brand {
+      position: absolute;
+      top: 96px;
+      left: 92px;
+      right: 92px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 3;
+    }
+
+    .wordmark {
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      font-size: 58px;
+      line-height: 1;
+    }
+    .wordmark span { color: var(--primary); }
+    .tag {
+      font-size: 24px;
+      color: var(--soft);
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      font-weight: 800;
+    }
+
+    .headline {
+      position: absolute;
+      left: 92px;
+      right: 92px;
+      top: 225px;
+      z-index: 3;
+    }
+    .headline h1 {
+      margin: 0;
+      font-size: 88px;
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+      max-width: 1000px;
+    }
+    .headline p {
+      margin: 28px 0 0;
+      color: var(--muted);
+      font-size: 31px;
+      line-height: 1.32;
+      max-width: 850px;
+    }
+
+    .phone {
+      position: absolute;
+      left: 50%;
+      bottom: 128px;
+      width: 828px;
+      height: 1788px;
+      transform: translateX(-50%);
+      border-radius: 108px;
+      padding: 26px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.2), rgba(255,255,255,0.035));
+      box-shadow: 0 90px 180px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.28);
+    }
+    .screen {
+      width: 100%;
+      height: 100%;
+      border-radius: 86px;
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid rgba(255,255,255,0.08);
+      position: relative;
+    }
+    .island {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 230px;
+      height: 62px;
+      border-radius: 999px;
+      background: #050403;
+      z-index: 20;
+      opacity: 0.92;
+    }
+
+    .app {
+      position: absolute;
+      inset: 0;
+      padding: 104px 42px 116px;
+      background: #161210;
+    }
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 34px;
+    }
+    .app-logo {
+      font-size: 33px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+    .app-logo span { color: var(--primary); }
+    .date {
+      margin-top: 8px;
+      font-size: 15px;
+      color: var(--soft);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      font-weight: 800;
+    }
+    .avatar {
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--primary);
+      color: white;
+      font-weight: 900;
+      font-size: 23px;
+      border: 2px solid rgba(255,255,255,0.1);
+    }
+
+    .section-label {
+      color: var(--soft);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      font-weight: 900;
+      font-size: 17px;
+      margin: 24px 0 14px;
+    }
+    .greeting {
+      color: var(--muted);
+      font-size: 28px;
+      margin: 10px 0 2px;
+    }
+    .name {
+      font-size: 62px;
+      font-weight: 900;
+      letter-spacing: -0.05em;
+      margin: 0 0 22px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 42px;
+      padding: 34px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .soft-card {
+      background: var(--card2);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 24px;
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .muted { color: var(--soft); }
+    .tiny { font-size: 16px; text-transform: uppercase; letter-spacing: 0.16em; font-weight: 850; }
+    .number { font-size: 58px; font-weight: 900; letter-spacing: -0.05em; }
+    .medium { font-size: 26px; font-weight: 800; }
+    .small { font-size: 20px; line-height: 1.3; color: var(--muted); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border-radius: 999px;
+      padding: 13px 18px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.045);
+      color: var(--ink);
+      font-weight: 850;
+      font-size: 18px;
+    }
+    .progress { height: 13px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+    .bar { height: 100%; border-radius: 999px; }
+
+    .ring {
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at center, var(--card) 0 57%, transparent 58%),
+        conic-gradient(var(--primary) 0 72%, rgba(255,255,255,0.08) 72% 100%);
+      margin: 8px auto 26px;
+    }
+    .ring-inner { text-align: center; }
+    .ring-inner .number { font-size: 62px; }
+
+    .bottom-nav {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 108px;
+      background: rgba(22,18,16,0.96);
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 0 22px 12px;
+    }
+    .nav-item { color: rgba(245,237,225,0.38); font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; }
+    .nav-item.active { color: var(--ink); }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .list { display: grid; gap: 16px; }
+    .food-photo {
+      height: 420px;
+      border-radius: 42px;
+      background:
+        radial-gradient(circle at 35% 45%, #e8a85a 0 10%, transparent 11%),
+        radial-gradient(circle at 58% 42%, #7ab896 0 12%, transparent 13%),
+        radial-gradient(circle at 45% 63%, #f5ede1 0 22%, transparent 23%),
+        radial-gradient(circle at 65% 65%, #d97757 0 12%, transparent 13%),
+        #2b211b;
+      border: 1px solid var(--line);
+      position: relative;
+      overflow: hidden;
+    }
+    .food-photo:after {
+      content: "";
+      position: absolute;
+      inset: 74px;
+      border: 7px solid rgba(255,255,255,0.2);
+      border-radius: 34px;
+    }
+
+    .restaurant-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 22px;
+      display: grid;
+      place-items: center;
+      background: rgba(217,119,87,0.16);
+      color: var(--primary);
+      font-weight: 950;
+      font-size: 23px;
+    }
+    .check {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.16);
+    }
+    .check.done {
+      background: var(--green);
+      border-color: var(--green);
+      position: relative;
+    }
+    .check.done:after {
+      content: "";
+      position: absolute;
+      width: 14px;
+      height: 8px;
+      border-left: 4px solid #10100d;
+      border-bottom: 4px solid #10100d;
+      transform: rotate(-45deg);
+      left: 8px;
+      top: 9px;
+    }
+    .sparkline {
+      width: 100%;
+      height: 180px;
+      margin-top: 18px;
+    }
+    .chat {
+      display: grid;
+      gap: 18px;
+      margin-top: 24px;
+    }
+    .bubble {
+      max-width: 82%;
+      padding: 24px;
+      border-radius: 30px;
+      font-size: 21px;
+      line-height: 1.35;
+    }
+    .bubble.user { justify-self: end; background: var(--rose); color: white; border-top-right-radius: 8px; }
+    .bubble.ding { justify-self: start; background: var(--card2); color: var(--ink); border: 1px solid var(--line); border-top-left-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    const shots = [
+      {
+        title: "Hit your macros without overthinking it",
+        subtitle: "A clear daily view for calories, protein, movement, and the small habits that add up.",
+        tab: "Fuel",
+        screen: fuelScreen,
+      },
+      {
+        title: "Log meals fast with AI estimates",
+        subtitle: "Snap a meal or type what you ate, then review the nutrition before it hits your day.",
+        tab: "Log",
+        screen: scanScreen,
+      },
+      {
+        title: "Restaurant picks that fit your day",
+        subtitle: "Browse real menu options ranked around your remaining calories and protein.",
+        tab: "Eats",
+        screen: eatsScreen,
+      },
+      {
+        title: "Keep training simple",
+        subtitle: "Follow a weekly plan, check off sets, and refresh your split as life changes.",
+        tab: "Train",
+        screen: trainScreen,
+      },
+      {
+        title: "See the week, not just today",
+        subtitle: "Reflect turns logs into patterns so progress feels less mysterious.",
+        tab: "Reflect",
+        screen: reflectScreen,
+      },
+      {
+        title: "Ask Ding! when you need a nudge",
+        subtitle: "Get help with food choices, training questions, and what to do next today.",
+        tab: "Ask",
+        screen: askScreen,
+      },
+    ];
+
+    const params = new URLSearchParams(window.location.search);
+    const index = Math.max(0, Math.min(shots.length - 1, Number(params.get("shot") || 1) - 1));
+    const shot = shots[index];
+
+    function appShell(active, content) {
+      const tabs = ["Fuel", "Eats", "Log", "Reflect", "Train", "Ask"];
+      return `
+        <div class="screen">
+          <div class="island"></div>
+          <div class="app">
+            <div class="app-header">
+              <div>
+                <div class="app-logo">DING<span>!</span></div>
+                <div class="date">Thu · Jun 26</div>
+              </div>
+              <div class="avatar">C</div>
+            </div>
+            ${content}
+          </div>
+          <div class="bottom-nav">
+            ${tabs.map(t => `<div class="nav-item ${t === active ? "active" : ""}">${t}</div>`).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function fuelScreen() {
+      return appShell("Fuel", `
+        <div class="greeting">Welcome back</div>
+        <h2 class="name">Cuodi</h2>
+        <div class="section-label">Daily nutrition</div>
+        <div class="card">
+          <div class="ring"><div class="ring-inner"><div class="tiny muted">Remaining</div><div class="number">620</div><div class="small">of 2,250 kcal</div></div></div>
+          <div class="list">
+            ${macro("Protein", "142g", "180g", "79%", "var(--primary)")}
+            ${macro("Carbs", "176g", "260g", "68%", "var(--gold)")}
+            ${macro("Fat", "58g", "75g", "77%", "var(--green)")}
+          </div>
+        </div>
+        <div class="grid3" style="margin-top:18px">
+          <div class="soft-card"><div class="tiny muted">Workout</div><div class="medium">Done</div></div>
+          <div class="soft-card"><div class="tiny muted">Steps</div><div class="medium">8.4k</div></div>
+          <div class="soft-card"><div class="tiny muted">Water</div><div class="medium">64 oz</div></div>
+        </div>
+        <div class="row" style="margin-top:18px"><span class="pill">Walk 30 min</span><span class="pill">Add food</span></div>
+      `);
+    }
+
+    function macro(label, current, target, width, color) {
+      return `<div>
+        <div class="row"><span class="medium">${label}</span><span class="small">${current} / ${target}</span></div>
+        <div class="progress" style="margin-top:10px"><div class="bar" style="width:${width}; background:${color}"></div></div>
+      </div>`;
+    }
+
+    function scanScreen() {
+      return appShell("Log", `
+        <div class="section-label">Meal scan</div>
+        <div class="food-photo"></div>
+        <div class="card" style="margin-top:18px">
+          <div class="row"><div><div class="medium">Chicken rice bowl</div><div class="small">Visual estimate · medium confidence</div></div><span class="pill">Review</span></div>
+          <div class="grid3" style="margin-top:26px">
+            <div><div class="number" style="font-size:40px">640</div><div class="tiny muted">kcal</div></div>
+            <div><div class="number" style="font-size:40px">48g</div><div class="tiny muted">protein</div></div>
+            <div><div class="number" style="font-size:40px">71g</div><div class="tiny muted">carbs</div></div>
+          </div>
+        </div>
+        <div class="list" style="margin-top:18px">
+          <div class="soft-card row"><div><div class="medium">Chicken breast</div><div class="small">155g · 256 kcal</div></div><div class="tiny muted">high</div></div>
+          <div class="soft-card row"><div><div class="medium">White rice</div><div class="small">210g · 272 kcal</div></div><div class="tiny muted">medium</div></div>
+          <div class="soft-card row"><div><div class="medium">Avocado salsa</div><div class="small">70g · 112 kcal</div></div><div class="tiny muted">medium</div></div>
+        </div>
+      `);
+    }
+
+    function eatsScreen() {
+      return appShell("Eats", `
+        <div class="section-label">Fits your day</div>
+        <div class="card">
+          <div class="row"><div><div class="tiny muted">Remaining</div><div class="number">620</div><div class="small">kcal · 38g protein target</div></div><span class="pill">High protein</span></div>
+        </div>
+        <div class="list" style="margin-top:20px">
+          ${restaurant("CM", "Chipotle", "Chicken bowl, light rice", "520 kcal · 44g protein", "Great fit")}
+          ${restaurant("SG", "Sweetgreen", "Harvest bowl with chicken", "610 kcal · 39g protein", "Balanced")}
+          ${restaurant("CA", "Cava", "Greens + grains bowl", "575 kcal · 35g protein", "Close")}
+          ${restaurant("SB", "Starbucks", "Egg bites + protein box", "470 kcal · 32g protein", "Quick")}
+        </div>
+      `);
+    }
+
+    function restaurant(initials, name, item, macros, badge) {
+      return `<div class="soft-card row">
+        <div class="row" style="justify-content:flex-start">
+          <div class="restaurant-logo">${initials}</div>
+          <div><div class="medium">${name}</div><div class="small">${item}</div><div class="tiny muted" style="margin-top:8px">${macros}</div></div>
+        </div>
+        <span class="pill">${badge}</span>
+      </div>`;
+    }
+
+    function trainScreen() {
+      return appShell("Train", `
+        <div class="section-label">Today</div>
+        <div class="card">
+          <div class="row"><div><div class="tiny muted">Upper body</div><div class="number" style="font-size:48px">Push focus</div></div><span class="pill">Today</span></div>
+          <div class="list" style="margin-top:26px">
+            ${exercise("Bench press", "4 sets · 6-8 reps", true)}
+            ${exercise("Incline dumbbell press", "3 sets · 8-10 reps", true)}
+            ${exercise("Shoulder press", "3 sets · 8 reps", false)}
+            ${exercise("Triceps rope pressdown", "3 sets · 12 reps", false)}
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:18px">
+          <div class="soft-card"><div class="tiny muted">This week</div><div class="number" style="font-size:42px">3/4</div><div class="small">workouts logged</div></div>
+          <div class="soft-card"><div class="tiny muted">Volume</div><div class="number" style="font-size:42px">18.2k</div><div class="small">lbs moved</div></div>
+        </div>
+      `);
+    }
+
+    function exercise(name, sub, done) {
+      return `<div class="soft-card row"><div class="row" style="justify-content:flex-start"><div class="check ${done ? "done" : ""}"></div><div><div class="medium">${name}</div><div class="small">${sub}</div></div></div><div class="tiny muted">lbs</div></div>`;
+    }
+
+    function reflectScreen() {
+      return appShell("Reflect", `
+        <div class="section-label">Your week</div>
+        <div class="card">
+          <div class="tiny muted">Consistency</div>
+          <div class="number">86%</div>
+          <div class="small">Six days logged. Four protein hits. Three workouts. Good week, not perfect, still moving.</div>
+          <svg class="sparkline" viewBox="0 0 620 180" fill="none">
+            <path d="M0 135 C70 112 92 120 142 84 C205 42 255 82 308 65 C370 43 400 95 462 58 C520 23 560 46 620 32" stroke="var(--primary)" stroke-width="8" stroke-linecap="round"/>
+            <path d="M0 150 H620" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
+          </svg>
+        </div>
+        <div class="grid2" style="margin-top:18px">
+          <div class="soft-card"><div class="tiny muted">Avg calories</div><div class="number" style="font-size:42px">2,180</div></div>
+          <div class="soft-card"><div class="tiny muted">Protein/day</div><div class="number" style="font-size:42px">164g</div></div>
+          <div class="soft-card"><div class="tiny muted">Top meal</div><div class="medium">Chicken bowl</div></div>
+          <div class="soft-card"><div class="tiny muted">Trend</div><div class="medium" style="color:var(--green)">Steady</div></div>
+        </div>
+      `);
+    }
+
+    function askScreen() {
+      return appShell("Ask", `
+        <div class="section-label">Ask Ding!</div>
+        <div class="card">
+          <div class="medium">Food, training, or what to do next today.</div>
+          <div class="small" style="margin-top:8px">Short answers grounded in your targets and logs.</div>
+        </div>
+        <div class="chat">
+          <div class="bubble user">I have 620 calories left. What should I grab after lifting?</div>
+          <div class="bubble ding">Go protein-first. A chicken bowl with light rice gets you close without blowing up dinner.</div>
+          <div class="bubble user">What if I want something faster?</div>
+          <div class="bubble ding">Egg bites plus a protein box works. Not fancy, but it gets the job done.</div>
+        </div>
+      `);
+    }
+
+    document.getElementById("root").innerHTML = `
+      <main class="shot">
+        <div class="grain"></div>
+        <div class="brand"><div class="wordmark">DING<span>!</span></div><div class="tag">Fitness made daily</div></div>
+        <section class="headline"><h1>${shot.title}</h1><p>${shot.subtitle}</p></section>
+        <section class="phone">${shot.screen()}</section>
+      </main>
+    `;
+  </script>
+</body>
+</html>

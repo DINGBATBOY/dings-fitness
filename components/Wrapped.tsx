@@ -18,7 +18,7 @@ import {
   Calendar, Star, Award, Dumbbell, Heart, Feather, ChevronRight,
 } from 'lucide-react';
 import type {
-  DailyLog, FoodItem, HistoryEntry, UserProfile, NutritionTargets, BodyStats,
+  DailyLog, FoodItem, HistoryEntry, UserProfile, NutritionTargets, BodyStats, WeightEntry,
 } from '../types';
 
 type Period = 'week' | 'month';
@@ -26,6 +26,7 @@ type Period = 'week' | 'month';
 interface WrappedProps {
   profile: UserProfile;
   dailyLogs: DailyLog[];
+  weighIns?: WeightEntry[];
   todayLog: FoodItem[];
   todayActivityBurn: number;
   todayWaterIntake: number;
@@ -58,6 +59,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const Wrapped: React.FC<WrappedProps> = ({
   profile,
   dailyLogs,
+  weighIns = [],
   todayLog,
   todayActivityBurn,
   todayWaterIntake,
@@ -205,10 +207,12 @@ export const Wrapped: React.FC<WrappedProps> = ({
       .sort((a, b) => b[1].protein * b[1].count - a[1].protein * a[1].count)[0];
 
     // ---- Body delta (weight in window) ----
-    // dailyLogs entries store the weight at the time of the log. Pick the
-    // earliest with a positive weight and the latest with a positive weight.
-    const weightLogs = logsInWindow
-      .filter(l => (l.weight || 0) > 0)
+    // Use explicit check-ins only; daily logs can contain legacy snapshots.
+    const weightLogs = weighIns
+      .filter(entry => {
+        const date = new Date(`${entry.date}T12:00:00`);
+        return date >= window.start && date <= window.end;
+      })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const firstWeight = weightLogs[0]?.weight;
     const lastWeight  = weightLogs[weightLogs.length - 1]?.weight;
@@ -287,7 +291,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
       topBodyPart: topBodyPart ? { name: topBodyPart[0], ...(topBodyPart[1] as any) } : null,
       workoutsThisWeek: weeklyCompletedWorkouts.length,
     };
-  }, [logsInWindow, targets.calories, targets.protein, foodHistory, weeklyCompletedWorkouts, bodyStats, profile.bodyFat, profile.inBodyData, window]);
+  }, [logsInWindow, targets.calories, targets.protein, foodHistory, weeklyCompletedWorkouts, bodyStats, profile.bodyFat, profile.inBodyData, weighIns, window]);
 
   // ---- Headline / vibe based on consistency ----
   const consistencyPct = stats.days / (period === 'week' ? 7 : 30);

@@ -139,7 +139,31 @@ export default function App() {
     setProfile(newProfile);
     if (user) {
       try {
-        await setDoc(doc(db, "users", user.uid), { profile: newProfile, nutritionTargets: targets }, { merge: true });
+        // Seed an initial WeightEntry from the onboarding weight so the
+        // Fuel home weight card shows real data on day 1 instead of "--".
+        // Adaptive TDEE also needs at least one weigh-in to begin tracking.
+        const startingWeight = Number(newProfile.weight);
+        const initialWeighIns = Number.isFinite(startingWeight) && startingWeight > 50 && startingWeight < 700
+          ? (() => {
+              const now = new Date();
+              const date = [
+                now.getFullYear(),
+                String(now.getMonth() + 1).padStart(2, '0'),
+                String(now.getDate()).padStart(2, '0'),
+              ].join('-');
+              return [{
+                id: `${date}-${Date.now()}`,
+                date,
+                weight: Math.round(startingWeight * 10) / 10,
+                createdAt: now.toISOString(),
+                source: 'check-in' as const,
+              }];
+            })()
+          : undefined;
+
+        const payload: any = { profile: newProfile, nutritionTargets: targets };
+        if (initialWeighIns) payload.weighIns = initialWeighIns;
+        await setDoc(doc(db, "users", user.uid), payload, { merge: true });
       } catch (e) {
         console.error("Failed to save profile to Firestore:", e);
         alert("Couldn't save your profile to the cloud (likely a Firestore rules issue). Continuing locally — your data may not sync.");
@@ -185,7 +209,7 @@ export default function App() {
         {phase === 'onboarding' && (
           <motion.div
             key="onboarding"
-            initial={{ opacity: 0 }}
+                      initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}

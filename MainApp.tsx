@@ -20,7 +20,7 @@ import { FeatherCelebration } from './components/FeatherCelebration';
 import { SafeMarkdown } from './components/SafeMarkdown';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
-import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry } from './types';
+import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
 import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/geminiService';
 import { db, auth, isConfigured } from './services/firebase';
@@ -38,6 +38,7 @@ const DEFAULT_STATE: AppState = {
     foodHistory: [],
     recentFoods: [], 
     waterIntake: 0,
+    weighIns: [],
     bodyStats: INITIAL_BODY_STATS,
     lastActiveDate: new Date().toLocaleDateString()
 };
@@ -515,7 +516,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         if (!alreadyArchived && hadAnyActivity) {
           const archivedLog: DailyLog = {
             date: lastDate,
-            weight: prev.profile?.weight || 0,
+            weight: 0,
             caloriesConsumed: calories,
             proteinConsumed: protein,
             carbsConsumed: carbs,
@@ -626,6 +627,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         foodHistory: data.foodHistory || prev.foodHistory || [],
                         recentFoods: data.recentFoods || prev.recentFoods || [],
                         mealHistory: data.mealHistory || prev.mealHistory || [],
+                        weighIns: data.weighIns || prev.weighIns || [],
                     };
                     if (appStateKey) localStorage.setItem(appStateKey, JSON.stringify(nextState));
                     return nextState;
@@ -804,11 +806,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // robotic on repeat exposure — see VOICE.md for the source samples.
   const pickVoice = (lines: string[]) => lines[Math.floor(Math.random() * lines.length)];
 
-  const triggerToast = (msg: string, durationMs = 3000) => {
+  // Stable identity — useCallback so child callbacks (recordWeight, etc.)
+  // can list it in their deps without re-creating themselves every render.
+  // The state setters inside are themselves stable, so an empty dep array
+  // is safe.
+  const triggerToast = useCallback((msg: string, durationMs = 3000) => {
     setToastMessage(msg);
     setShowToast(true);
     setTimeout(() => setShowToast(false), durationMs);
-  };
+  }, []);
 
   const updateWater = (amount: number) => {
       handleUpdateAppState(prev => ({
@@ -853,8 +859,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.sex,
       bf,
     );
-    return computeAdaptiveTDEE(appState.profile, appState.dailyLogs, formulaTDEE);
-  }, [appState.profile, appState.dailyLogs]);
+    return computeAdaptiveTDEE(appState.profile, appState.dailyLogs, formulaTDEE, appState.weighIns || []);
+  }, [appState.profile, appState.dailyLogs, appState.weighIns]);
 
   // Apply an adaptive suggestion by recomputing macros at the new TDEE
   // and writing them as the user's persistent nutrition targets.
@@ -906,6 +912,49 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     
     return totals;
   }, [appState.todayLog, appState.activityBurn]);
+
+  const recordWeight = useCallback((weight: number, source: WeightEntry['source'] = 'check-in') => {
+    if (!Number.isFinite(weight) || weight < 50 || weight > 700) {
+      triggerToast('Enter a weight between 50 and 700 lbs');
+      return false;
+    }
+
+    const now = new Date();
+    const date = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+    const entry: WeightEntry = {
+      id: `${date}-${Date.now()}`,
+      date,
+      weight: Math.round(weight * 10) / 10,
+      createdAt: now.toISOString(),
+      source,
+    };
+
+    handleUpdateAppState(prev => {
+      const existing = prev.weighIns || [];
+      const sameDay = existing.findIndex(item => item.date === date);
+      const weighIns = sameDay >= 0
+        ? existing.map((item, index) => index === sameDay ? entry : item)
+        : [...existing, entry];
+
+      return {
+        ...prev,
+        weighIns,
+        profile: prev.profile ? { ...prev.profile, weight: entry.weight } : prev.profile,
+      };
+    });
+    setVisionRoadmap(null);
+    // Source-aware confirmation so the chat tool feels like a chat reply,
+    // not a check-in dialog.
+    const toastMsg = source === 'chat'
+      ? `Got it — saved ${entry.weight} lbs`
+      : `Checked in at ${entry.weight} lbs`;
+    triggerToast(toastMsg);
+    return true;
+  }, [triggerToast]);
 
   // Tracks the most recent activity burn so the user can hit "Undo" inside
   // the success toast. Null means there's nothing to undo right now.
@@ -1030,11 +1079,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       const allDays = [...(appState.dailyLogs || [])]; 
       
       allDays.forEach(log => {
-          // --- Trend Weight Logic (Scale) ---
-          // New_Trend = Prev_Trend + 0.1 * (Daily_Scale_Weight - Prev_Trend)
-          const dailyWeight = log.weight > 0 ? log.weight : trendWeight; // Hold previous if 0
-          trendWeight = trendWeight + 0.1 * (dailyWeight - trendWeight);
-
           // --- Thermodynamics Check (CICO) ---
           // TDEE = 1815 * 1.2 + (Workout ? 350 : 0)
           const workoutBurn = log.workoutCompleted ? 350 : 0;
@@ -1052,12 +1096,23 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           }
       });
 
+      // Weight trend only uses explicit check-ins. Older daily logs may carry
+      // a repeated profile snapshot, which is not a real scale reading.
+      const weightEntries = [...(appState.weighIns || [])]
+          .filter(entry => entry.weight > 50 && entry.weight < 700)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      weightEntries.forEach(entry => {
+          trendWeight = trendWeight + 0.1 * (entry.weight - trendWeight);
+      });
+
       // 3. Process TODAY (Live)
       const currentScaleWeight = appState.profile?.weight || trendWeight;
       const currentScaleBF = appState.profile?.bodyFat || trendBF;
 
       // Update Trend for Today
-      trendWeight = trendWeight + 0.1 * (currentScaleWeight - trendWeight);
+      if (weightEntries.length === 0) {
+          trendWeight = trendWeight + 0.1 * (currentScaleWeight - trendWeight);
+      }
       trendBF = trendBF + 0.05 * (currentScaleBF - trendBF);
 
       // Calculate Today's Physics
@@ -1106,7 +1161,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           feedback
       };
 
-  }, [appState.dailyLogs, appState.profile, consumedMacros, completedWorkoutsToday]);
+  }, [appState.dailyLogs, appState.profile, appState.weighIns, consumedMacros, completedWorkoutsToday]);
 
   const toggleExerciseComplete = (dayIndex: number, exerciseIndex: number) => {
       const newSplit = [...workoutSplit];
@@ -1196,7 +1251,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               ...prev.dailyLogs,
               {
                   date: new Date().toISOString(),
-                  weight: prev.profile?.weight || 0,
+                  weight: 0,
                   caloriesConsumed: consumedMacros.calories,
                   proteinConsumed: consumedMacros.protein,
                   carbsConsumed: consumedMacros.carbs,
@@ -1582,19 +1637,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                      }
                 }
                 else if (tool.name === 'updateUserMetric') {
-                    const { metric, value } = tool.args;
-                    if (metric === 'weight' && appState.profile) {
-                         // Update profile weight
-                         const newProfile = { ...appState.profile, weight: value };
-                         handleUpdateAppState(prev => ({
-                             ...prev,
-                             profile: newProfile
-                         }));
-                         
-                         // Clear vision roadmap to force a regen on next view
-                         setVisionRoadmap(null);
-                         
-                         triggerToast(`Weight Updated: ${value} lbs`);
+                     const { metric, value } = tool.args;
+                     if (metric === 'weight' && appState.profile) {
+                          recordWeight(Number(value), 'chat');
                     } else if (metric === 'bodyFat' && appState.profile) {
                          const newProfile = { ...appState.profile, bodyFat: value };
                          handleUpdateAppState(prev => ({
@@ -1652,7 +1697,21 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const waterTarget = Math.round(currentProfile.weight * 0.5);
 
   return (
-    <Layout activeTab={activeTab} onTabChange={switchTab} profile={currentProfile}>
+    <Layout
+      activeTab={activeTab}
+      onTabChange={switchTab}
+      profile={currentProfile}
+      onUpdateName={(name) => {
+        // Header username editor — name comes in trimmed and length-checked.
+        // Mirror to local state + Firestore via handleUpdateAppState; toast
+        // gives a soft confirmation so taps feel deliberate.
+        handleUpdateAppState(prev => ({
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, name } : prev.profile,
+        }));
+        triggerToast('Saved');
+      }}
+    >
       {showToast && (() => {
         // Pick the active undo, preferring the MOST RECENTLY set one (each
         // new action overwrites the prior toast anyway, so the freshest
@@ -2211,6 +2270,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           greeting={greeting}
           dateString={dateString}
           dailyLogs={appState.dailyLogs || []}
+          weighIns={appState.weighIns || []}
+          onLogWeight={(weight) => recordWeight(weight)}
           onQuickAddFood={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
           onOpenReflect={() => switchTab('reflect')}
           onLogActivity={(kind, minutes) => {
@@ -2450,6 +2511,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             inline
             profile={appState.profile}
             dailyLogs={appState.dailyLogs || []}
+            weighIns={appState.weighIns || []}
             todayLog={appState.todayLog || []}
             todayActivityBurn={appState.activityBurn || 0}
             todayWaterIntake={appState.waterIntake || 0}
@@ -2928,6 +2990,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         <Wrapped
           profile={appState.profile}
           dailyLogs={appState.dailyLogs || []}
+          weighIns={appState.weighIns || []}
           todayLog={appState.todayLog || []}
           todayActivityBurn={appState.activityBurn || 0}
           todayWaterIntake={appState.waterIntake || 0}
@@ -3159,6 +3222,35 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                   </p>
                 </div>
               </div>
+
+              <button
+                onClick={() => {
+                  // Persist acceptance so we never prompt again.
+                  handleUpdateAppState(prev => ({
+                    ...prev,
+                    profile: prev.profile
+                      ? {
+                          ...prev.profile,
+                          acceptedHealthDisclaimer: true,
+                          disclaimerAcceptedAt: new Date().toISOString(),
+                        }
+                      : prev.profile,
+                  }));
+                  setShowHealthDisclaimer(false);
+                }}
+                className="w-full py-4 rounded-2xl bg-white text-black font-orbitron font-bold text-sm tracking-widest hover:bg-gray-200 transition-colors"
+              >
+                I UNDERSTAND & AGREE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+};
+
+export default MainApp;
 
               <button
                 onClick={() => {
