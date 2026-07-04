@@ -17,6 +17,7 @@ import { Wrapped } from './components/Wrapped';
 import { FuelHome } from './components/FuelHome';
 import { SpotlightTour } from './components/SpotlightTour';
 import { FeatherCelebration } from './components/FeatherCelebration';
+import { WorkoutsHome } from './components/WorkoutsHome';
 import { SafeMarkdown } from './components/SafeMarkdown';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
@@ -785,6 +786,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               // Pass workout-personalization answers from onboarding. Legacy
               // profiles without these get sensible defaults inside the prompt.
               workoutPreferences: appState.profile.workoutPreferences,
+              // Onboarding v2 fields — if the profile has them, feed them
+              // to the AI so injuries are avoided and motivation can flavor
+              // tone. Both optional; legacy profiles skip.
+              injuries: appState.profile.injuries,
+              motivation: appState.profile.motivation,
           });
           if (split && Array.isArray(split) && split.length > 0) {
               setWorkoutSplit(split);
@@ -838,7 +844,16 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.sex,
       bf,
     );
-    return CALCULATE_MACROS(tdee, appState.profile.goal, appState.profile.weight, appState.profile.sex, appState.profile.macroSplit);
+    return CALCULATE_MACROS(
+      tdee,
+      appState.profile.goal,
+      appState.profile.weight,
+      appState.profile.sex,
+      appState.profile.macroSplit,
+      (appState.profile.goalTargetWeight && appState.profile.goalTargetDate)
+        ? { targetWeightLbs: appState.profile.goalTargetWeight, targetDate: appState.profile.goalTargetDate }
+        : undefined,
+    );
   }, [appState.profile, appState.nutritionTargets]);
 
   // Adaptive TDEE — re-estimates the user's maintenance level from their
@@ -872,6 +887,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.weight,
       appState.profile.sex,
       appState.profile.macroSplit,
+      (appState.profile.goalTargetWeight && appState.profile.goalTargetDate)
+        ? { targetWeightLbs: appState.profile.goalTargetWeight, targetDate: appState.profile.goalTargetDate }
+        : undefined,
     );
     const newTargets = {
       calories: newMacros.calories,
@@ -2323,181 +2341,52 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       )}
 
       {activeTab === 'workouts' && (
-        <div className="space-y-6 pb-20 animate-fade-in">
-          {/* PERSONALIZATION CTA — only shown to existing users who never
-              answered the four workout-personalization questions (the split
-              they're seeing was generated from default assumptions). One-tap
-              opens Edit Profile so they can fill it in. Hidden once any of
-              the four fields is set. */}
-          {(() => {
-            const prefs = appState.profile?.workoutPreferences;
-            const isComplete = prefs && prefs.experience && prefs.daysPerWeek && prefs.sessionMinutes && prefs.equipment;
-            if (isComplete) return null;
-            return (
-              <button
-                onClick={() => {
-                  setEditProfileData({
-                    weight: appState.profile?.weight,
-                    bodyFat: appState.profile?.bodyFat,
-                    goal: appState.profile?.goal,
-                    activityLevel: appState.profile?.activityLevel,
-                    workoutPreferences: appState.profile?.workoutPreferences,
-                  });
-                  setIsEditingProfile(true);
-                }}
-                className="w-full text-left glass-panel border border-cyan-500/30 rounded-2xl p-4 hover:border-cyan-400/60 hover:bg-cyan-500/5 transition-all group"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl shrink-0">⚡</span>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-white text-sm font-bold tracking-tight">Personalize your training</h3>
-                    <p className="text-[11px] text-gray-400 mt-0.5 leading-snug">
-                      Tell us your experience, days/week, session length, and equipment — we'll tune the split to you.
-                    </p>
-                  </div>
-                  <span className="text-cyan-400 text-lg shrink-0 group-hover:translate-x-1 transition-transform">›</span>
-                </div>
-              </button>
-            );
-          })()}
-
-          {/* MANUAL REGENERATE BUTTON IF EMPTY OR STUCK */}
-          <div className="flex justify-end px-2">
-             <button
-                onClick={generateSplitForUser}
-                disabled={isGeneratingSplit}
-                className="text-[9px] font-bold uppercase tracking-widest text-blue-400 border border-blue-400/30 px-3 py-1.5 rounded-full hover:bg-blue-400/10 transition-colors"
-             >
-                 {isGeneratingSplit ? 'Generating...' : 'Refresh Plan'}
-             </button>
-          </div>
-
-          {workoutSplit.map((day, idx) => {
-             const isCompleted = weeklyCompletedWorkouts.includes(day.day);
-             const isToday = day.day === currentDayName;
-             
-             return (
-             <div key={idx} className={`relative overflow-hidden rounded-3xl p-1 transition-all duration-300 ${isCompleted ? 'opacity-70 grayscale-[0.5]' : ''} ${isToday ? 'border-2 border-blue-500' : ''}`}>
-                <div className={`absolute inset-0 opacity-20 bg-gradient-to-br ${isCompleted ? 'from-green-500 to-transparent' : 'from-blue-500 to-transparent'}`}></div>
-                
-                {isToday && (
-                     <div className="absolute top-4 right-4 z-20">
-                         <span className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-[9px] font-bold uppercase px-3 py-1 rounded-full animate-pulse shadow-lg">Today</span>
-                     </div>
-                )}
-
-                <div className="glass-panel rounded-[1.3rem] p-5 relative z-10">
-                    <div className="flex justify-between mb-6 items-start border-b border-white/5 pb-4">
-                        <div className="relative">
-                             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest block mb-1">{day.day}</span>
-                             <h4 className="font-orbitron font-bold text-white text-lg tracking-wide max-w-[150px]">{day.label}</h4>
-                             <span className="inline-block mt-2 text-[9px] bg-white/5 border border-white/10 px-3 py-1.5 rounded-full text-gray-300 uppercase font-bold tracking-wider">{day.intensity}</span>
-                        </div>
-                        
-                        {/* Muscle Diagram */}
-                        <div className="w-16 h-28 -mt-2">
-                             <MuscleMap muscles={GET_AFFECTED_MUSCLES(day.label)} className="w-full h-full" />
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-4">
-                    {day.exercises.map((ex: any, i: number) => (
-                        <div key={i} className={`group flex items-center justify-between p-3 rounded-xl transition-all duration-200 ${ex.completed ? 'bg-green-500/5 border border-green-500/20' : 'bg-black/20 border border-white/5 hover:border-white/10'}`}>
-                            <div className="flex items-center gap-4 flex-1">
-                                <button 
-                                    onClick={() => toggleExerciseComplete(idx, i)}
-                                    className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-200 ${ex.completed ? 'bg-green-500 border-green-500 text-black scale-110' : 'border-gray-600 text-transparent hover:border-white'}`}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 3L4.5 8.5L2 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                </button>
-                                <div className="flex-1">
-                                    <p className={`text-sm font-semibold ${ex.completed ? 'text-gray-500 line-through' : 'text-gray-100'}`}>{ex.name}</p>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <span className="text-[9px] font-bold bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded">{ex.sets} SETS</span>
-                                        <span className="text-[9px] font-bold text-gray-500">{ex.reps} REPS</span>
-                                        <div className="flex items-center bg-white/5 rounded px-1.5 py-0.5 border border-white/5 ml-1 hover:border-white/20 transition-colors">
-                                            <input 
-                                                type="number" 
-                                                placeholder="0" 
-                                                value={ex.weight || ''} 
-                                                onChange={(e) => updateExerciseWeight(idx, i, e.target.value)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className="w-8 bg-transparent text-[9px] font-bold text-white focus:outline-none text-center placeholder-gray-700"
-                                            />
-                                            <span className="text-[7px] text-gray-500 font-bold ml-0.5">LBS</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <button onClick={() => deleteExercise(idx, i)} className="w-8 h-8 flex items-center justify-center text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors">
-                                <span className="text-lg">×</span>
-                            </button>
-                        </div>
-                    ))}
-                    </div>
-
-                    {/* MANUAL ADD EXERCISE */}
-                    {!isCompleted && (
-                    <div className="mt-6">
-                        {activeDayIndexForAdd === idx ? (
-                            <div className="bg-black/40 p-3 rounded-xl border border-white/10 animate-fade-in">
-                                <input 
-                                    type="text" 
-                                    placeholder="Exercise Name" 
-                                    value={manualExercise.name} 
-                                    onChange={e => setManualExercise({...manualExercise, name: e.target.value})}
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white mb-2 focus:border-blue-500 focus:outline-none"
-                                />
-                                <div className="flex gap-2">
-                                    <input
-                                        type="number"
-                                        placeholder="Sets"
-                                        value={manualExercise.sets}
-                                        onChange={e => setManualExercise({...manualExercise, sets: Number(e.target.value)})}
-                                        className="w-1/4 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Reps"
-                                        value={manualExercise.reps}
-                                        onChange={e => setManualExercise({...manualExercise, reps: e.target.value})}
-                                        className="w-1/4 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-                                    />
-                                    <button onClick={() => addExerciseToSplit(idx)} className="flex-1 bg-blue-500 text-white text-xs font-bold rounded-lg uppercase">Add</button>
-                                    <button
-                                        onClick={() => setActiveDayIndexForAdd(null)}
-                                        className="px-3 bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold rounded-lg uppercase"
-                                        aria-label="Cancel"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <button onClick={() => setActiveDayIndexForAdd(idx)} className="w-full py-3 bg-white/[0.02] hover:bg-white/[0.05] rounded-xl text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-widest border border-dashed border-white/10 transition-colors">
-                                + Add Exercise
-                            </button>
-                        )}
-                    </div>
-                    )}
-
-                    {/* COMPLETE WORKOUT BUTTON */}
-                    <button 
-                        onClick={() => completeWorkoutDay(idx)}
-                        disabled={isCompleted}
-                        className={`w-full mt-6 py-4 rounded-xl font-bold font-orbitron uppercase tracking-widest transition-all duration-300 relative overflow-hidden group ${isCompleted ? 'bg-green-600 text-white cursor-not-allowed opacity-50' : 'bg-white text-black hover:scale-[1.02] shadow-lg'}`}
-                    >
-                        {isCompleted ? (
-                             <span className="flex items-center justify-center gap-2">Workout logged</span>
-                        ) : (
-                             <span className="relative z-10">Log workout</span>
-                        )}
-                        {!isCompleted && <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 transform scale-x-0 group-hover:scale-x-100 transition-transform origin-left opacity-10"></div>}
-                    </button>
-                </div>
-             </div>
-          )})}
-        </div>
+        <WorkoutsHome
+          workoutSplit={workoutSplit}
+          weeklyCompletedWorkouts={weeklyCompletedWorkouts}
+          currentDayName={currentDayName}
+          profile={appState.profile}
+          isGeneratingSplit={isGeneratingSplit}
+          onToggleExerciseComplete={toggleExerciseComplete}
+          onUpdateExerciseWeight={updateExerciseWeight}
+          onDeleteExercise={deleteExercise}
+          onAddExercise={(dayIndex, ex) => {
+            // Inline add — WorkoutsHome owns its own draft state, so we
+            // don't route through the legacy addExerciseToSplit (which
+            // reads from module-level manualExercise state). Cleaner path.
+            if (!ex.name.trim()) return;
+            const newSplit = [...workoutSplit];
+            newSplit[dayIndex] = {
+              ...newSplit[dayIndex],
+              exercises: [
+                ...newSplit[dayIndex].exercises,
+                {
+                  name: ex.name,
+                  sets: ex.sets,
+                  reps: ex.reps,
+                  completed: false,
+                  gymAlternative: '',
+                  homeAlternative: '',
+                },
+              ],
+            };
+            setWorkoutSplit(newSplit);
+            saveWorkoutToCloud(newSplit, weeklyCompletedWorkouts);
+            triggerToast("Exercise added");
+          }}
+          onCompleteWorkoutDay={completeWorkoutDay}
+          onRegenerateSplit={generateSplitForUser}
+          onOpenPersonalize={() => {
+            setEditProfileData({
+              weight: appState.profile?.weight,
+              bodyFat: appState.profile?.bodyFat,
+              goal: appState.profile?.goal,
+              activityLevel: appState.profile?.activityLevel,
+              workoutPreferences: appState.profile?.workoutPreferences,
+            });
+            setIsEditingProfile(true);
+          }}
+        />
       )}
 
       {/* REFLECT — the analytics & insights home. Wrapped lives here inline
@@ -2927,7 +2816,16 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         // Body-composition-aware BMR: prefer InBody scan, fall back to manual bodyFat entry.
                         const bf = newProfile.inBodyData?.pbf ?? newProfile.bodyFat;
                         const tdee = CALCULATE_TDEE(newProfile.weight, newProfile.height, newProfile.age, newProfile.activityLevel, newProfile.sex, bf);
-                        const macroResult = CALCULATE_MACROS(tdee, newProfile.goal, newProfile.weight, newProfile.sex, newProfile.macroSplit);
+                        const macroResult = CALCULATE_MACROS(
+                          tdee,
+                          newProfile.goal,
+                          newProfile.weight,
+                          newProfile.sex,
+                          newProfile.macroSplit,
+                          (newProfile.goalTargetWeight && newProfile.goalTargetDate)
+                            ? { targetWeightLbs: newProfile.goalTargetWeight, targetDate: newProfile.goalTargetDate }
+                            : undefined,
+                        );
                         // Strip MacroResult to NutritionTargets shape (drop floor metadata).
                         const targets = {
                             calories: macroResult.calories,

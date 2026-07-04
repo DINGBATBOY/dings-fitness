@@ -286,6 +286,12 @@ export const generateSmartSplit = async (
       sessionMinutes?: 30 | 45 | 60 | 90;
       equipment?: 'full-gym' | 'home-weights' | 'bodyweight';
     };
+    // New — flagged during onboarding, fed into the prompt so the AI
+    // avoids or substitutes exercises that stress these joints.
+    injuries?: string[];
+    // Free-form "why now" — not mathematically used, but included so the
+    // AI can tune the tone of exercise labels/notes when relevant.
+    motivation?: string;
   },
 ) => {
   // Defaults for legacy profiles that pre-date these onboarding questions.
@@ -294,6 +300,30 @@ export const generateSmartSplit = async (
   const daysPerWeek = prefs.daysPerWeek || 4;
   const sessionMinutes = prefs.sessionMinutes || 60;
   const equipment = prefs.equipment || 'full-gym';
+  // Injuries: 'None' selection is treated as no restrictions. Everything
+  // else lands in a substitution guide block.
+  const activeInjuries = (profile.injuries || []).filter(i => i && i.toLowerCase() !== 'none');
+  const injuryGuide = activeInjuries.length ? `
+INJURY / LIMITATION SUBSTITUTIONS — NON-NEGOTIABLE:
+The user has flagged: ${activeInjuries.join(', ')}.
+Apply these substitutions across the entire week:
+${activeInjuries.map(i => {
+  const key = i.toLowerCase();
+  if (key.includes('knee'))    return "  • Knees: avoid deep barbell back squat, jump squats, box jumps, lunges with heavy load. Substitute leg press (limited depth), goblet squat to box, hip thrust, step-ups, sled work.";
+  if (key.includes('shoulder')) return "  • Shoulders: avoid overhead barbell press, upright rows, behind-the-neck movements, dips. Substitute landmine press, incline dumbbell press, cable lateral raise, chest-supported row.";
+  if (key.includes('back'))     return "  • Back (lumbar): avoid loaded deadlift from floor, barbell row, jump exercises, weighted good mornings. Substitute trap bar deadlift from blocks, chest-supported row, hip thrust, back extensions with control.";
+  if (key.includes('wrist'))    return "  • Wrists: avoid barbell curls, straight-bar pressing that forces wrist extension, push-ups on flat palms. Substitute dumbbell/hammer curls, football-bar press, push-ups on parallettes.";
+  if (key.includes('ankle'))    return "  • Ankles: avoid deep squats to full depth, plyometrics, sprinting. Substitute leg press with heel elevation, sled push, cycling for conditioning.";
+  if (key.includes('elbow'))    return "  • Elbows: avoid heavy barbell curls, close-grip bench press, dips, skullcrushers. Substitute hammer curls, incline dumbbell press, cable pushdowns with EZ-bar.";
+  if (key.includes('hip'))      return "  • Hips: avoid deep squats, weighted lunges, sumo deadlift. Substitute leg press, single-leg press, cable pull-through, hip thrust from bench.";
+  return `  • ${i}: substitute any movement that directly loads this joint. Prefer machine or supported variants.`;
+}).join('\n')}
+Under no circumstance should the split include a movement from the AVOID list above.` : '';
+  // Motivation is passed through only as an optional tone hint. Nothing
+  // in the workout math depends on it.
+  const motivationLine = profile.motivation
+    ? `- Motivation: "${profile.motivation}" (tune exercise notes to reference this only if it feels natural — not required.)`
+    : '';
 
   // Derive prescription from preferences. These rules are what make the
   // generated split actually personalized — beginners get compound-focused
@@ -384,6 +414,8 @@ USER CONTEXT:
 - Equipment access: ${equipment}
 - High-energy days (plan hardest sessions here): ${highEnergyDays.join(", ") || "Not specified"}
 - Busy days (plan rest or short sessions here): ${busyDays.join(", ") || "Not specified"}
+${motivationLine}
+${injuryGuide}
 
 EXPERIENCE PRESCRIPTION:
 ${experienceGuide[experience]}
@@ -1192,6 +1224,28 @@ export const analyzeDailyLog = async (
 };
 
 export const generateOnboardingMacros = async (userAnswers: any) => {
+  // Timeline is optional. When present, we compute a rate-based deficit
+  // instead of the flat lookup. Same math the local fallback uses.
+  const hasTimeline = !!(userAnswers.goalTargetWeight && userAnswers.goalTargetDate);
+  const timelineBlock = hasTimeline
+    ? `
+- Target weight: ${userAnswers.goalTargetWeight} lbs
+- Target date: ${userAnswers.goalTargetDate} (today is ${new Date().toISOString().slice(0, 10)})`
+    : '';
+
+  const rateInstruction = hasTimeline ? `
+RATE-BASED DEFICIT (use this INSTEAD of the flat lookup below when timeline is present):
+1. Compute days_to_target = target_date − today, in whole days.
+2. Compute lb_delta = current_weight − target_weight (positive = losing, negative = gaining).
+3. Compute raw_daily_delta = (lb_delta × 3500) / days_to_target.  (1 lb of fat ≈ 3500 kcal.)
+4. Clamp to safe rate:
+   • Max loss:    1% of current bodyweight per week = (weight × 0.01 × 3500) / 7 kcal/day.
+   • Max surplus: 0.5 lb/week clean bulk = 250 kcal/day.
+5. dailyCalories = TDEE − clamped_daily_delta.
+6. If the timeline forces a rate above the safety cap, still use the CAPPED rate and mention in the coachMessage that their timeline is aggressive and will be extended if they stick with the safe pace.
+
+If timeline is NOT present, fall back to the flat goal-based deficits below.` : '';
+
   const prompt = `Calculate a personalized macro plan for this athlete:
 - Name: ${sanitize(userAnswers.name, 100)}
 - Age: ${userAnswers.age}
@@ -1200,7 +1254,7 @@ export const generateOnboardingMacros = async (userAnswers: any) => {
 - Weight: ${userAnswers.weight} lbs
 - Body Fat: ${userAnswers.bodyFat || "unknown"}%
 - Goal: ${userAnswers.goal}
-- Activity Level: ${userAnswers.activityLevel}
+- Activity Level: ${userAnswers.activityLevel}${timelineBlock}
 
 For BMR calculation:
 - If body fat % is provided AND between 5% and 60%, USE THE KATCH-MCARDLE EQUATION:
@@ -1209,7 +1263,10 @@ For BMR calculation:
   Katch-McArdle is lean-mass-based and produces more accurate, non-discouraging targets for users with high body fat or athletic builds. PREFER IT when BF% is available.
 - Otherwise (BF% unknown or out of range), use the Mifflin-St Jeor equation adjusted for their sex.
 
-Apply an appropriate activity multiplier (Sedentary 1.2, Light 1.375, Moderate 1.55, Very 1.725, Extra 1.9) to get TDEE. Then adjust calories for their goal:
+Apply an appropriate activity multiplier (Sedentary 1.2, Light 1.375, Moderate 1.55, Very 1.725, Extra 1.9) to get TDEE.
+${rateInstruction}
+
+Flat goal-based deficits (fallback when no timeline):
 - Weight Loss: 500 calorie deficit
 - Lean/Athletic or Recomposition: at maintenance or slight deficit (-200)
 - Muscle Building: 300 calorie surplus
@@ -1222,7 +1279,7 @@ IMPORTANT SAFETY FLOORS — never recommend less than:
 - 1,200 kcal/day for Female users
 If the math would produce something lower, set it at the floor and explain why in the coach message.
 
-Also write a SHORT 1-sentence message (max 20 words) explaining WHY these are their numbers in a motivating coach voice. Keep it tight.`;
+Also write a SHORT 1-sentence message (max 20 words) explaining WHY these are their numbers in a motivating coach voice. If the user set a timeline, briefly acknowledge the pace (e.g. "on pace for your June goal" or "gently paced for your window"). Keep it tight.`;
 
   const systemInstruction = `You are an expert sports nutritionist and fitness coach. A user has completed their assessment. Calculate their personalized nutrition protocol and provide it in the exact JSON format requested. Be precise with numbers. Show your reasoning briefly.`;
 
@@ -1354,4 +1411,3 @@ export const generateVisionRoadmap = async (profile: any) => {
 
   return parsed;
 };
-

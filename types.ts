@@ -113,6 +113,20 @@ export interface UserProfile {
   macroSplit?: MacroSplit;
   // Cached adaptive TDEE state. Recomputed weekly; cleared on profile reset.
   adaptiveTdee?: AdaptiveTDEEState;
+  // Physical limitations flagged during onboarding. Fed to the AI split
+  // generator so it can substitute or omit exercises that stress the noted
+  // areas (e.g. no barbell squat for a knee injury). Values are simple
+  // labels ('knees', 'shoulders', 'back', 'wrists', 'ankles', 'other').
+  injuries?: string[];
+  // Goal timeline — what the user wants to hit and by when. Used by the
+  // adaptive TDEE math to pick a rate of change and to surface a countdown
+  // in the UI. Both optional so users who just want "gradual" work fine.
+  goalTargetWeight?: number;   // lbs
+  goalTargetDate?: string;     // YYYY-MM-DD
+  // Free-form-ish motivation captured during onboarding. Not used
+  // mathematically; the Coach can reference it in check-ins to feel less
+  // generic. Short string, capped in the UI at ~120 chars.
+  motivation?: string;
 }
 
 export interface WorkoutExercise {
