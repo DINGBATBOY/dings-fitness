@@ -1,37 +1,34 @@
 /**
- * FuelHome — Warm-dark "gym companion" dashboard.
+ * FuelHome — dashboard v3 (mockup direction).
  *
- * Pivoted from the cream Mati-Watsā direction. The cream felt thematically
- * loud (read as "tribal app" instead of "gym app"). This version is warm
- * charcoal #161210 with terracotta + ochre accents — the friendly-companion
- * vibe of a fitness app where the cultural layer is felt in accents
- * (feathers, arrow underlines, a Hidatsa credit line) rather than carrying
- * the whole canvas.
+ * Big emotional hero + open ring + 2x2 quick actions + weight/hydration
+ * strip at the bottom. Replaces the previous "dense strip of chips"
+ * version. The coach line lives inline as the hero sub-title so the
+ * greeting itself feels like it knows you.
  *
- * Layout, top to bottom:
- *   1. Greeting + name (Cuodi voice: MORNIN / AFTERNOOOON! / Good EVENINGGGG!)
- *   2. Daily Nutrition section header with arrow underline
- *   3. 3-number calorie ring: Remaining / Consumed / Target visible at once
- *   4. Macro bars row: Protein / Carbs / Fat with horizontal progress
- *   5. Consumed / Remaining toggle (data view selector)
- *   6. Movement row + quick-burn pills
- *   7. Weight check-in + recent meal rhythm
- *   8. Adaptive TDEE banner (when applicable)
- *   9. Quick-jump tiles + Wrapped launcher
- *   10. Hidatsa credit footer
+ * Layout (top → bottom):
+ *   1. Compact date/streak strip
+ *   2. Hero: "Morning, Ding 👋" + fire coach sub-line
+ *   3. Ring card: ¾-arc CALORIES LEFT hero + clean tinted macro bars
+ *   4. Quick actions 2×2: Log Food / Scan Meal / Start Workout / Weigh In
+ *   5. Weight Trend + Hydration cards side by side
+ *   6. Adaptive TDEE banner (only when actionable)
+ *   7. Hidatsa credit footer
+ *
+ * The weight check-in modal + hydration logging live inside this file.
  */
 
 import React, { useMemo, useState } from 'react';
 import {
-  Feather, Beef, Wheat, Droplets, Dumbbell, Flame, Plus, ChevronRight,
-  Bike, Footprints, MoreHorizontal, Scale, TrendingDown, TrendingUp, Minus,
-  X, Check,
+  Feather, Droplets, Dumbbell, Plus, Camera, Scale, ChevronRight,
+  TrendingDown, TrendingUp, Minus, X, Check,
 } from 'lucide-react';
 import type { UserProfile, NutritionTargets, DailyLog, WeightEntry } from '../types';
+import { pickCoachMessage } from './CoachCard';
 
 // ───────────────────── Warm-dark palette ─────────────────────
-// Brighter, more saturated accent set so the dashboard reads
-// "colorful gym companion" rather than monochrome.
+// Adds `purple` for the fourth quick-action tile (Weigh In). Purple sits
+// between fire (action) and sky (info) — it's the "personal check-in" tier.
 const C = {
   bg: '#161210',
   card: '#1d1815',
@@ -41,13 +38,14 @@ const C = {
   ink: '#f5ede1',
   inkMid: '#c4b8a4',
   inkLight: '#8b7e6e',
-  fire: '#d97757',          // terracotta — primary CTA / streak
-  ochre: '#e8a85a',          // bright gold — carbs
-  emerald: '#7ab896',        // emerald sage — fat / good metric
-  sky: '#6fa8c4',            // muted blue — water
-  rose: '#c97b6e',           // dusk rose — accent
-  protein: '#e3614a',        // vivid coral — protein (more energy)
-  sage: '#7a9080',           // calmer green — habits, weigh-in
+  fire: '#d97757',
+  ochre: '#e8a85a',
+  emerald: '#7ab896',
+  sky: '#6fa8c4',
+  purple: '#a48ec7',
+  protein: '#7ab896',        // protein now GREEN like the mockup — success tone
+  fatColor: '#d97757',       // fat gets fire (mockup uses this)
+  carbColor: '#e8a85a',      // carbs stay ochre
 };
 
 interface FuelHomeProps {
@@ -60,14 +58,17 @@ interface FuelHomeProps {
   streak: number;
   greeting: string;
   dateString: string;
-  /** Last ~30 days of logs — used for the Habits grids. */
   dailyLogs: DailyLog[];
   weighIns: WeightEntry[];
   onLogWeight: (weight: number) => boolean;
   onQuickAddFood: () => void;
+  /** Opens the AddFood sheet directly in AI/scan mode. */
+  onScanFood: () => void;
+  /** Switches the app tab to the Workouts view. */
+  onOpenWorkouts: () => void;
+  /** Adds a fixed increment of water (default caller adds 8oz). */
+  onLogWater: () => void;
   onOpenReflect: () => void;
-  onLogActivity: (kind: 'running' | 'weights' | 'cycling' | 'walking', minutes: number) => void;
-  onOpenActivityModal: () => void;
   hasEnoughDataForWrapped: boolean;
   adaptiveSuggestion?: {
     hasEnoughData: boolean;
@@ -82,9 +83,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   profile,
   targets,
   consumed,
-  activityBurn,
+  activityBurn: _activityBurn,     // no longer surfaced on Home
   waterIntake,
-  workoutCompletedToday,
+  workoutCompletedToday: _workoutCompletedToday,
   streak,
   greeting,
   dateString,
@@ -92,15 +93,15 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   weighIns,
   onLogWeight,
   onQuickAddFood,
-  onOpenReflect,
-  onLogActivity,
-  onOpenActivityModal,
-  hasEnoughDataForWrapped,
+  onScanFood,
+  onOpenWorkouts,
+  onLogWater,
+  onOpenReflect: _onOpenReflect,
+  hasEnoughDataForWrapped: _hasEnoughDataForWrapped,
   adaptiveSuggestion,
   onAcceptAdaptiveSuggestion,
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
-  const [macroView, setMacroView] = useState<'consumed' | 'remaining'>('consumed');
   const [showWeightCheckIn, setShowWeightCheckIn] = useState(false);
   const [weightInput, setWeightInput] = useState(String(profile.weight || ''));
   const [weightError, setWeightError] = useState('');
@@ -109,21 +110,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   const calRatio = Math.max(0, Math.min(1, consumed.calories / Math.max(1, targets.calories)));
   const remainingCal = Math.max(0, targets.calories - consumed.calories);
   const waterTarget = Math.max(48, Math.min(100, Math.round((profile.weight || 150) * 0.5)));
+  const percentOfGoal = Math.round(calRatio * 100);
 
-  // For macro bars — show either consumed/target or remaining/target.
-  const macroData = macroView === 'consumed'
-    ? [
-        { label: 'Protein', current: Math.round(consumed.protein), target: targets.protein, color: C.protein, icon: <Beef className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Carbs',   current: Math.round(consumed.carbs),   target: targets.carbs,   color: C.ochre,   icon: <Wheat className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Fat',     current: Math.round(consumed.fat),     target: targets.fat,     color: C.emerald, icon: <Flame className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-      ]
-    : [
-        { label: 'Protein', current: Math.max(0, Math.round(targets.protein - consumed.protein)), target: targets.protein, color: C.protein, icon: <Beef className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Carbs',   current: Math.max(0, Math.round(targets.carbs - consumed.carbs)),     target: targets.carbs,   color: C.ochre,   icon: <Wheat className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-        { label: 'Fat',     current: Math.max(0, Math.round(targets.fat - consumed.fat)),         target: targets.fat,     color: C.emerald, icon: <Flame className="w-3.5 h-3.5" strokeWidth={1.5} /> },
-      ];
-
-  // ───────── Habits — last 30 days ─────────
+  // ───────── Days logged, weight summary — same as before ─────────
   const days30 = useMemo(() => {
     const out: { date: string; hadFood: boolean }[] = [];
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -157,20 +146,30 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
     cutoff.setHours(0, 0, 0, 0);
     cutoff.setDate(cutoff.getDate() - 6);
     const thisWeek = sorted.filter(entry => new Date(`${entry.date}T12:00:00`) >= cutoff);
-    const average = thisWeek.length
-      ? thisWeek.reduce((sum, entry) => sum + entry.weight, 0) / thisWeek.length
-      : undefined;
     const change = thisWeek.length >= 2
       ? thisWeek[thisWeek.length - 1].weight - thisWeek[0].weight
       : undefined;
-    const today = new Date();
-    const todayKey = [
-      today.getFullYear(),
-      String(today.getMonth() + 1).padStart(2, '0'),
-      String(today.getDate()).padStart(2, '0'),
-    ].join('-');
-    return { latest, average, change, thisWeekCount: thisWeek.length, checkedInToday: latest?.date === todayKey };
+    // Take the last ~14 entries to draw a tiny sparkline.
+    const sparkPoints = sorted.slice(-14).map(e => e.weight);
+    return { latest, change, thisWeekCount: thisWeek.length, sparkPoints };
   }, [weighIns]);
+
+  // ───────── Coach message (fire sub-line under greeting) ─────────
+  const coachMsg = useMemo(() => pickCoachMessage({
+    greeting,
+    firstName,
+    consumed: { calories: consumed.calories, protein: consumed.protein },
+    targets: { calories: targets.calories, protein: targets.protein },
+    streak,
+    weightSummary: {
+      change: weightSummary.change,
+      latest: weightSummary.latest?.weight,
+      thisWeekCount: weightSummary.thisWeekCount,
+    },
+    daysLoggedThisWeek: foodLogThisWeek,
+    weeklyAvgProtein: undefined,
+    goalTargetWeight: profile.goalTargetWeight,
+  }), [greeting, firstName, consumed, targets, streak, weightSummary, foodLogThisWeek, profile.goalTargetWeight]);
 
   const openWeightCheckIn = () => {
     setWeightInput(String(weightSummary.latest?.weight || profile.weight || ''));
@@ -190,85 +189,121 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
 
   return (
     <div className="pb-20 -mx-4 px-4" style={{ background: C.bg, color: C.ink }}>
-      {/* ─────── Hero greeting ─────── */}
-      {/* The user's name now lives in the global header, so we drop the
-          giant name h1 here. Compact one-line greeting + streak badge. */}
-      <div className="px-1 pt-1 pb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>{dateString}</p>
-          <h2 className="text-lg font-medium tracking-tight mt-1 leading-tight truncate" style={{ color: C.ink }}>
-            {greeting}, <span style={{ color: C.inkMid }}>{firstName}</span>
-          </h2>
-        </div>
+      {/* ─────── Compact date + streak strip ─────── */}
+      <div className="px-1 pt-1 pb-3 flex items-center justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>
+          {dateString}
+        </p>
         {streak >= 2 && (
           <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full shrink-0"
             style={{ background: `${C.fire}1a`, border: `1px solid ${C.fire}40` }}
           >
-            <Feather className="w-3.5 h-3.5" strokeWidth={1.5} style={{ color: C.fire }} />
-            <span
-              className="text-[10px] font-bold tracking-widest uppercase tabular-nums"
-              style={{ color: C.ochre }}
-            >
+            <Feather className="w-3 h-3" strokeWidth={1.5} style={{ color: C.fire }} />
+            <span className="text-[10px] font-bold tracking-widest uppercase tabular-nums" style={{ color: C.ochre }}>
               {streak}-day trail
             </span>
           </div>
         )}
       </div>
 
-      {/* ─────── 3-number ring + macro bars card ─────── */}
-      {/* Section header dropped — the card is self-explanatory and section
-          chrome is real estate we want back for compactness. */}
-      <div className="rounded-3xl p-5 mt-2" style={{ background: C.card, border: `1px solid ${C.border}` }} data-tour="macro-ring">
-        <ThreeNumberRing
-          consumed={consumed.calories}
-          target={targets.calories}
+      {/* ─────── Hero greeting + coach sub-line ─────── */}
+      <div className="px-1 pb-4">
+        <h1 className="text-[30px] font-bold tracking-tight leading-tight" style={{ color: C.ink }}>
+          {greeting}, {firstName} <span aria-hidden>👋</span>
+        </h1>
+        {coachMsg.body && (
+          <p className="text-[15px] font-semibold mt-1 leading-snug" style={{ color: C.fire }}>
+            {coachMsg.body}
+          </p>
+        )}
+      </div>
+
+      {/* ─────── Ring card ─────── */}
+      <div
+        className="rounded-3xl p-6"
+        style={{ background: C.card, border: `1px solid ${C.border}` }}
+        data-tour="macro-ring"
+      >
+        <RingHero
           remaining={remainingCal}
+          target={targets.calories}
           ratio={calRatio}
+          percentOfGoal={percentOfGoal}
         />
 
-        {/* Macro bars */}
-        <div className="space-y-3 mt-4">
-          {macroData.map(m => (
-            <MacroBar
-              key={m.label}
-              label={m.label}
-              icon={m.icon}
-              current={m.current}
-              target={m.target}
-              color={m.color}
-              view={macroView}
-            />
-          ))}
-        </div>
-
-        {/* Consumed / Remaining toggle */}
-        <div className="flex p-1 mt-4 rounded-full" style={{ background: C.bg }}>
-          {(['consumed', 'remaining'] as const).map(v => (
+        {/* MACROS · DETAILS section */}
+        <div className="mt-5 pt-5" style={{ borderTop: `1px solid ${C.border}` }}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>
+              Macros
+            </span>
             <button
-              key={v}
-              onClick={() => setMacroView(v)}
-              className="flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-full transition-all"
-              style={{
-                background: macroView === v ? C.ink : 'transparent',
-                color: macroView === v ? C.bg : C.inkLight,
-              }}
+              onClick={_onOpenReflect}
+              className="text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-1"
+              style={{ color: C.inkMid }}
             >
-              {v}
+              Details <ChevronRight className="w-3 h-3" strokeWidth={2} />
             </button>
-          ))}
+          </div>
+
+          <MacroRow label="Protein" current={consumed.protein} target={targets.protein} color={C.protein} />
+          <MacroRow label="Carbs"   current={consumed.carbs}   target={targets.carbs}   color={C.carbColor} />
+          <MacroRow label="Fat"     current={consumed.fat}     target={targets.fat}     color={C.fatColor}  />
         </div>
+      </div>
+
+      {/* ─────── Quick actions 2×2 ─────── */}
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <QuickActionTile
+          label="Log Food"
+          icon={<Plus className="w-5 h-5" strokeWidth={2.4} />}
+          iconBg={C.fire}
+          onClick={onQuickAddFood}
+        />
+        <QuickActionTile
+          label="Scan Meal"
+          icon={<Camera className="w-5 h-5" strokeWidth={2} />}
+          iconBg={C.sky}
+          onClick={onScanFood}
+        />
+        <QuickActionTile
+          label="Start Workout"
+          icon={<Dumbbell className="w-5 h-5" strokeWidth={2} />}
+          iconBg={C.emerald}
+          onClick={onOpenWorkouts}
+        />
+        <QuickActionTile
+          label="Weigh In"
+          icon={<Scale className="w-5 h-5" strokeWidth={2} />}
+          iconBg={C.purple}
+          onClick={openWeightCheckIn}
+        />
+      </div>
+
+      {/* ─────── Weight Trend + Hydration strip ─────── */}
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <WeightTrendCard
+          latest={weightSummary.latest?.weight}
+          change={weightSummary.change}
+          sparkPoints={weightSummary.sparkPoints}
+        />
+        <HydrationCard
+          intake={waterIntake}
+          target={waterTarget}
+          onLog={onLogWater}
+        />
       </div>
 
       {/* ─────── Adaptive TDEE banner ─────── */}
       {adaptiveSuggestion?.hasEnoughData &&
        Math.abs(adaptiveSuggestion.adjustmentKcal || 0) >= 50 && (
         <div
-          className="rounded-2xl p-4 mt-3 flex items-start gap-3"
-          style={{ background: `${C.fire}12`, border: `1px solid ${C.fire}30` }}
+          className="rounded-2xl p-4 mt-4 flex items-start gap-3"
+          style={{ background: `${C.sky}12`, border: `1px solid ${C.sky}40` }}
         >
           <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.fire }}>
+            <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.sky }}>
               Adjusting your path
             </div>
             <div className="text-[12px] mt-1 leading-snug" style={{ color: C.ink }}>
@@ -288,48 +323,6 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         </div>
       )}
 
-      {/* ─────── Movement strip (compact, no section header) ─────── */}
-      <div className="grid grid-cols-3 gap-2 mt-3">
-        <MovementChip
-          icon={<Dumbbell className="w-3.5 h-3.5" strokeWidth={1.7} />}
-          color={C.fire}
-          label="Workout"
-          value={workoutCompletedToday ? 'Done' : '—'}
-        />
-        <MovementChip
-          icon={<Flame className="w-3.5 h-3.5" strokeWidth={1.7} />}
-          color={C.fire}
-          label="Burn"
-          value={`${activityBurn}`}
-          unit="kcal"
-        />
-        <MovementChip
-          icon={<Droplets className="w-3.5 h-3.5" strokeWidth={1.7} />}
-          color={C.sky}
-          label="Water"
-          value={`${waterIntake}`}
-          unit={`/${waterTarget}`}
-        />
-      </div>
-
-      {/* Quick-burn pills */}
-      <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 scrollbar-hide">
-        <QuickBurnPill label="Run"  icon={<Footprints className="w-3.5 h-3.5" strokeWidth={1.5} />} onClick={() => onLogActivity('running', 30)} />
-        <QuickBurnPill label="Lift" icon={<Dumbbell className="w-3.5 h-3.5"   strokeWidth={1.5} />} onClick={() => onLogActivity('weights', 30)} />
-        <QuickBurnPill label="Bike" icon={<Bike className="w-3.5 h-3.5"       strokeWidth={1.5} />} onClick={() => onLogActivity('cycling', 30)} />
-        <QuickBurnPill label="Walk" icon={<Footprints className="w-3.5 h-3.5" strokeWidth={1.5} />} onClick={() => onLogActivity('walking', 30)} />
-        <QuickBurnPill label="Other" icon={<MoreHorizontal className="w-3.5 h-3.5" strokeWidth={1.5} />} onClick={onOpenActivityModal} muted />
-      </div>
-
-      {/* ─────── Check-in + Meals (the two interactive habit cards) ─────── */}
-      {/* The Quick Jumps tile row and the larger Wrapped launcher card were
-          removed — both were redundant with the dock and with these two
-          cards' own CTAs. */}
-      <div className="mt-4">
-        <WeightCheckInCard summary={weightSummary} onOpen={openWeightCheckIn} />
-      </div>
-      <MealRhythmCard days={days30} countThisWeek={foodLogThisWeek} onLogMeal={onQuickAddFood} />
-
       {/* ─────── Hidatsa credit footer ─────── */}
       <p className="text-center text-[9px] mt-8 uppercase tracking-[0.3em]" style={{ color: C.inkLight }}>
         Hiraaciréʼ · Numakiki · Sáhniš
@@ -338,6 +331,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
         Vocabulary supported by the MHA Language Project
       </p>
 
+      {/* ─────── Weight check-in modal ─────── */}
       {showWeightCheckIn && (
         <div
           className="fixed inset-0 z-[220] flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-3"
@@ -350,9 +344,9 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.emerald }}>Today</div>
+                <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.purple }}>Today</div>
                 <h3 className="text-xl font-bold mt-1" style={{ color: C.ink }}>
-                  {weightSummary.checkedInToday ? 'Update your check-in' : 'Quick weight check-in'}
+                  Quick weight check-in
                 </h3>
                 <p className="text-[12px] mt-1 leading-relaxed" style={{ color: C.inkMid }}>
                   No judgment. This helps Ding notice the trend, not obsess over one day.
@@ -393,7 +387,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
             <button
               type="submit"
               className="w-full mt-5 py-3.5 rounded-xl flex items-center justify-center gap-2 text-sm font-bold text-white"
-              style={{ background: C.fire }}
+              style={{ background: C.purple }}
             >
               <Check className="w-4 h-4" strokeWidth={2.5} />
               Save check-in
@@ -407,55 +401,55 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
 
 // ──────────────────────── Sub-components ────────────────────────
 
-const SectionHeader: React.FC<{ label: string; className?: string }> = ({ label, className = '' }) => (
-  <div className={`flex items-end justify-between gap-3 px-1 ${className}`}>
-    <h3 className="text-lg font-bold tracking-tight" style={{ color: C.ink }}>
-      {label}
-    </h3>
-    {/* Native accent: arrow underline. Subtle, small, terracotta. */}
-    <svg width="60" height="6" viewBox="0 0 60 6" className="self-center">
-      <line x1="2" y1="3" x2="50" y2="3" stroke={C.fire} strokeWidth="1.2" strokeLinecap="round" opacity={0.7} />
-      <polyline points="46,1 52,3 46,5" fill="none" stroke={C.fire} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity={0.7} />
-    </svg>
-  </div>
-);
-
-const ThreeNumberRing: React.FC<{
-  consumed: number;
-  target: number;
+/**
+ * RingHero — ¾ open arc + single hero number (CALORIES LEFT).
+ * viewBox is wide-flat so the ring sits high and the label group under
+ * it feels intentional, not floating.
+ */
+const RingHero: React.FC<{
   remaining: number;
+  target: number;
   ratio: number;
-}> = ({ consumed, target, remaining, ratio }) => {
-  // 270° arc (¾ circle) — leaves room at the bottom for the three labels.
-  const r = 86;
-  const circ = 2 * Math.PI * r * 0.75; // 75% of full
+  percentOfGoal: number;
+}> = ({ remaining, target, ratio, percentOfGoal }) => {
+  const r = 92;
+  const circ = 2 * Math.PI * r * 0.75; // 270°
   const offset = circ * (1 - ratio);
-
   return (
-    <div>
-      <div className="relative" style={{ height: 170 }}>
-        <svg width="100%" height={170} viewBox="0 0 240 170" preserveAspectRatio="xMidYMid meet">
-          <path d="M 49.4 144 A 86 86 0 1 1 190.6 144" fill="none" stroke={C.border} strokeWidth="14" strokeLinecap="round" />
-          <path d="M 49.4 144 A 86 86 0 1 1 190.6 144" fill="none" stroke={C.fire} strokeWidth="14" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} />
-        </svg>
-        {/* Center: big consumed number */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">
-          <div className="text-[60px] leading-none font-bold tabular-nums" style={{ color: C.ink }}>
-            {Math.round(consumed)}
-          </div>
-          <div className="text-[10px] mt-1.5 uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>Consumed</div>
+    <div className="relative" style={{ height: 200 }}>
+      <svg width="100%" height="200" viewBox="0 0 260 200" preserveAspectRatio="xMidYMid meet">
+        {/* Track — 270° arc, terminating at bottom-left / bottom-right */}
+        <path
+          d="M 55.9 168 A 92 92 0 1 1 204.1 168"
+          fill="none"
+          stroke={C.border}
+          strokeWidth="16"
+          strokeLinecap="round"
+        />
+        {/* Filled progress */}
+        <path
+          d="M 55.9 168 A 92 92 0 1 1 204.1 168"
+          fill="none"
+          stroke={C.fire}
+          strokeWidth="16"
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 500ms ease' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
+        <div className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>
+          Calories Left
         </div>
-      </div>
-
-      {/* Remaining / Target — sit cleanly under the ring as a row, no overlap */}
-      <div className="grid grid-cols-2 gap-3 mt-2 px-3">
-        <div className="text-left">
-          <div className="text-[20px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>{Math.round(remaining)}</div>
-          <div className="text-[9px] mt-1 uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Remaining</div>
+        <div className="text-[52px] font-bold leading-none tabular-nums mt-1" style={{ color: C.ink }}>
+          {Math.round(remaining).toLocaleString()}
         </div>
-        <div className="text-right">
-          <div className="text-[20px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>{target.toLocaleString()}</div>
-          <div className="text-[9px] mt-1 uppercase tracking-[0.2em]" style={{ color: C.inkLight }}>Target</div>
+        <div className="text-[11px] mt-1.5" style={{ color: C.inkLight }}>
+          of {target.toLocaleString()} kcal
+        </div>
+        <div className="text-[10px] uppercase tracking-[0.25em] font-bold mt-2 tabular-nums" style={{ color: C.fire }}>
+          {percentOfGoal}% of goal
         </div>
       </div>
     </div>
@@ -463,222 +457,156 @@ const ThreeNumberRing: React.FC<{
 };
 
 /**
- * MacroBar — drawn as an arrow on the trail. Subtle dashed track shows
- * the full path to your goal; the colored arrow grows along it as you
- * eat. Arrowhead chevron at the tip of the fill makes it feel like
- * forward motion, not a static gauge.
+ * MacroRow — clean tinted horizontal bar. No icons, no chrome. Label +
+ * bar + "current / target g" number aligned to the right.
  */
-const MacroBar: React.FC<{
+const MacroRow: React.FC<{
   label: string;
-  icon: React.ReactNode;
   current: number;
   target: number;
   color: string;
-  view: 'consumed' | 'remaining';
-}> = ({ label, icon, current, target, color, view }) => {
-  const eaten = view === 'consumed' ? current : Math.max(0, target - current);
-  const fill = Math.max(0, Math.min(1, eaten / Math.max(1, target)));
-
-  // SVG drawing — viewBox is 100 wide × 12 tall. Arrow nocks at x=2,
-  // tip moves to (fill * 96) so it never clips the right edge.
-  const TIP = Math.max(6, fill * 96); // min 6 so arrow shape is always visible
-
+}> = ({ label, current, target, color }) => {
+  const ratio = Math.max(0, Math.min(1, current / Math.max(1, target)));
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1.5">
-          <span style={{ color }}>{icon}</span>
-          <span className="text-[12px] font-bold tracking-wide" style={{ color: C.ink }}>{label}</span>
-        </div>
-        <div className="text-[12px] tabular-nums" style={{ color: C.inkMid }}>
-          <span className="font-bold" style={{ color: C.ink }}>{current}</span>
-          <span className="opacity-60"> / {target}g</span>
-        </div>
+    <div className="mt-3 first:mt-0">
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="text-[13px] font-bold" style={{ color: C.ink }}>{label}</span>
+        <span className="text-[12px] tabular-nums" style={{ color: C.inkMid }}>
+          <span className="font-bold" style={{ color: C.ink }}>{Math.round(current)}</span>
+          <span style={{ color: C.inkLight }}> / {Math.round(target)}g</span>
+        </span>
       </div>
-
-      <svg width="100%" height="12" viewBox="0 0 100 12" preserveAspectRatio="none">
-        {/* Subtle dashed track for the full path */}
-        <line
-          x1="2" y1="6" x2="98" y2="6"
-          stroke="rgba(255,255,255,0.10)"
-          strokeWidth="0.6"
-          strokeDasharray="2 2"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: C.bg }}>
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${ratio * 100}%`,
+            background: color,
+            transition: 'width 500ms ease',
+          }}
         />
-        {/* Nock dot at the start */}
-        <circle cx="2" cy="6" r="1.6" fill={color} />
-        {/* Shaft — grows with fill */}
-        <line
-          x1="2" y1="6" x2={TIP} y2="6"
-          stroke={color}
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-          style={{ transition: 'all 500ms' }}
-        />
-        {/* Chevron arrowhead at the tip */}
-        <polyline
-          points={`${TIP - 2.6},3.5 ${TIP},6 ${TIP - 2.6},8.5`}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-          style={{ transition: 'all 500ms' }}
-        />
-      </svg>
+      </div>
     </div>
   );
 };
 
 /**
- * MovementChip — slim, single-line replacement for the old StatTile.
- *
- * Used in the 3-column row under the macro card to give a glance at today's
- * workout / burn / water without spending the vertical room a full tile
- * needs. Visual: icon + value on top, label below in fine print.
+ * QuickActionTile — dark card with a colored icon chip on the left, big
+ * bold label on the right. Whole card is the button.
  */
-const MovementChip: React.FC<{
-  icon: React.ReactNode;
-  color: string;
-  label: string;
-  value: string;
-  unit?: string;
-}> = ({ icon, color, label, value, unit }) => (
-  <div
-    className="rounded-xl px-3 py-2 flex items-center gap-2"
-    style={{ background: C.card, border: `1px solid ${C.border}` }}
-  >
-    <span className="shrink-0" style={{ color }}>{icon}</span>
-    <div className="min-w-0 flex-1">
-      <div className="flex items-baseline gap-1 leading-none">
-        <span className="text-[15px] font-bold tabular-nums" style={{ color: C.ink }}>{value}</span>
-        {unit && <span className="text-[9px]" style={{ color: C.inkLight }}>{unit}</span>}
-      </div>
-      <div className="text-[8px] uppercase tracking-[0.2em] font-bold mt-0.5 truncate" style={{ color: C.inkLight }}>{label}</div>
-    </div>
-  </div>
-);
-
-const QuickBurnPill: React.FC<{
+const QuickActionTile: React.FC<{
   label: string;
   icon: React.ReactNode;
+  iconBg: string;
   onClick: () => void;
-  muted?: boolean;
-}> = ({ label, icon, onClick, muted }) => (
+}> = ({ label, icon, iconBg, onClick }) => (
   <button
     onClick={onClick}
-    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest shrink-0 transition-all active:scale-95"
-    style={{
-      background: muted ? C.card : C.fire,
-      color: muted ? C.inkMid : '#fff',
-      border: muted ? `1px solid ${C.border}` : `1px solid ${C.fire}`,
-    }}
+    className="rounded-2xl p-4 flex items-center gap-3 text-left transition-transform active:scale-[0.98]"
+    style={{ background: C.card, border: `1px solid ${C.border}` }}
   >
-    {icon}
-    {label}
+    <div
+      className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center"
+      style={{ background: iconBg, color: '#fff' }}
+    >
+      {icon}
+    </div>
+    <span className="text-[14px] font-bold leading-tight" style={{ color: C.ink }}>
+      {label}
+    </span>
   </button>
 );
 
-/** Weight trend and check-in action, intentionally focused on averages. */
-const WeightCheckInCard: React.FC<{
-  summary: {
-    latest?: WeightEntry;
-    average?: number;
-    change?: number;
-    thisWeekCount: number;
-    checkedInToday: boolean;
-  };
-  onOpen: () => void;
-}> = ({ summary, onOpen }) => {
-  const TrendIcon = summary.change === undefined ? Minus : summary.change < 0 ? TrendingDown : TrendingUp;
-  const trendText = summary.change === undefined
-    ? `${summary.thisWeekCount} reading${summary.thisWeekCount === 1 ? '' : 's'} this week`
-    : `${summary.change > 0 ? '+' : ''}${summary.change.toFixed(1)} lb this week`;
-
+/**
+ * WeightTrendCard — big lb number + tiny sparkline. Delta line under the
+ * number colored by direction (green down for cutters, sky up for bulkers,
+ * inkLight for stable). Empty state when no weigh-ins.
+ */
+const WeightTrendCard: React.FC<{
+  latest?: number;
+  change?: number;
+  sparkPoints: number[];
+}> = ({ latest, change, sparkPoints }) => {
+  const TrendIcon = change === undefined ? Minus : change < 0 ? TrendingDown : TrendingUp;
+  const trendColor = change === undefined ? C.inkLight : change < 0 ? C.emerald : C.sky;
   return (
-    <div className="rounded-2xl p-4 mt-2" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-      <div className="flex items-start gap-3">
-        <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center" style={{ background: `${C.emerald}18`, color: C.emerald }}>
-          <Scale className="w-5 h-5" strokeWidth={1.7} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-2">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>Latest</div>
-              <div className="text-2xl font-bold tabular-nums mt-0.5" style={{ color: C.ink }}>
-                {(summary.latest?.weight ?? 0) > 0 ? summary.latest!.weight.toFixed(1) : '--'}
-                <span className="text-xs ml-1" style={{ color: C.inkLight }}>lb</span>
-              </div>
-            </div>
-            {summary.average !== undefined && (
-              <div className="text-right">
-                <div className="text-[10px] uppercase tracking-[0.2em] font-bold" style={{ color: C.inkLight }}>7-day avg</div>
-                <div className="text-base font-bold tabular-nums mt-0.5" style={{ color: C.ink }}>{summary.average.toFixed(1)}</div>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: C.inkMid }}>
-            <TrendIcon className="w-3.5 h-3.5" strokeWidth={1.7} style={{ color: C.emerald }} />
-            <span>{trendText}</span>
-          </div>
-        </div>
+    <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+      <div className="text-[9px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>
+        Weight Trend
       </div>
-
-      <div className="flex items-center gap-3 mt-4 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
-        <p className="flex-1 text-[10px] leading-relaxed" style={{ color: C.inkLight }}>
-          A few readings help Ding tune your targets.
-        </p>
-        <button
-          onClick={onOpen}
-          className="shrink-0 px-3.5 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest text-white"
-          style={{ background: C.fire }}
-        >
-          {summary.checkedInToday ? 'Update today' : 'Check in'}
-        </button>
+      <div className="flex items-end justify-between gap-2 mt-2">
+        <div>
+          <span className="text-[26px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>
+            {latest !== undefined ? latest.toFixed(1) : '--'}
+          </span>
+          <span className="text-[10px] font-semibold ml-1" style={{ color: C.inkLight }}>lbs</span>
+        </div>
+        {sparkPoints.length >= 2 && <Sparkline points={sparkPoints} color={trendColor} />}
       </div>
+      {change !== undefined && (
+        <div className="flex items-center gap-1 mt-1.5 text-[10px] font-semibold" style={{ color: trendColor }}>
+          <TrendIcon className="w-3 h-3" strokeWidth={2} />
+          {Math.abs(change).toFixed(1)} lbs
+        </div>
+      )}
     </div>
   );
 };
 
-const MealRhythmCard: React.FC<{
-  days: { date: string; hadFood: boolean }[];
-  countThisWeek: number;
-  onLogMeal: () => void;
-}> = ({ days, countThisWeek, onLogMeal }) => (
-  <button
-    onClick={onLogMeal}
-    className="w-full rounded-2xl p-4 mt-2 text-left transition-all active:scale-[0.99]"
-    style={{ background: C.card, border: `1px solid ${C.border}` }}
-  >
-    <div className="flex items-start gap-3">
-      <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center" style={{ background: `${C.sky}18`, color: C.sky }}>
-        <Plus className="w-5 h-5" strokeWidth={2} />
+/**
+ * HydrationCard — sky drop icon + "X / Y oz" + one-tap Log water link
+ * that increments by the caller's fixed increment.
+ */
+const HydrationCard: React.FC<{
+  intake: number;
+  target: number;
+  onLog: () => void;
+}> = ({ intake, target, onLog }) => (
+  <div className="rounded-2xl p-4 flex flex-col" style={{ background: C.card, border: `1px solid ${C.border}` }}>
+    <div className="text-[9px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>
+      Hydration
+    </div>
+    <div className="flex items-center gap-2 mt-2">
+      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: `${C.sky}18`, color: C.sky }}>
+        <Droplets className="w-5 h-5" strokeWidth={1.8} />
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[15px] font-bold" style={{ color: C.ink }}>What did you eat?</div>
-            <div className="text-[10px] mt-0.5" style={{ color: C.inkMid }}>
-              {countThisWeek > 0 ? `${countThisWeek} day${countThisWeek === 1 ? '' : 's'} logged this week` : 'Tell Ding and keep moving'}
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 shrink-0" strokeWidth={1.5} style={{ color: C.inkLight }} />
-        </div>
-        <div className="grid grid-cols-10 gap-[3px] mt-3" aria-label="Meal history for the last 30 days">
-          {days.map((day, index) => (
-            <span
-              key={day.date + index}
-              className="block rounded-sm"
-              style={{ aspectRatio: '1 / 1', background: day.hadFood ? C.sky : 'rgba(255,255,255,0.05)' }}
-            />
-          ))}
+      <div className="min-w-0">
+        <div className="text-[20px] font-bold tabular-nums leading-none" style={{ color: C.ink }}>
+          {intake}
+          <span className="text-[11px] font-semibold ml-1" style={{ color: C.inkLight }}>/ {target} oz</span>
         </div>
       </div>
     </div>
-  </button>
+    <button
+      onClick={onLog}
+      className="text-[11px] font-bold uppercase tracking-widest mt-2 self-start"
+      style={{ color: C.sky }}
+    >
+      Log water
+    </button>
+  </div>
 );
+
+/**
+ * Tiny inline sparkline — sized to fit the right side of a stat card.
+ * Normalizes the y-range so even a small change reads visually.
+ */
+const Sparkline: React.FC<{ points: number[]; color: string }> = ({ points, color }) => {
+  if (points.length < 2) return null;
+  const w = 60;
+  const h = 24;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = Math.max(0.001, max - min);
+  const step = w / (points.length - 1);
+  const path = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${(i * step).toFixed(2)} ${(h - ((p - min) / range) * h).toFixed(2)}`)
+    .join(' ');
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="opacity-90">
+      <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
 
 export default FuelHome;

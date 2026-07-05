@@ -2291,13 +2291,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           weighIns={appState.weighIns || []}
           onLogWeight={(weight) => recordWeight(weight)}
           onQuickAddFood={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
+          onScanFood={() => { setAddFoodMode('ai'); setShowAddFood(true); }}
+          onOpenWorkouts={() => switchTab('workouts')}
+          onLogWater={() => updateWater(8)}
           onOpenReflect={() => switchTab('reflect')}
-          onLogActivity={(kind, minutes) => {
-            const met = ACTIVITY_METS[kind];
-            const kcal = personalizedBurn(appState.profile?.weight ?? 150, met, minutes);
-            logActivity(kcal);
-          }}
-          onOpenActivityModal={() => setShowActivityModal(true)}
           hasEnoughDataForWrapped={(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2}
           adaptiveSuggestion={adaptiveSuggestion}
           onAcceptAdaptiveSuggestion={acceptAdaptiveSuggestion}

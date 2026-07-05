@@ -68,10 +68,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
     avatarBorder: 'rgba(255,255,255,0.08)',
     dockBg: 'rgba(22,18,16,0.96)',
     dockBorder: 'rgba(255,255,255,0.06)',
-    iconActive: '#d97757',
+    // Semantic color pass: dock "you are here" is INFO, not action. Sky
+    // blue anchors the info tier and lets fire be the only CTA color.
+    iconActive: '#6fa8c4',
     iconInactive: 'rgba(245,237,225,0.40)',
     activeLabel: '#f5ede1',
-    activeIndicator: '#d97757',
+    activeIndicator: '#6fa8c4',
   };
   const isWarmDark = true; // legacy var used by avatar bg + dock shadow below
 
