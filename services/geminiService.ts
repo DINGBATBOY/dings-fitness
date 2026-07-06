@@ -903,16 +903,60 @@ NUTRITION LABEL MODE — STRICT EXTRACTION:
 `;
 
   const mealInstructions = `
-MEAL PHOTO MODE — INGREDIENT-LEVEL BREAKDOWN:
-- Treat each provided image as a prepared meal or dish (not a nutrition label).
-- Identify the dish and break it into the individual ingredients you can see.
-- For EACH ingredient, estimate portion size in grams based on visual cues (plate size, spoon/fork for scale, typical serving conventions).
-- Compute per-ingredient calories, protein, carbs, fat, and fiber from standard food databases (USDA values).
-- The item-level totals MUST equal the sum of ingredient values.
-- Suggest one short emoji per ingredient for visual reference (e.g. rice → "🍚", chicken → "🍗").
-- If the user mentions a SPECIFIC RESTAURANT or BRAND (e.g. "Chipotle", "Starbucks", "Sweetgreen", "Huey Magoo's"), USE the Google Search tool to find that restaurant's published nutritional data for the specific menu item first, BEFORE estimating visually. Set "source": "restaurant_db" when you do.
-- For homemade or generic dishes, set "source": "visual_estimate".
-- "confidence": "high" only for restaurant-database matches; "medium" for clear visual estimates; "low" for obscured or ambiguous dishes.
+MEAL PHOTO MODE — ONE ITEM PER DISTINCT FOOD, THEN INGREDIENTS INSIDE:
+
+STEP 1 — DECIDE: SINGLE DISH or MULTI-ITEM ORDER?
+Look at the image and ask: how many distinct foods am I looking at?
+
+SINGLE DISH — one plate, bowl, or serving of ONE dish (a bowl of pasta, a
+burrito, a stir-fry, a pizza slice, a burger). Return exactly ONE item in
+the "items" array. Populate its "ingredients" with the components you can
+see (noodles, sauce, meat, cheese, etc.).
+
+MULTI-ITEM ORDER — a tray, combo, meal box, take-out bag, or cafeteria
+plate holding several DISTINCT foods (grilled nuggets + fries + a drink;
+sandwich + chips + soda; entree + side + side; a burrito + bag of chips
++ salsa on the side; ramen + gyoza + drink). Return ONE ITEM PER DISTINCT
+FOOD in the "items" array. That means a Chick-fil-A tray with 30 grilled
+nuggets, waffle fries, a Coke Zero, a milkshake, and a BBQ sauce should
+return FIVE items — not one "Chick-fil-A meal" with the five things
+listed as ingredients.
+
+Common markers of a MULTI-ITEM ORDER:
+  • Two or more separate containers, cups, wrappers, or bags visible
+  • A drink or dip/sauce packet visible alongside a main food
+  • A protein + one or more sides (fries, chips, coleslaw, rice, salad)
+  • A "combo" or "meal deal" mentioned in the user's text
+
+If in doubt, PREFER splitting into multiple items over one bundled item.
+Users can always drill into an item to see ingredient-level breakdown.
+
+STEP 2 — FOR EACH ITEM you return:
+- Give a specific human-readable name (e.g. "30 Grilled Nuggets", "Waffle
+  Fries (large)", "Coke Zero (20 oz)", "Cookies & Cream Milkshake",
+  "Chick-fil-A Sauce"). Include quantity/size in the name when visible.
+- Estimate portion in grams from visual cues (plate size, cup size,
+  wrapper size, typical serving conventions).
+- Compute calories, protein, carbs, fat, fiber from USDA / brand data.
+- Populate "ingredients" ONLY when the item itself decomposes cleanly
+  into components (e.g. a bowl of chicken burrito → rice, beans, chicken,
+  salsa). SKIP "ingredients" for simple single-food items like
+  "30 Grilled Nuggets", "Coke Zero", "BBQ Sauce" — the item itself IS
+  the food.
+- The item-level totals MUST equal the sum of ingredient values (when
+  ingredients are populated), or match the underlying food data directly
+  (when not).
+- Suggest one short emoji per ingredient for visual reference (e.g.
+  rice → "🍚", chicken → "🍗").
+
+- If the user mentions a SPECIFIC RESTAURANT or BRAND (e.g. "Chipotle",
+  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), USE the
+  Google Search tool to find that restaurant's published nutritional
+  data for EACH menu item first, BEFORE estimating visually. Set
+  "source": "restaurant_db" on each item you sourced this way.
+- For homemade or generic items, set "source": "visual_estimate".
+- "confidence": "high" only for restaurant-database matches; "medium"
+  for clear visual estimates; "low" for obscured or ambiguous items.
 
 QUANTITY HANDLING — CRITICAL FOR ACCURACY:
 When the user specifies a quantity (e.g. "6 tenders", "2 slices", "1.5 cups"), follow this exact procedure:
