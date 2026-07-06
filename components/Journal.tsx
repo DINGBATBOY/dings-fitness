@@ -9,6 +9,7 @@ import autoTable from 'jspdf-autotable';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { FoodDetailSheet } from './FoodDetailSheet';
 
 /**
  * Cross-platform PDF save.
@@ -53,6 +54,9 @@ interface JournalProps {
   profile: UserProfile;
   targets: NutritionTargets;
   onDeleteLog?: (id: string) => void;
+  /** Persist edits made in the FoodDetailSheet drill-in view.
+   *  When omitted, the sheet renders read-only. */
+  onUpdateFood?: (updated: FoodItem) => void;
   onAddFood?: () => void;
   /** Optional — opens a small diagnostic panel showing what's actually stored.
    *  When provided, also enables the "Force archive yesterday" recovery button.
@@ -68,6 +72,7 @@ export const Journal: React.FC<JournalProps> = ({
   profile,
   targets,
   onDeleteLog,
+  onUpdateFood,
   onAddFood,
   onForceArchive,
 }) => {
@@ -75,6 +80,9 @@ export const Journal: React.FC<JournalProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toLocaleDateString());
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
+  // Drill-in sheet — when non-null, FoodDetailSheet is open on this item.
+  // Set by tapping a food-log row; cleared on close.
+  const [detailItem, setDetailItem] = useState<FoodItem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // A "real" archived day is one where the user actually used the app —
@@ -896,41 +904,46 @@ export const Journal: React.FC<JournalProps> = ({
 
         {currentLog?.foodItems && currentLog.foodItems.length > 0 ? (
           <div className="space-y-3">
-            {currentLog.foodItems.map((item, idx) => (
-              <motion.div 
-                key={item.id || idx}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white/5 p-4 rounded-2xl border border-white/5 flex items-center justify-between"
-              >
-                <div>
-                  <div className="text-white font-medium">{item.name}</div>
-                  <div className="text-white/40 text-xs flex gap-2 mt-1">
-                    <span>{item.calories} kcal</span>
-                    <span>•</span>
-                    <span>P: {item.protein}g</span>
-                    <span>•</span>
-                    <span>C: {item.carbs}g</span>
-                    <span>•</span>
-                    <span>F: {item.fat}g</span>
-                    {item.fiber !== undefined && (
-                      <>
-                        <span>•</span>
-                        <span className="text-yellow-500/80">Fi: {item.fiber}g</span>
-                      </>
-                    )}
+            {currentLog.foodItems.map((item, idx) => {
+              const hasIngredients = !!(item.ingredients && item.ingredients.length > 0);
+              return (
+                <motion.button
+                  type="button"
+                  onClick={() => setDetailItem(item)}
+                  key={item.id || idx}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full bg-white/5 p-4 rounded-2xl border border-white/5 flex items-center justify-between text-left transition-colors active:scale-[0.99] hover:bg-white/[0.07]"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-white font-medium truncate flex items-center gap-2">
+                      {item.name}
+                      {hasIngredients && (
+                        <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded" style={{ background: 'rgba(122,184,150,0.15)', color: '#7ab896' }}>
+                          {item.ingredients!.length} ings
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-white/40 text-xs flex flex-wrap gap-x-2 mt-1">
+                      <span>{item.calories} kcal</span>
+                      <span>•</span>
+                      <span>P: {item.protein}g</span>
+                      <span>•</span>
+                      <span>C: {item.carbs}g</span>
+                      <span>•</span>
+                      <span>F: {item.fat}g</span>
+                      {item.fiber !== undefined && (
+                        <>
+                          <span>•</span>
+                          <span className="text-yellow-500/80">Fi: {item.fiber}g</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-                {isToday && onDeleteLog && (
-                  <button 
-                    onClick={() => onDeleteLog(item.id)}
-                    className="p-2 text-white/20 hover:text-red-400 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </motion.div>
-            ))}
+                  <ChevronRight className="w-4 h-4 shrink-0 ml-2 text-white/25" strokeWidth={1.7} />
+                </motion.button>
+              );
+                })}
           </div>
         ) : (
           <div className="text-center py-12 bg-white/5 rounded-3xl border border-dashed border-white/10">
@@ -952,6 +965,22 @@ export const Journal: React.FC<JournalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Drill-in sheet — tap-into any food log entry to see ingredients,
+          edit portions, or delete. Read-only when viewing past days. */}
+      <FoodDetailSheet
+        item={detailItem}
+        readOnly={!isToday || !onUpdateFood}
+        onClose={() => setDetailItem(null)}
+        onSave={(updated) => {
+          if (onUpdateFood) onUpdateFood(updated);
+          setDetailItem(null);
+        }}
+        onDelete={(id) => {
+          if (onDeleteLog) onDeleteLog(id);
+          setDetailItem(null);
+        }}
+      />
     </div>
   );
 };

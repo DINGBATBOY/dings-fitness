@@ -277,32 +277,4 @@ export interface AppState {
   mealHistory: Meal[];
   foodHistory: HistoryEntry[]; // Replaces recentFoods for robust grouping
   recentFoods: FoodItem[]; // Deprecated but kept for migration safety
-  bodyStats: BodyStats;  lastActiveDate?: string;
-  nutritionTargets?: NutritionTargets; // Persistent targets
-  /**
-   * User-added menu items, keyed by restaurant slug ("chipotle", "chick-fil-a").
-   * When the AI scan returns an item attributed to a known chain that isn't
-   * in our built-in DB, we auto-add it here so the user can re-log it fast
-   * next time AND so the AI sees it as authoritative on future requests.
-   * Items use the same MenuItem shape as the built-in database.
-   */
-  customMenuItems?: Record<string, Array<{
-    id: string;
-    name: string;
-    category: string;
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    fiber?: number;
-    servingSize?: string;
-    notes?: string;
-    isCustom?: boolean;
-    addedAt?: string; // ISO timestamp
-  }>>;
-}
-
-export interface ChatResponse {
-  text: string;
-  toolCalls?: any[];
-}
+  bodyStats: BodyStats;

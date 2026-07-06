@@ -1384,7 +1384,21 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           carbs: safeFloat(item.carbs),
           fat: safeFloat(item.fat),
           fiber: safeFloat(item.fiber),
-          timestamp: new Date().toLocaleTimeString()
+          timestamp: new Date().toLocaleTimeString(),
+          // Preserve AI-decomposed ingredients so the Log tab can drill in
+          // and let the user edit portions or delete individual ingredients.
+          ingredients: Array.isArray((item as any).ingredients) && (item as any).ingredients.length > 0
+              ? (item as any).ingredients.map((ing: any) => ({
+                  name: String(ing.name || 'Ingredient'),
+                  grams: safeFloat(ing.grams),
+                  calories: safeFloat(ing.calories),
+                  protein: safeFloat(ing.protein),
+                  carbs: safeFloat(ing.carbs),
+                  fat: safeFloat(ing.fat),
+                  fiber: ing.fiber !== undefined ? safeFloat(ing.fiber) : undefined,
+                  emoji: ing.emoji || undefined,
+              }))
+              : undefined,
       }));
 
       // AUTO-ADD UNKNOWN RESTAURANT ITEMS: if the user's description mentions
@@ -2329,6 +2343,16 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             profile={appState.profile}
             targets={targetMacros}
             onDeleteLog={deleteLog}
+            onUpdateFood={(updated) => {
+              // Replace the matching item in today's live log. Past-day
+              // items pass a read-only sheet, so we don't need to touch
+              // archived logs here — the sheet won't call this for those.
+              handleUpdateAppState(prev => ({
+                ...prev,
+                todayLog: (prev.todayLog || []).map(it => it.id === updated.id ? updated : it),
+              }));
+              triggerToast('Updated');
+            }}
             onAddFood={() => {
                 setAddFoodMode('manual');
                 setShowAddFood(true);
