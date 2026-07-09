@@ -7,7 +7,9 @@
  * primary groups first, then synergists. Swipe horizontally when the day
  * hits more than one group; dots underneath track position.
  *
- * Images live in public/muscles/<id>.png (see CARDS below for ids).
+ * Images live in public/muscles/<id>.jpg (see CARDS below for ids).
+ * They ship pre-optimized: 900px wide, JPEG q82, flattened onto the
+ * card's near-black. Keep new art in that format so the bundle stays lean.
  * Cards whose image is missing or fails to load are silently dropped;
  * if nothing is left to show, we fall back to the classic MuscleMapHero
  * so the section never renders empty.
@@ -30,7 +32,7 @@ const C = {
 };
 
 interface PoseCard {
-  /** File id — image expected at /muscles/<id>.png */
+  /** File id — image expected at /muscles/<id>.jpg */
   id: string;
   label: string;
   /** Muscle keys this card represents. Card activates if ANY key is active. */
@@ -101,7 +103,7 @@ export const MusclePoseCarousel: React.FC<MusclePoseCarouselProps> = ({ activati
         {cards.map(card => (
           <div key={card.id} className="relative w-full shrink-0 snap-center">
             <img
-              src={`/muscles/${card.id}.png`}
+              src={`/muscles/${card.id}.jpg`}
               alt={`${card.label} pose`}
               draggable={false}
               className="w-full object-cover select-none"
