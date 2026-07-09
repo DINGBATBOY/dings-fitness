@@ -237,7 +237,7 @@ export const WorkoutsHome: React.FC<WorkoutsHomeProps> = ({
               {/* THE HERO — warrior pose cards (falls back to the SVG map
                   if no pose art is available for the day's activation) */}
               <div className="px-4 pt-2 pb-4" data-tour="muscle-hero">
-                <MusclePoseCarousel activation={activation} />
+                <MusclePoseCarousel activation={activation} defaultBody={profile?.sex === 'Female' ? 'f' : 'm'} />
               </div>
             </>
           ) : (
