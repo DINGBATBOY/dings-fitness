@@ -403,8 +403,11 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
 
 /**
  * RingHero — ¾ open arc + single hero number (CALORIES LEFT).
- * viewBox is wide-flat so the ring sits high and the label group under
- * it feels intentional, not floating.
+ *
+ * Styled as an arrow in flight: fletching feathers at the tail
+ * (bottom-left), a slim shaft that traces the arc as you eat, a flint
+ * arrowhead riding the tip, and a diamond marking the goal at the arc's
+ * end (bottom-right). The arrow flies toward the target as the day fills.
  */
 const RingHero: React.FC<{
   remaining: number;
@@ -412,31 +415,63 @@ const RingHero: React.FC<{
   ratio: number;
   percentOfGoal: number;
 }> = ({ remaining, target, ratio, percentOfGoal }) => {
-  const r = 92;
-  const circ = 2 * Math.PI * r * 0.75; // 270°
-  const offset = circ * (1 - ratio);
+  const cx = 130, cy = 112, r = 92;
+  const START = 225;  // math-degrees at bottom-left, sweeping clockwise over the top
+  const SWEEP = 270;
+  const t = Math.max(0, Math.min(1, ratio));
+
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const pt = (deg: number) => ({ x: cx + r * Math.cos(rad(deg)), y: cy - r * Math.sin(rad(deg)) });
+  // Direction of travel (SVG-degrees) at a given arc angle, for clockwise motion.
+  const dir = (deg: number) => (Math.atan2(Math.cos(rad(deg)), Math.sin(rad(deg))) * 180) / Math.PI;
+
+  const tail = pt(START);
+  const goal = pt(START - SWEEP);
+  const tipDeg = START - t * SWEEP;
+  const tip = pt(tipDeg);
+
+  const circ = 2 * Math.PI * r * (SWEEP / 360);
+  // Stop the shaft just short of the tip so it tucks under the arrowhead.
+  const shaftLen = Math.max(0, t * circ - 9);
+  const trackD = `M ${tail.x.toFixed(1)} ${tail.y.toFixed(1)} A ${r} ${r} 0 1 1 ${goal.x.toFixed(1)} ${goal.y.toFixed(1)}`;
+
   return (
     <div className="relative" style={{ height: 200 }}>
       <svg width="100%" height="200" viewBox="0 0 260 200" preserveAspectRatio="xMidYMid meet">
-        {/* Track — 270° arc, terminating at bottom-left / bottom-right */}
-        <path
-          d="M 55.9 168 A 92 92 0 1 1 204.1 168"
-          fill="none"
-          stroke={C.border}
-          strokeWidth="16"
-          strokeLinecap="round"
+        {/* Flight path (track) */}
+        <path d={trackD} fill="none" stroke={C.border} strokeWidth="12" strokeLinecap="round" />
+        {/* Goal diamond at the end of the trail */}
+        <rect
+          x={goal.x - 4.5} y={goal.y - 4.5} width="9" height="9"
+          fill={C.card} stroke={C.borderStrong} strokeWidth="1.5"
+          transform={`rotate(45 ${goal.x} ${goal.y})`}
         />
-        {/* Filled progress */}
+        {/* Arrow shaft — fills along the arc */}
         <path
-          d="M 55.9 168 A 92 92 0 1 1 204.1 168"
+          d={trackD}
           fill="none"
           stroke={C.fire}
-          strokeWidth="16"
-          strokeLinecap="round"
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset 500ms ease' }}
+          strokeWidth="4.5"
+          strokeLinecap="butt"
+          strokeDasharray={`${shaftLen} ${circ + 20}`}
+          style={{ transition: 'stroke-dasharray 500ms ease' }}
         />
+        {/* Fletching at the tail */}
+        <g transform={`translate(${tail.x} ${tail.y}) rotate(${dir(START)})`} opacity="0.6">
+          <path
+            d="M 3 0 L -5 -7 M 3 0 L -5 7 M -3 0 L -11 -7 M -3 0 L -11 7"
+            stroke={C.fire} strokeWidth="2.5" strokeLinecap="round" fill="none"
+          />
+        </g>
+        {/* Flint arrowhead riding the tip */}
+        <g
+          style={{
+            transform: `translate(${tip.x}px, ${tip.y}px) rotate(${dir(tipDeg)}deg)`,
+            transition: 'transform 500ms ease',
+          }}
+        >
+          <polygon points="7,0 -8,-7.5 -4,0 -8,7.5" fill={C.fire} />
+        </g>
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
         <div className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>
@@ -457,8 +492,9 @@ const RingHero: React.FC<{
 };
 
 /**
- * MacroRow — clean tinted horizontal bar. No icons, no chrome. Label +
- * bar + "current / target g" number aligned to the right.
+ * MacroRow — horizontal arrow flying toward its goal. Fletching at the
+ * left, shaft grows with intake, arrowhead leads the way, and a small
+ * diamond marks the target at the right end of the track.
  */
 const MacroRow: React.FC<{
   label: string;
@@ -467,6 +503,7 @@ const MacroRow: React.FC<{
   color: string;
 }> = ({ label, current, target, color }) => {
   const ratio = Math.max(0, Math.min(1, current / Math.max(1, target)));
+  const pct = ratio * 100;
   return (
     <div className="mt-3 first:mt-0">
       <div className="flex items-baseline justify-between mb-1.5">
@@ -476,13 +513,52 @@ const MacroRow: React.FC<{
           <span style={{ color: C.inkLight }}> / {Math.round(target)}g</span>
         </span>
       </div>
-      <div className="h-2 rounded-full overflow-hidden" style={{ background: C.bg }}>
+      <div className="relative h-3">
+        {/* Flight path (track) */}
         <div
-          className="h-full rounded-full"
+          className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-2 rounded-full"
+          style={{ background: C.bg }}
+        />
+        {/* Goal diamond at the right end */}
+        <div
+          className="absolute top-1/2 w-[7px] h-[7px]"
           style={{
-            width: `${ratio * 100}%`,
+            right: 1,
+            transform: 'translateY(-50%) rotate(45deg)',
+            border: `1.5px solid ${C.borderStrong}`,
+          }}
+        />
+        {/* Fletching at the tail */}
+        <svg
+          className="absolute top-1/2 -translate-y-1/2"
+          style={{ left: 1 }}
+          width="9" height="12" viewBox="0 0 9 12"
+        >
+          <path
+            d="M7 6 L1 1 M7 6 L1 11"
+            stroke={color} strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.55"
+          />
+        </svg>
+        {/* Arrow shaft */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-[3px] rounded-full"
+          style={{
+            left: 0,
+            width: `max(0px, calc(${pct}% - 7px))`,
             background: color,
             transition: 'width 500ms ease',
+          }}
+        />
+        {/* Flint arrowhead */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2"
+          style={{
+            left: `max(0px, calc(${pct}% - 10px))`,
+            width: 10,
+            height: 12,
+            background: color,
+            clipPath: 'polygon(100% 50%, 0 0, 32% 50%, 0 100%)',
+            transition: 'left 500ms ease',
           }}
         />
       </div>
