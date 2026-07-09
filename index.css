@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Hide horizontal scrollbar on swipe carousels (MusclePoseCarousel) */
+.hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-orbitron: "Orbitron", sans-serif;

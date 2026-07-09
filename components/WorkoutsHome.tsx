@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import type { UserProfile } from '../types';
 import { GET_MUSCLE_ACTIVATION } from '../constants';
-import { MuscleMapHero } from './MuscleMapHero';
+import { MusclePoseCarousel } from './MusclePoseCarousel';
 
 // ──────────────────── Palette ────────────────────
 const C = {
@@ -234,9 +234,10 @@ export const WorkoutsHome: React.FC<WorkoutsHomeProps> = ({
                 </span>
               </div>
 
-              {/* THE HERO — big muscle map */}
+              {/* THE HERO — warrior pose cards (falls back to the SVG map
+                  if no pose art is available for the day's activation) */}
               <div className="px-4 pt-2 pb-4" data-tour="muscle-hero">
-                <MuscleMapHero activation={activation} />
+                <MusclePoseCarousel activation={activation} />
               </div>
             </>
           ) : (
