@@ -287,3 +287,128 @@ If you want to push this further:
   bigger lift, but it would basically replace the web Coach tab.
 - **Voice**: turn on Voice in the ChatGPT mobile app — you can talk to
   it while you're at the restaurant deciding what to order.
+
+---
+
+# The API upgrade — live macros via Actions (now built)
+
+The Cloud Functions `createGptKey` and `gptMacros` exist in
+`functions/src/index.ts`. Once deployed, Fuel Coach reads your ACTUAL
+remaining macros on its own — no pasting, no screenshots.
+
+## 1. Deploy the functions (one time)
+
+```
+cd "ding! (2)"
+firebase deploy --only functions:createGptKey,functions:gptMacros
+```
+
+## 2. Get your key (one time)
+
+In the app: Profile tab → **Fuel Coach GPT key**. It mints your personal
+key and copies it to the clipboard. (Tapping it again creates a NEW key
+and kills the old one — useful if a key ever leaks.)
+
+## 3. Add the Action in the GPT builder
+
+GPT builder → Configure → Actions → Create new action:
+
+- **Authentication**: API Key → Auth Type **Bearer** → paste your key
+- **Schema**: paste this:
+
+```yaml
+openapi: 3.1.0
+info:
+  title: Ding Macros API
+  description: Live remaining macros from the Ding! Fitness app.
+  version: 1.0.0
+servers:
+  - url: https://us-central1-dings-fitness.cloudfunctions.net
+paths:
+  /gptMacros:
+    get:
+      operationId: getMacros
+      summary: Get the user's live macro budget for today
+      description: >
+        Returns today's targets, consumed so far, remaining calories and
+        macros, the foods logged today, and the last 7 days of calories.
+      parameters:
+        - name: tz
+          in: query
+          required: false
+          description: IANA timezone for "today" (default America/Chicago).
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Macro snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date: { type: string }
+                  goal: { type: string, nullable: true }
+                  targets:
+                    type: object
+                    nullable: true
+                    properties:
+                      calories: { type: number }
+                      protein: { type: number }
+                      carbs: { type: number }
+                      fat: { type: number }
+                  consumedToday:
+                    type: object
+                    properties:
+                      calories: { type: number }
+                      protein: { type: number }
+                      carbs: { type: number }
+                      fat: { type: number }
+                  remainingToday:
+                    type: object
+                    nullable: true
+                    properties:
+                      calories: { type: number }
+                      protein: { type: number }
+                      carbs: { type: number }
+                      fat: { type: number }
+                  todayItems:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        calories: { type: number }
+                        protein: { type: number }
+                  last7Days:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string }
+                        calories: { type: number }
+                        protein: { type: number }
+                  note: { type: string }
+```
+
+## 4. Add this to the top of the Instructions block
+
+```
+## LIVE MACROS (Action)
+
+You have a getMacros action connected to the user's Ding! Fitness
+account. At the START of any conversation about food — and any time the
+user asks "what should I eat" — call getMacros first and use
+remainingToday as the budget. Mention the numbers in one line so the
+user can sanity-check them. If the action errors, fall back to asking
+for a pasted DING MACROS block or screenshot. Pasted numbers newer than
+the action call win.
+```
+
+## Notes
+
+- The endpoint is read-only and returns numbers only — no name, no email.
+- The key lives in Firestore at `gptKeys/{key}`; the default-deny rule
+  already blocks all client access. Only Cloud Functions read it.
+- If you change your Firebase project ID or region, update the server
+  URL in the schema.

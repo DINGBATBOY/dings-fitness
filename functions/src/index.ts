@@ -612,3 +612,139 @@ async function fetchFromOpenFoodFacts(query: string, limit: number): Promise<Nut
       };
     });
 }
+
+// ═══════════════════════ Fuel Coach GPT API ═══════════════════════
+//
+// Lets the user's personal Custom GPT ("Fuel Coach") read their LIVE
+// remaining macros instead of them pasting numbers manually.
+//
+// Security model:
+//   - createGptKey (onCall, authed): mints a personal bearer key stored
+//     at gptKeys/{key} -> { uid }. One active key per user — minting a
+//     new one revokes the old. Client rules never touch gptKeys (the
+//     default-deny rule covers it); only the Admin SDK reads it.
+//   - gptMacros (onRequest): public HTTPS endpoint the GPT Action calls
+//     with "Authorization: Bearer <key>". Read-only, returns a compact
+//     macro snapshot. No writes, no PII beyond first-name-free numbers.
+
+import { onRequest } from "firebase-functions/v2/https";
+import { randomBytes } from "crypto";
+
+export const createGptKey = onCall(async (req: CallableRequest): Promise<{ key: string }> => {
+  const uid = req.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
+  const db = getFirestore();
+
+  // Revoke any previous keys — one active key per user.
+  const old = await db.collection("gptKeys").where("uid", "==", uid).get();
+  const batch = db.batch();
+  old.forEach((d) => batch.delete(d.ref));
+
+  const key = "ding_" + randomBytes(24).toString("hex");
+  batch.set(db.collection("gptKeys").doc(key), {
+    uid,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+  return { key };
+});
+
+export const gptMacros = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const header = String(req.headers.authorization || "");
+    const key = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    if (!key) {
+      res.status(401).json({ error: "Missing Authorization: Bearer <key>" });
+      return;
+    }
+
+    const db = getFirestore();
+    const keyDoc = await db.collection("gptKeys").doc(key).get();
+    if (!keyDoc.exists) {
+      res.status(403).json({ error: "Invalid or revoked key" });
+      return;
+    }
+    const uid = keyDoc.get("uid") as string;
+
+    const snap = await db.collection("users").doc(uid).get();
+    if (!snap.exists) {
+      res.status(404).json({ error: "No user data" });
+      return;
+    }
+    const data = snap.data() as Record<string, unknown> & {
+      nutritionTargets?: { calories: number; protein: number; carbs: number; fat: number };
+      todayLog?: Array<Record<string, unknown>>;
+      dailyLogs?: Array<Record<string, unknown>>;
+      lastActiveDate?: string;
+      profile?: { goal?: string };
+    };
+
+    // The app stamps lastActiveDate with the DEVICE's toLocaleDateString().
+    // Compute "today" in the caller's timezone (default matches the app's
+    // primary user) and only trust todayLog when the dates agree —
+    // otherwise it's a stale, not-yet-rolled-over log from a prior day.
+    const tz = typeof req.query.tz === "string" ? req.query.tz : "America/Chicago";
+    let todayStr: string;
+    try {
+      todayStr = new Date().toLocaleDateString("en-US", { timeZone: tz });
+    } catch {
+      todayStr = new Date().toLocaleDateString("en-US");
+    }
+    const isCurrent = data.lastActiveDate === todayStr;
+    const items = isCurrent && Array.isArray(data.todayLog) ? data.todayLog : [];
+
+    const sum = (field: string) =>
+      Math.round(items.reduce((s, i) => s + (Number((i as Record<string, unknown>)[field]) || 0), 0));
+    const consumed = {
+      calories: sum("calories"),
+      protein: sum("protein"),
+      carbs: sum("carbs"),
+      fat: sum("fat"),
+    };
+
+    const targets = data.nutritionTargets || null;
+    const left = (t: number | undefined, c: number) =>
+      typeof t === "number" ? Math.max(0, Math.round(t - c)) : null;
+
+    const last7 = (Array.isArray(data.dailyLogs) ? data.dailyLogs : [])
+      .slice(-7)
+      .map((l) => {
+        const log = l as Record<string, unknown>;
+        return {
+          date: log.date,
+          calories: Math.round(Number(log.caloriesConsumed) || 0),
+          protein: Math.round(Number(log.proteinConsumed) || 0),
+        };
+      });
+
+    res.json({
+      date: todayStr,
+      timezone: tz,
+      goal: data.profile?.goal || null,
+      targets,
+      consumedToday: consumed,
+      remainingToday: targets
+        ? {
+            calories: left(targets.calories, consumed.calories),
+            protein: left(targets.protein, consumed.protein),
+            carbs: left(targets.carbs, consumed.carbs),
+            fat: left(targets.fat, consumed.fat),
+          }
+        : null,
+      todayItems: items.slice(0, 30).map((i) => {
+        const it = i as Record<string, unknown>;
+        return {
+          name: String(it.name || "item"),
+          calories: Math.round(Number(it.calories) || 0),
+          protein: Math.round(Number(it.protein) || 0),
+        };
+      }),
+      last7Days: last7,
+      note: isCurrent
+        ? undefined
+        : "Nothing logged yet today — remaining equals the full daily targets.",
+    });
+  } catch {
+    res.status(500).json({ error: "Internal error" });
+  }
+});

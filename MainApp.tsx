@@ -24,7 +24,8 @@ import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './d
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
 import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/geminiService';
-import { db, auth, isConfigured } from './services/firebase';
+import { db, auth, functions, isConfigured } from './services/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
@@ -821,6 +822,21 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     setShowToast(true);
     setTimeout(() => setShowToast(false), durationMs);
   }, []);
+
+  // Mint (or rotate) the personal bearer key the Fuel Coach GPT uses to
+  // read live macros via the gptMacros endpoint. Copies it to clipboard.
+  const handleCreateGptKey = useCallback(async () => {
+    if (!functions) { triggerToast('Not connected — try again once online.'); return; }
+    try {
+      triggerToast('Creating your Fuel Coach key…');
+      const fn = httpsCallable<Record<string, never>, { key: string }>(functions, 'createGptKey');
+      const res = await fn({});
+      await navigator.clipboard.writeText(res.data.key);
+      triggerToast('Key copied. Paste it into your GPT\u2019s Action auth (Bearer). Minting a new key revokes the old one.', 7000);
+    } catch {
+      triggerToast('Could not create the key. Try again.');
+    }
+  }, [triggerToast]);
 
   const updateWater = (amount: number) => {
       handleUpdateAppState(prev => ({
@@ -2583,6 +2599,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                   className="px-6 py-3 bg-red-500/10 text-red-500 rounded-full border border-red-500/20 hover:bg-red-500/20 transition-colors text-xs font-bold uppercase tracking-widest"
               >
                   Log Out
+              </button>
+              <button
+                  onClick={handleCreateGptKey}
+                  className="text-[10px] text-gray-500 underline underline-offset-4 hover:text-cyan-400 transition-colors uppercase tracking-widest"
+              >
+                  Fuel Coach GPT key
               </button>
               <button
                   onClick={() => {
