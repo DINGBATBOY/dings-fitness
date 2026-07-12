@@ -21,8 +21,9 @@
 import React, { useMemo, useState } from 'react';
 import {
   Feather, Droplets, Dumbbell, Plus, Camera, Scale, ChevronRight,
-  TrendingDown, TrendingUp, Minus, X, Check,
+  TrendingDown, TrendingUp, Minus, X, Check, Share2,
 } from 'lucide-react';
+import { Share } from '@capacitor/share';
 import type { UserProfile, NutritionTargets, DailyLog, WeightEntry } from '../types';
 import { pickCoachMessage } from './CoachCard';
 import { WeeklySummaryCard } from './WeeklySummaryCard';
@@ -188,6 +189,28 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
     if (onLogWeight(weight)) setShowWeightCheckIn(false);
   };
 
+  // ───────── Share remaining macros (for the Fuel Coach GPT etc.) ─────────
+  const [macrosShared, setMacrosShared] = useState(false);
+  const shareMacros = async () => {
+    const left = (t: number, c: number) => Math.max(0, Math.round(t - c));
+    const text = [
+      `DING MACROS — ${dateString}`,
+      `Left today: ${Math.round(remainingCal).toLocaleString()} kcal · P ${left(targets.protein, consumed.protein)}g · C ${left(targets.carbs, consumed.carbs)}g · F ${left(targets.fat, consumed.fat)}g`,
+      `Eaten: ${Math.round(consumed.calories).toLocaleString()} of ${targets.calories.toLocaleString()} kcal`,
+      `Goal: ${profile.goal}`,
+    ].join('\n');
+    try {
+      await Share.share({ text });
+    } catch {
+      // Share sheet unavailable (web) or dismissed — fall back to clipboard.
+      try {
+        await navigator.clipboard.writeText(text);
+        setMacrosShared(true);
+        setTimeout(() => setMacrosShared(false), 2000);
+      } catch { /* user cancelled — nothing to do */ }
+    }
+  };
+
   return (
     <div className="pb-20 -mx-4 px-4" style={{ background: C.bg, color: C.ink }}>
       {/* ─────── Compact date + streak strip ─────── */}
@@ -239,13 +262,25 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
             <span className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: C.inkLight }}>
               Macros
             </span>
-            <button
-              onClick={_onOpenReflect}
-              className="text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-1"
-              style={{ color: C.inkMid }}
-            >
-              Details <ChevronRight className="w-3 h-3" strokeWidth={2} />
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={shareMacros}
+                className="text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-1"
+                style={{ color: macrosShared ? C.emerald : C.inkMid }}
+                aria-label="Share remaining macros"
+              >
+                {macrosShared
+                  ? <>Copied <Check className="w-3 h-3" strokeWidth={2} /></>
+                  : <><Share2 className="w-3 h-3" strokeWidth={2} /> Share</>}
+              </button>
+              <button
+                onClick={_onOpenReflect}
+                className="text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-1"
+                style={{ color: C.inkMid }}
+              >
+                Details <ChevronRight className="w-3 h-3" strokeWidth={2} />
+              </button>
+            </div>
           </div>
 
           <MacroRow label="Protein" current={consumed.protein} target={targets.protein} color={C.protein} />
