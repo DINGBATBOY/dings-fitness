@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import type { UserProfile, NutritionTargets, DailyLog, WeightEntry } from '../types';
 import { pickCoachMessage } from './CoachCard';
+import { WeeklySummaryCard } from './WeeklySummaryCard';
 
 // ───────────────────── Warm-dark palette ─────────────────────
 // Adds `purple` for the fourth quick-action tile (Weigh In). Purple sits
@@ -294,6 +295,15 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           onLog={onLogWater}
         />
       </div>
+
+      {/* ─────── Weekly calorie trail + AI read ─────── */}
+      <WeeklySummaryCard
+        dailyLogs={dailyLogs}
+        consumedToday={consumed}
+        targets={targets}
+        weighIns={weighIns}
+        profile={profile}
+      />
 
       {/* ─────── Adaptive TDEE banner ─────── */}
       {adaptiveSuggestion?.hasEnoughData &&

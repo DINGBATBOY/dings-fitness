@@ -1455,3 +1455,106 @@ export const generateVisionRoadmap = async (profile: any) => {
 
   return parsed;
 };
+
+// ─────────────────────── Weekly calorie analysis ───────────────────────
+
+export interface WeeklyDaySummary {
+  /** Short day name, e.g. 'Mon'. */
+  day: string;
+  /** Locale date string for context. */
+  date: string;
+  /** Total kcal for the day, or null when nothing was logged. */
+  calories: number | null;
+  /** Biggest calorie items that day, pre-formatted (e.g. "Pizza (860 kcal)"). */
+  topFoods?: string[];
+  /** Workout label if one was completed. */
+  workout?: string;
+}
+
+export interface WeeklyAnalysis {
+  summary: string;
+  wins: string[];
+  watchouts: string[];
+  drivers: string[];
+  oneChange: string;
+}
+
+/**
+ * Ask the coach to read a week of calorie data and explain which days and
+ * habits helped or hurt. Tone: warm, zero judgment — trends over slip-ups.
+ */
+export const analyzeWeeklyCalories = async (
+  input: {
+    thisWeek: WeeklyDaySummary[];
+    thisWeekAvg: number | null;
+    lastWeekAvg: number | null;
+    /** Weight change across this week in lbs (negative = lost), null if unknown. */
+    weightChange: number | null;
+  },
+  profile: UserProfile,
+  targets: NutritionTargets,
+): Promise<WeeklyAnalysis> => {
+  const dayLines = input.thisWeek
+    .map((d) => {
+      const cal = d.calories === null ? "not logged" : `${d.calories} kcal`;
+      const foods = d.topFoods?.length ? ` — biggest items: ${d.topFoods.join(", ")}` : "";
+      const wo = d.workout ? ` — workout: ${d.workout}` : "";
+      return `  ${d.day} ${d.date}: ${cal}${foods}${wo}`;
+    })
+    .join("\n");
+
+  const prompt = `
+  You are Ding, a warm fitness coach. Analyze this user's week of calorie
+  tracking. Be specific about WHICH days and WHICH foods/habits pushed the
+  weekly count up or helped keep it on track. No judgment — trends over
+  slip-ups, and celebrate what worked.
+
+  User:
+  - Goal: ${profile.goal}
+  - Daily calorie target: ${targets.calories} kcal
+  - Protein target: ${targets.protein}g
+
+  This week, day by day:
+${dayLines}
+
+  This week's average on logged days: ${input.thisWeekAvg ?? "n/a"} kcal
+  Last week's average: ${input.lastWeekAvg ?? "no data"} kcal
+  Weight change this week: ${input.weightChange === null ? "no weigh-ins" : `${input.weightChange > 0 ? "+" : ""}${input.weightChange.toFixed(1)} lbs`}
+
+  Rules:
+  - Reference days by name (e.g. "Saturday ran hot because of...").
+  - Name specific foods from the data when they drove a day over.
+  - If days are unlogged, gently note that logging them sharpens the picture.
+  - Keep every string short — this renders on a phone card.
+
+  Return ONLY a valid JSON object:
+  {
+    "summary": "2-3 sentence read of the week vs last week and the goal",
+    "wins": ["specific day/habit that helped", ...],
+    "watchouts": ["specific day/food that pushed the count up", ...],
+    "drivers": ["pattern behind the numbers, e.g. weekend restaurant meals", ...],
+    "oneChange": "single most impactful change for next week"
+  }
+  `;
+
+  const response = await callGeminiProxy({
+    feature: "analyzeWeeklyCalories",
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          wins: { type: Type.ARRAY, items: { type: Type.STRING } },
+          watchouts: { type: Type.ARRAY, items: { type: Type.STRING } },
+          drivers: { type: Type.ARRAY, items: { type: Type.STRING } },
+          oneChange: { type: Type.STRING },
+        },
+        required: ["summary", "wins", "watchouts", "drivers", "oneChange"],
+      },
+    },
+  });
+
+  return JSON.parse(response.text);
+};
