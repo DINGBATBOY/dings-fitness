@@ -21,7 +21,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Feather, Droplets, Dumbbell, Plus, Camera, Scale, ChevronRight,
-  TrendingDown, TrendingUp, Minus, X, Check, Share2,
+  TrendingDown, TrendingUp, Minus, X, Check, Share2, UtensilsCrossed,
 } from 'lucide-react';
 import { Share } from '@capacitor/share';
 import type { UserProfile, NutritionTargets, DailyLog, WeightEntry } from '../types';
@@ -79,6 +79,8 @@ interface FuelHomeProps {
     reason?: string;
   };
   onAcceptAdaptiveSuggestion?: () => void;
+  /** Opens the Fuel Coach sheet (meal ideas for remaining macros). */
+  onOpenFuelCoach?: () => void;
 }
 
 export const FuelHome: React.FC<FuelHomeProps> = ({
@@ -102,6 +104,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   hasEnoughDataForWrapped: _hasEnoughDataForWrapped,
   adaptiveSuggestion,
   onAcceptAdaptiveSuggestion,
+  onOpenFuelCoach,
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
   const [showWeightCheckIn, setShowWeightCheckIn] = useState(false);
@@ -316,6 +319,27 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           onClick={openWeightCheckIn}
         />
       </div>
+
+      {/* ─────── Fuel Coach banner ─────── */}
+      {onOpenFuelCoach && (
+        <button
+          onClick={onOpenFuelCoach}
+          className="w-full rounded-2xl p-4 mt-3 flex items-center gap-3 text-left transition-transform active:scale-[0.99]"
+          style={{ background: C.card, border: `1px solid ${C.fire}40` }}
+          data-tour="fuel-coach"
+        >
+          <div className="w-11 h-11 rounded-full shrink-0 flex items-center justify-center" style={{ background: C.fire, color: '#fff' }}>
+            <UtensilsCrossed className="w-5 h-5" strokeWidth={2} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="text-[14px] font-bold block" style={{ color: C.ink }}>Fuel Coach</span>
+            <span className="text-[11px] block mt-0.5 leading-snug" style={{ color: C.inkMid }}>
+              Ideas for your {Math.round(remainingCal).toLocaleString()} kcal left — eat out, cook, or something sweet
+            </span>
+          </div>
+          <ChevronRight className="w-4 h-4 shrink-0" strokeWidth={1.7} style={{ color: C.fire }} />
+        </button>
+      )}
 
       {/* ─────── Weight Trend + Hydration strip ─────── */}
       <div className="grid grid-cols-2 gap-3 mt-3">

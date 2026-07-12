@@ -11,6 +11,7 @@ import { Auth } from './components/Auth';
 import { Onboarding } from './components/Onboarding';
 import { RecompVelocity } from './components/RecompVelocity';
 import { RestaurantHub } from './components/RestaurantHub';
+import { FuelCoachSheet } from './components/FuelCoachSheet';
 import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
@@ -333,6 +334,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [showFuelCoach, setShowFuelCoach] = useState(false);
   // Direction of the page-turn transition. Positive when moving to a
   // later tab (forward), negative when going back. Recomputed inside the
   // tab-switch handler below. Default forward feels right on first paint.
@@ -2328,9 +2330,29 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           hasEnoughDataForWrapped={(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2}
           adaptiveSuggestion={adaptiveSuggestion}
           onAcceptAdaptiveSuggestion={acceptAdaptiveSuggestion}
+          onOpenFuelCoach={() => setShowFuelCoach(true)}
         />
       )}
 
+
+      {showFuelCoach && (
+        <FuelCoachSheet
+          remaining={{
+            calories: Math.max(0, Math.round(targetMacros.calories - consumedMacros.calories)),
+            protein: Math.max(0, Math.round(targetMacros.protein - consumedMacros.protein)),
+            carbs: Math.max(0, Math.round(targetMacros.carbs - consumedMacros.carbs)),
+            fat: Math.max(0, Math.round(targetMacros.fat - consumedMacros.fat)),
+          }}
+          profile={appState.profile}
+          onClose={() => setShowFuelCoach(false)}
+          onLogItem={(item) => {
+            // Fuel Coach macros are AI estimates (except DB-grounded eat-out
+            // picks) — same trust level as the AI meal scan.
+            pushFoodToState([item], `Fuel Coach · ${item.name}`);
+            triggerToast(`Logged ${item.name}`);
+          }}
+        />
+      )}
 
       {activeTab === 'restaurants' && (
         <div className="animate-fade-in">

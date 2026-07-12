@@ -1558,3 +1558,132 @@ ${dayLines}
 
   return JSON.parse(response.text);
 };
+
+// ─────────────────────── Fuel Coach (in-app) ───────────────────────
+
+export type FuelCoachMode = 'eatout' | 'cook' | 'snacks' | 'morning';
+
+export interface FuelIdea {
+  name: string;
+  /** Restaurant/brand for eat-out & packaged items, or "Homemade". */
+  source: string;
+  verdict: 'GO' | 'OKAY';
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  /** One-sentence reason this fits (or what to watch). */
+  why: string;
+  timeEstimate?: string;
+  ingredients?: string[];
+  steps?: string[];
+  /** Items the user likely needs to buy for this recipe. */
+  grocery?: string[];
+}
+
+export interface FuelIdeasResult {
+  intro: string;
+  ideas: FuelIdea[];
+}
+
+const FUEL_MODE_BRIEFS: Record<FuelCoachMode, string> = {
+  eatout: `MODE: EAT OUT.
+  Pick the best 4-5 options for the remaining macros, drawing FIRST from the
+  CANDIDATE MENU ITEMS below (these come from a verified database — treat
+  their macros as ground truth). You may add at most one well-known chain
+  item that is NOT in the list if it is clearly better; append " (verify)"
+  to its source if you do. Verdict GO for strong macro fits, OKAY for
+  workable-but-not-optimal (say why). No recipes in this mode.`,
+  cook: `MODE: COOK.
+  Give exactly 3 recipes the user can make, sized so one serving fits the
+  remaining macros. Each needs timeEstimate (e.g. "25 min"), ingredients
+  with quantities, steps (numbered, max 8, each one short), and grocery =
+  the subset of ingredients a typical kitchen wouldn't already have.
+  Range the three across effort: one fast, one standard, one worth-it.`,
+  snacks: `MODE: SNACKS & SWEETS.
+  Give 5-6 ideas in three tiers: (a) 2-3 packaged grab-now items with REAL
+  brand names and honest macros, (b) 1-2 two-minute builds (no cooking),
+  (c) exactly one worth-the-effort dessert recipe with ingredients + steps,
+  portioned so ONE serving fits the remaining macros. Desserts are normal
+  food — never moralize. If the user asked for something specific (e.g.
+  chocolate), make it happen within the budget.`,
+  morning: `MODE: START MY DAY.
+  The user has a full day of macros ahead. In "intro", sketch how the day
+  could split across breakfast/lunch/dinner in one or two sentences. Then
+  give 3 breakfast options across effort levels (grab-and-go, ~10 min cook,
+  meal-preppable), each with macros. Bias protein-forward and say so in
+  "why" where it matters. Include ingredients/steps only for the cooked one.`,
+};
+
+export const generateFuelIdeas = async (
+  mode: FuelCoachMode,
+  remaining: { calories: number; protein: number; carbs: number; fat: number },
+  note: string,
+  profile: UserProfile,
+  candidateItems?: string[],
+): Promise<FuelIdeasResult> => {
+  const candidates = mode === 'eatout' && candidateItems?.length
+    ? `\n  CANDIDATE MENU ITEMS (verified macros — prefer these):\n${candidateItems.map((c) => `  - ${c}`).join('\n')}\n`
+    : '';
+
+  const prompt = `
+  You are Ding's in-app Fuel Coach. Suggest food that fits what's LEFT of
+  the user's day. Use real numbers, be specific, never moralize food.
+
+  User:
+  - Goal: ${profile.goal}
+  - Remaining today: ${remaining.calories} kcal, ${remaining.protein}g protein, ${remaining.carbs}g carbs, ${remaining.fat}g fat
+
+  ${FUEL_MODE_BRIEFS[mode]}
+  ${candidates}
+  ${note ? `USER NOTE (cravings / location / what's on hand): "${sanitize(note, 300)}"` : ''}
+
+  Every idea must fit within the remaining calories (leave a little room —
+  don't land exactly on zero unless remaining is small). Protein gap is the
+  priority to close. "intro" is 1-2 sentences, conversational, no fluff.
+  `;
+
+  const response = await callGeminiProxy({
+    feature: 'fuelCoachIdeas',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          intro: { type: Type.STRING },
+          ideas: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                source: { type: Type.STRING },
+                verdict: { type: Type.STRING },
+                calories: { type: Type.NUMBER },
+                protein: { type: Type.NUMBER },
+                carbs: { type: Type.NUMBER },
+                fat: { type: Type.NUMBER },
+                why: { type: Type.STRING },
+                timeEstimate: { type: Type.STRING },
+                ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+                steps: { type: Type.ARRAY, items: { type: Type.STRING } },
+                grocery: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+              required: ['name', 'source', 'verdict', 'calories', 'protein', 'carbs', 'fat', 'why'],
+            },
+          },
+        },
+        required: ['intro', 'ideas'],
+      },
+    },
+  });
+
+  const parsed = JSON.parse(response.text) as FuelIdeasResult;
+  // Normalize verdicts defensively — the model occasionally freestyles.
+  parsed.ideas = (parsed.ideas || []).map((i) => ({
+    ...i,
+    verdict: i.verdict === 'GO' ? 'GO' : 'OKAY',
+  }));
+  return parsed;
+};
