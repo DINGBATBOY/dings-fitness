@@ -2,9 +2,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Layout } from './components/Layout';
-import { ProgressRing } from './components/ProgressRing';
-import { MacroReactor } from './components/MacroReactor';
-import { MuscleMap } from './components/MuscleMap';
 import { CalorieCalendar } from './components/CalorieCalendar';
 import { Journal } from './components/Journal';
 import { Auth } from './components/Auth';
@@ -533,11 +530,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           };
           nextDailyLogs = [...nextDailyLogs, archivedLog];
           archivedJustNow = true;
-          console.log("[Rollover] Archived", safeTodayLog.length, "items for", lastDate, "→", todayStr);
+          if (import.meta.env.DEV) console.log("[Rollover] Archived", safeTodayLog.length, "items for", lastDate, "→", todayStr);
         } else if (alreadyArchived) {
-          console.log("[Rollover] Already archived", lastDate, "— resetting today only");
+          if (import.meta.env.DEV) console.log("[Rollover] Already archived", lastDate, "— resetting today only");
         } else {
-          console.log("[Rollover] Skipping empty day", lastDate, "— no food/water/burn logged");
+          if (import.meta.env.DEV) console.log("[Rollover] Skipping empty day", lastDate, "— no food/water/burn logged");
         }
 
         const next = {
@@ -614,7 +611,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                 });
                 if (cleanedDailyLogs.length !== rawDailyLogs.length) {
                     const removed = rawDailyLogs.length - cleanedDailyLogs.length;
-                    console.log(`[Cleanup] Removed ${removed} empty/duplicate dailyLogs entries from storage.`);
+                    if (import.meta.env.DEV) console.log(`[Cleanup] Removed ${removed} empty/duplicate dailyLogs entries from storage.`);
                     // Write back the cleaned version. saveToCloud merges, so
                     // this replaces only the dailyLogs field. Fire and forget.
                     saveToCloud({ dailyLogs: cleanedDailyLogs });

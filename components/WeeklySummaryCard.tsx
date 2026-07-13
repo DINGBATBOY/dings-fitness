@@ -12,7 +12,7 @@
  * re-opening the app doesn't re-spend an AI call unless the data changed.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Sparkles, TrendingDown, TrendingUp, Minus, RotateCcw } from 'lucide-react';
 import type { DailyLog, NutritionTargets, WeightEntry } from '../types';
 import { PhysiqueGoal } from '../types';
@@ -154,7 +154,7 @@ export const WeeklySummaryCard: React.FC<WeeklySummaryCardProps> = ({
   const weekKey = week.mon.toISOString().slice(0, 10);
 
   // Rehydrate a cached analysis for this exact week + data snapshot.
-  useMemo(() => {
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return;
