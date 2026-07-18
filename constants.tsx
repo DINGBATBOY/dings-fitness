@@ -374,6 +374,26 @@ export const CALCULATE_MACROS = (
   // to a safe rate. Same formula works for surplus (negative delta).
   //   • Loss:    1% of bodyweight per week
   //   • Surplus: 0.5 lb/week (clean bulk)
+  // Goal-based flat delta (kcal relative to TDEE; negative = deficit).
+  // This is the MINIMUM ambition the chosen goal promises — a timeline can
+  // deepen it (need to lose faster to hit the date) but never soften it.
+  // Without this, switching Recomp -> Weight Loss could RAISE calories
+  // whenever a gentle timeline was set, which reads as a bug to the user.
+  let goalDelta: number;
+  if (goal?.includes('Weight Loss')) {
+      goalDelta = -600;
+  } else if (goal?.includes('Body Recomposition') || goal?.includes('Recomp')) {
+      goalDelta = -350;
+  } else if (goal?.includes('Lean/Athletic')) {
+      goalDelta = -300;
+  } else if (goal?.includes('Bulk/Hypertrophy') || goal?.includes('Bulk')) {
+      goalDelta = 300;
+  } else if (goal?.includes('Performance')) {
+      goalDelta = -100;
+  } else {
+      goalDelta = -300;
+  }
+
   let usedTimeline = false;
   if (timeline?.targetWeightLbs && timeline?.targetDate) {
     const targetLbs = timeline.targetWeightLbs;
@@ -388,26 +408,23 @@ export const CALCULATE_MACROS = (
       const clampedDelta = rawDailyDelta > 0
         ? Math.min(rawDailyDelta, maxLossPerDay)
         : Math.max(rawDailyDelta, -maxSurplusPerDay);
-      targetCalories = tdee - clampedDelta;
+      // clampedDelta > 0 means "eat below TDEE by this much".
+      const timelineDelta = -clampedDelta;
+      // Combine with the goal's flat delta: same direction -> take the more
+      // ambitious of the two; conflicting direction (e.g. deficit goal but
+      // timeline asks for surplus) -> trust the goal the user just picked.
+      const sameDirection = (goalDelta < 0) === (timelineDelta < 0);
+      const combined = sameDirection
+        ? (goalDelta < 0 ? Math.min(goalDelta, timelineDelta) : Math.max(goalDelta, timelineDelta))
+        : goalDelta;
+      targetCalories = tdee + combined;
       usedTimeline = true;
     }
   }
 
-  // Fallback: goal-based flat deficits.
+  // Fallback: goal-based flat delta only.
   if (!usedTimeline) {
-    if (goal?.includes('Weight Loss')) {
-        targetCalories = tdee - 600;
-    } else if (goal?.includes('Body Recomposition') || goal?.includes('Recomp')) {
-        targetCalories = tdee - 350;
-    } else if (goal?.includes('Lean/Athletic')) {
-        targetCalories = tdee - 300;
-    } else if (goal?.includes('Bulk/Hypertrophy') || goal?.includes('Bulk')) {
-        targetCalories = tdee + 300;
-    } else if (goal?.includes('Performance')) {
-        targetCalories = tdee - 100;
-    } else {
-        targetCalories = tdee - 300;
-    }
+    targetCalories = tdee + goalDelta;
   }
 
   const rules = SPLIT_RULES[splitMode] || SPLIT_RULES['balanced'];

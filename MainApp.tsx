@@ -1783,7 +1783,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           undoFn = undoLastActivity;
         }
         return (
-          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] bg-[#d97757] text-white px-5 py-2 rounded-full font-bold text-xs uppercase tracking-widest shadow-md animate-slide-up flex items-center gap-3 whitespace-nowrap">
+          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-max max-w-[92vw] bg-[#d97757] text-white px-5 py-2.5 rounded-2xl font-bold text-xs uppercase tracking-widest shadow-md animate-slide-up flex items-center gap-3 text-center leading-snug">
             <span>{toastMessage}</span>
             {/* Undo button — appears whenever a 5-second undo window is open
                 for activity burn, food add, or food delete. Tapping reverses
