@@ -403,6 +403,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   // Profile Edit State
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  // While the edit-profile modal is open, freeze the page behind it so
+  // touch scrolling stays inside the modal (iOS scroll-chaining fix).
+  useEffect(() => {
+    if (!isEditingProfile) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isEditingProfile]);
   const [editProfileData, setEditProfileData] = useState<Partial<UserProfile>>({});
   const [visionRoadmap, setVisionRoadmap] = useState<VisionRoadmap | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -2674,7 +2683,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
             onClick={(e) => { if (e.target === e.currentTarget) setIsEditingProfile(false); }}
          >
-            <div className="bg-[#0f0f0f] w-full max-w-sm rounded-[2rem] p-6 border border-white/10 shadow-2xl animate-slide-up">
+            <div className="bg-[#0f0f0f] w-full max-w-sm max-h-[85dvh] overflow-y-auto overscroll-contain rounded-[2rem] p-6 border border-white/10 shadow-2xl animate-slide-up">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-orbitron font-bold text-white tracking-widest">EDIT PROFILE</h3>
                   <button
