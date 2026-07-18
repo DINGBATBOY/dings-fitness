@@ -120,3 +120,64 @@ After launch:
 - Week 1–4: Monthly PDF export + Wrapped v2 (sharing).
 - Month 2: Continuous TDEE re-estimation.
 - Month 3+: Community v1.2 layer.
+
+---
+
+# Post-launch roadmap (added at submission, July 2026)
+
+## Headliner: Campfire — the community page
+
+The place people share their journeys, recipes, and local finds. Named
+for the warm-dark fire aesthetic the whole app already carries.
+
+**What it is**
+- **Journeys** — progress posts: a photo, a milestone ("down 12 lbs on
+  the trail"), a short story. Feathers (likes) instead of hearts — the
+  streak icon becomes the community currency.
+- **Recipes** — user recipes with macros attached; one tap logs a
+  serving straight into your day. The Fuel Coach recipe card format is
+  already the right shape for this.
+- **Local finds** — "this dish at this spot fits a cut" posts with a
+  location/restaurant tag. Over time this becomes community ground truth
+  the Fuel Coach can cite.
+
+**Ship it in two phases**
+1. **Phase 1 — the lodge wall (low risk):** curated, read-only feed you
+   post to (featured journeys, a weekly recipe). No UGC = no new App
+   Store obligations. Validates whether people even open the tab.
+2. **Phase 2 — full sharing:** open posting with the required Apple
+   guideline 1.2 kit shipped IN THE SAME BUILD: report post, block user,
+   a moderation queue (Cloud Function + Gemini auto-screen, you as final
+   reviewer in the first months), and terms language covering community
+   content. Also update the App Privacy label (user content becomes
+   collected + linked).
+
+**Tech sketch:** Firestore `posts/{id}` (+ `reports`, `blocks`),
+Storage for images (reuse the meal-scan upload path), pagination by
+`createdAt`, counts denormalized onto the post doc. All fits the
+existing rules pattern.
+
+## Strong next bets (roughly in order)
+
+- **HealthKit sync** — read steps/workouts/weight from Apple Health,
+  write food energy back. Biggest retention feature available; also
+  makes activityBurn real instead of manual.
+- **Barcode scanner** — the camera plugin is already installed and the
+  functions layer already talks to Open Food Facts; wiring a barcode
+  lookup into AddFood is a weekend-sized feature that removes the most
+  common logging friction.
+- **Push notifications** — streak-keeper nudge in the evening if
+  nothing's logged, weigh-in reminder on your usual morning, weekly
+  summary ready. Needs APNs/FCM setup.
+- **Home-screen widget** — the calorie arrow ring as a widget. Native
+  work (WidgetKit extension) but the single most-seen surface an app
+  can own.
+- **Wrapped-style month recap** — the Wrapped component exists;
+  auto-generate a shareable month card (ties into Campfire later).
+- **Premium tier** — once AI usage grows: free tier keeps N AI calls a
+  day, Ding+ unlocks more scans, Fuel Coach runs, and deeper weekly
+  analysis. The quota system in functions already supports this switch.
+- **MHA language deepening** — a daily word on the dashboard footer,
+  language milestones tied to streaks. The credit footer becomes a
+  living feature and sharpens what makes Ding unlike every other
+  macro app.
