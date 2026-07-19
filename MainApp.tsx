@@ -414,6 +414,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     return () => { document.body.style.overflow = prev; };
   }, [isEditingProfile]);
   const [editProfileData, setEditProfileData] = useState<Partial<UserProfile>>({});
+  // Custom macro targets — when on, the user pins exact numbers and Save
+  // stores them verbatim instead of recomputing from the profile.
+  const [manualTargetsOn, setManualTargetsOn] = useState(false);
+  const [manualDraft, setManualDraft] = useState({ calories: 2000, protein: 150, carbs: 200, fat: 65 });
   const [visionRoadmap, setVisionRoadmap] = useState<VisionRoadmap | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
@@ -2568,6 +2572,13 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                        activityLevel: appState.profile?.activityLevel,
                        workoutPreferences: appState.profile?.workoutPreferences,
                    });
+                   setManualTargetsOn(!!appState.profile?.manualTargets);
+                   setManualDraft({
+                       calories: targetMacros.calories,
+                       protein: targetMacros.protein,
+                       carbs: targetMacros.carbs,
+                       fat: targetMacros.fat,
+                   });
                    setIsEditingProfile(true);
                 }}
                 className="absolute top-6 right-6 text-xs text-cyan-400 uppercase tracking-widest font-bold hover:text-white transition-colors"
@@ -2779,6 +2790,59 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         </div>
                     </div>
 
+                    {/* CUSTOM TARGETS — pin exact numbers for your own plan.
+                        When on, Save stores these verbatim; when off, Save
+                        recalculates targets from the profile as usual. */}
+                    <div className="pt-2 border-t border-white/5">
+                        <button
+                            type="button"
+                            onClick={() => setManualTargetsOn(v => !v)}
+                            className="w-full flex items-center justify-between"
+                            aria-pressed={manualTargetsOn}
+                        >
+                            <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest flex items-center gap-2">
+                                <span>🎯</span>
+                                <span>Custom Macro Targets</span>
+                            </span>
+                            <span className={`w-10 h-6 rounded-full p-0.5 transition-colors ${manualTargetsOn ? 'bg-cyan-500' : 'bg-white/10'}`}>
+                                <span className={`block w-5 h-5 rounded-full bg-white transition-transform ${manualTargetsOn ? 'translate-x-4' : ''}`} />
+                            </span>
+                        </button>
+                        {manualTargetsOn && (
+                            <div className="mt-3 space-y-3">
+                                <p className="text-[10px] text-gray-500 leading-snug">
+                                    Set exact numbers for your own plan. These override the calculated targets until you turn this off.
+                                </p>
+                                <div className="grid grid-cols-2 gap-2.5">
+                                    {([
+                                        { key: 'calories', label: 'Calories', unit: 'kcal' },
+                                        { key: 'protein',  label: 'Protein',  unit: 'g' },
+                                        { key: 'carbs',    label: 'Carbs',    unit: 'g' },
+                                        { key: 'fat',      label: 'Fat',      unit: 'g' },
+                                    ] as const).map(f => (
+                                        <div key={f.key}>
+                                            <label className="block text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-1.5">
+                                                {f.label} ({f.unit})
+                                            </label>
+                                            <input
+                                                type="number"
+                                                inputMode="numeric"
+                                                min="0"
+                                                value={manualDraft[f.key] || ''}
+                                                onChange={e => setManualDraft(prev => ({ ...prev, [f.key]: Number(e.target.value) }))}
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-cyan-400 tabular-nums"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="text-[9px] text-gray-600 tabular-nums">
+                                    Macros add up to {(manualDraft.protein * 4 + manualDraft.carbs * 4 + manualDraft.fat * 9).toLocaleString()} kcal
+                                    · calories set to {(manualDraft.calories || 0).toLocaleString()}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
                     {/* WORKOUT PREFERENCES — drives the AI-generated workout split.
                         Existing users (onboarded before this section existed) can
                         fill these in here without going through full onboarding. */}
@@ -2889,7 +2953,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                 <div className="flex gap-2">
                     <button onClick={() => setIsEditingProfile(false)} className="flex-1 py-3 rounded-xl border border-white/10 text-gray-400 font-bold uppercase tracking-widest text-xs">Cancel</button>
                     <button onClick={() => {
-                        const newProfile = { ...appState.profile, ...editProfileData } as UserProfile;
+                        const newProfile = { ...appState.profile, ...editProfileData, manualTargets: manualTargetsOn } as UserProfile;
                         // Body-composition-aware BMR: prefer InBody scan, fall back to manual bodyFat entry.
                         const bf = newProfile.inBodyData?.pbf ?? newProfile.bodyFat;
                         const tdee = CALCULATE_TDEE(newProfile.weight, newProfile.height, newProfile.age, newProfile.activityLevel, newProfile.sex, bf);
@@ -2903,13 +2967,21 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                             ? { targetWeightLbs: newProfile.goalTargetWeight, targetDate: newProfile.goalTargetDate }
                             : undefined,
                         );
-                        // Strip MacroResult to NutritionTargets shape (drop floor metadata).
-                        const targets = {
-                            calories: macroResult.calories,
-                            protein: macroResult.protein,
-                            carbs: macroResult.carbs,
-                            fat: macroResult.fat,
-                        };
+                        // Custom targets win verbatim; otherwise strip MacroResult
+                        // to NutritionTargets shape (drop floor metadata).
+                        const targets = manualTargetsOn
+                            ? {
+                                calories: Math.max(800, Math.round(manualDraft.calories || 0)),
+                                protein: Math.max(0, Math.round(manualDraft.protein || 0)),
+                                carbs: Math.max(0, Math.round(manualDraft.carbs || 0)),
+                                fat: Math.max(0, Math.round(manualDraft.fat || 0)),
+                              }
+                            : {
+                                calories: macroResult.calories,
+                                protein: macroResult.protein,
+                                carbs: macroResult.carbs,
+                                fat: macroResult.fat,
+                              };
 
                         // Detect whether workout preferences changed so we can hint at
                         // regenerating the split.
@@ -2924,7 +2996,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         }));
                         setIsEditingProfile(false);
                         triggerToast(
-                          macroResult.floorApplied
+                          manualTargetsOn
+                            ? "Saved with your custom targets."
+                            : macroResult.floorApplied
                             ? "Profile updated. Calories capped at safety minimum."
                             : workoutPrefsChanged
                               ? "Saved. Refresh your plan to apply your new preferences."

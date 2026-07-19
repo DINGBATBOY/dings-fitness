@@ -111,6 +111,8 @@ export interface UserProfile {
   // Macro split preference — controls how non-protein calories are divided
   // between carbs and fat. Defaults to 'balanced' if unset.
   macroSplit?: MacroSplit;
+  /** True when nutritionTargets were set by hand — profile saves must not recompute them. */
+  manualTargets?: boolean;
   // Cached adaptive TDEE state. Recomputed weekly; cleared on profile reset.
   adaptiveTdee?: AdaptiveTDEEState;
   // Physical limitations flagged during onboarding. Fed to the AI split
