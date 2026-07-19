@@ -1815,7 +1815,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       {/* ADD FOOD BOTTOM SHEET MODAL */}
       {/* AI scan in flight — full-screen bow loader */}
       {isAnalyzingFood && (
-        <BowLoader subtitle="Ding is reading your photo and matching it against real nutrition data." />
+        <BowLoader />
       )}
 
       {showAddFood && (

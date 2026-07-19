@@ -17,18 +17,20 @@ const C = {
   ochre: '#e8a85a',
 };
 
-const LINES = [
-  'Reading the plate…',
-  'Sizing up portions…',
-  'Counting the macros…',
-  'Checking the nutrition records…',
-  'Almost there — nocking the numbers…',
+const QUIPS = [
+  'This food is looking good!',
+  "Food looks great… where's my plate?",
+  'Save me some leftovers',
+  'Sharing is caring',
+  'Mmmmmmm!!!',
+  'Rock, paper, scissors for the last bite!',
 ];
 
 export const BowLoader: React.FC<{ subtitle?: string }> = ({ subtitle }) => {
-  const [lineIdx, setLineIdx] = useState(0);
+  // Start on a random quip so back-to-back scans don't always open the same way.
+  const [lineIdx, setLineIdx] = useState(() => Math.floor(Math.random() * QUIPS.length));
   useEffect(() => {
-    const t = setInterval(() => setLineIdx(i => (i + 1) % LINES.length), 2600);
+    const t = setInterval(() => setLineIdx(i => (i + 1) % QUIPS.length), 2600);
     return () => clearInterval(t);
   }, []);
 
@@ -66,11 +68,14 @@ export const BowLoader: React.FC<{ subtitle?: string }> = ({ subtitle }) => {
         </g>
       </svg>
 
-      <p className="text-[13px] font-bold mt-6 tracking-wide" style={{ color: C.ink }}>
-        {LINES[lineIdx]}
+      <p className="text-[14px] font-bold mt-6 tracking-wide" style={{ color: C.ink }}>
+        Food translation in progress…
+      </p>
+      <p key={lineIdx} className="text-[12px] mt-3 text-center italic animate-fade-in" style={{ color: C.ochre }}>
+        {QUIPS[lineIdx]}
       </p>
       {subtitle && (
-        <p className="text-[11px] mt-2 text-center leading-relaxed" style={{ color: C.inkLight }}>
+        <p className="text-[10px] mt-4 text-center leading-relaxed" style={{ color: C.inkLight }}>
           {subtitle}
         </p>
       )}
