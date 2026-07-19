@@ -360,7 +360,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const [activeDayIndexForAdd, setActiveDayIndexForAdd] = useState<number | null>(null);
 
   // Food Analysis State
-  const [addFoodMode, setAddFoodMode] = useState<'manual' | 'ai' | 'history'>('manual');
+  const [addFoodMode, setAddFoodMode] = useState<'manual' | 'ai' | 'history'>('ai');
   const [foodImages, setFoodImages] = useState<string[]>([]);
   const [foodDescription, setFoodDescription] = useState('');
   const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
@@ -1841,11 +1841,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                   <div className="w-12 h-1.5 rounded-full mx-auto mb-5" style={{ background: 'rgba(255,255,255,0.12)' }}></div>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.3em] font-bold" style={{ color: '#d97757' }}>
-                        Log fuel
+                      <div className="text-[10px] uppercase tracking-[0.3em] font-bold tabular-nums" style={{ color: '#d97757' }}>
+                        Log fuel · {Math.max(0, Math.round(targetMacros.calories - consumedMacros.calories)).toLocaleString()} kcal left
                       </div>
                       <h2 className="text-3xl font-bold leading-tight mt-1" style={{ color: '#f5ede1' }}>
-                        What did you eat?
+                        Feed the fire{appState.profile?.name ? `, ${appState.profile.name.split(' ')[0]}` : ''}
                       </h2>
                     </div>
                     <button
@@ -1861,45 +1861,70 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
                 <div className="px-6 pb-6">
                 
-                {/* QUICK ADD PILLS - Now using Grouped History */}
-                {appState.foodHistory && appState.foodHistory.length > 0 && addFoodMode === 'manual' && scannedItems.length === 0 && (
-                    <div className="mb-6">
-                        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                            {appState.foodHistory.slice(0, 6).map(entry => (
-                                <button 
-                                    key={entry.id} 
-                                    onClick={() => logHistoryEntry(entry)}
-                                    className="bg-white/5 hover:bg-orange-500/20 border border-white/10 hover:border-orange-500 rounded-full px-4 py-2 text-xs text-gray-300 transition-all shrink-0 whitespace-nowrap font-medium"
-                                >
-                                    {entry.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                {addFoodMode === 'ai' && scannedItems.length === 0 && (
+                     <div className="space-y-4 mb-6">
+                         {/* SMART BAR — type it or shoot it. One input, two senses. */}
+                         <div className={`flex items-center gap-2 bg-white/5 border rounded-2xl pl-4 pr-2 py-1.5 transition-colors ${(foodDescription || foodImages.length > 0) ? 'border-[#d97757]/60' : 'border-white/15'}`}>
+                            <input
+                                type="text"
+                                value={foodDescription}
+                                onChange={(e) => setFoodDescription(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && (foodDescription || foodImages.length > 0) && !isAnalyzingFood) handleAnalyzeFood(); }}
+                                placeholder="Tell me or show me what you ate…"
+                                className="flex-1 min-w-0 bg-transparent py-2.5 text-white text-sm focus:outline-none placeholder:text-gray-600"
+                            />
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-11 h-11 shrink-0 rounded-xl bg-[#d97757] text-white flex items-center justify-center text-lg active:scale-95 transition-transform shadow-md"
+                                aria-label="Snap or choose photos"
+                            >
+                                📷
+                            </button>
+                         </div>
+                         <input
+                            type="file"
+                            ref={fileInputRef}
+                            accept="image/*"
+                            multiple
+                            onChange={handleImageUpload}
+                            className="hidden"
+                         />
+
+                         {/* Attached photo previews */}
+                         {foodImages.length > 0 && (
+                             <div className="flex gap-3 overflow-x-auto pb-1 px-1">
+                                 {foodImages.map((img, idx) => (
+                                     <div key={idx} className="relative w-20 h-20 shrink-0 rounded-xl overflow-hidden border border-[#d97757]/40">
+                                         <img src={img} className="w-full h-full object-cover" alt={`Upload ${idx}`} />
+                                         <button
+                                            onClick={() => removeImage(idx)}
+                                            className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-[10px] backdrop-blur-md hover:bg-red-500 transition-colors"
+                                         >
+                                             ✕
+                                         </button>
+                                     </div>
+                                 ))}
+                             </div>
+                         )}
+
+                         {/* Translate CTA — appears the moment there's anything to read */}
+                         {(foodDescription || foodImages.length > 0) && (
+                            <button
+                                onClick={handleAnalyzeFood}
+                                disabled={isAnalyzingFood}
+                                className="w-full py-4 bg-gradient-to-r from-[#d97757] to-[#d4a55a] text-white font-bold text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all disabled:opacity-50 animate-fade-in"
+                            >
+                                {isAnalyzingFood
+                                    ? 'Reading…'
+                                    : foodImages.length > 0
+                                        ? `Translate my plate (${foodImages.length} photo${foodImages.length > 1 ? 's' : ''})`
+                                        : 'Translate my plate'}
+                            </button>
+                         )}
+                     </div>
                 )}
 
-                <div className="flex p-1 bg-white/5 rounded-xl mb-6 border border-white/10">
-                    <button 
-                        onClick={() => { setAddFoodMode('manual'); setScannedItems([]); }}
-                        className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all ${addFoodMode === 'manual' ? 'bg-white text-black shadow-lg' : 'text-gray-500'}`}
-                    >
-                        Manual
-                    </button>
-                    <button 
-                        onClick={() => setAddFoodMode('ai')}
-                        className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all ${addFoodMode === 'ai' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg' : 'text-gray-500'}`}
-                    >
-                        AI Scan
-                    </button>
-                    <button
-                        onClick={() => setAddFoodMode('history')}
-                        className={`flex-1 py-3 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all ${addFoodMode === 'history' ? 'bg-white/20 text-white shadow-lg' : 'text-gray-500'}`}
-                    >
-                        Quick
-                    </button>
-                </div>
-
-                {addFoodMode === 'history' && (() => {
+                {addFoodMode === 'ai' && scannedItems.length === 0 && (() => {
                     const all = appState.foodHistory || [];
                     const favorites = all.filter(e => e.favorited);
                     const recents = all.filter(e => !e.favorited);
@@ -1964,7 +1989,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                     if (all.length === 0) {
                         return (
                             <div className="text-center py-10 opacity-50">
-                                <p className="text-xs">No meals yet — log something to start your quick list.</p>
+                                <p className="text-xs">No usuals yet — meals you log appear here for one-tap re-logging.</p>
                             </div>
                         );
                     }
@@ -1978,7 +2003,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                                         <span>★ Favorites</span>
                                         <span className="text-gray-600 font-mono">({favorites.length})</span>
                                     </h3>
-                                    <div className="space-y-1.5 max-h-[30vh] overflow-y-auto">
+                                    <div className="space-y-1.5 max-h-[26vh] overflow-y-auto">
                                         {favorites.map(renderEntry)}
                                     </div>
                                 </div>
@@ -1988,10 +2013,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                             {recents.length > 0 && (
                                 <div className="space-y-2">
                                     <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                        <span>Recent</span>
+                                        <span>Your usuals</span>
                                         <span className="text-gray-700 font-mono">({recents.length})</span>
                                     </h3>
-                                    <div className="space-y-1.5 max-h-[30vh] overflow-y-auto">
+                                    <div className="space-y-1.5 max-h-[26vh] overflow-y-auto">
                                         {recents.map(renderEntry)}
                                     </div>
                                 </div>
@@ -2005,58 +2030,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                     );
                 })()}
 
-                {addFoodMode === 'ai' && scannedItems.length === 0 && (
-                     <div className="space-y-4">
-                         {/* DRAG & DROP / CLICK AREA */}
-                         <div className="border-2 border-dashed border-white/10 rounded-2xl p-4 flex flex-col items-center justify-center hover:border-purple-500/50 transition-all group relative bg-white/[0.02]">
-                            <div className="w-16 h-16 rounded-full bg-purple-500/10 text-purple-500 flex items-center justify-center mb-3 text-2xl group-hover:scale-110 transition-transform">📷</div>
-                            <p className="text-xs text-gray-400 font-bold mb-1">Tap to capture labels or food</p>
-                            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Multi-select supported</p>
-                            <input 
-                                type="file" 
-                                ref={fileInputRef}
-                                accept="image/*"
-                                multiple
-                                onChange={handleImageUpload}
-                                className="absolute inset-0 opacity-0 cursor-pointer"
-                            />
-                         </div>
 
-                         {/* HORIZONTAL IMAGE PREVIEW SCROLL */}
-                         {foodImages.length > 0 && (
-                             <div className="flex gap-3 overflow-x-auto pb-2 px-1">
-                                 {foodImages.map((img, idx) => (
-                                     <div key={idx} className="relative w-24 h-24 shrink-0 rounded-xl overflow-hidden border border-white/20 group">
-                                         <img src={img} className="w-full h-full object-cover" alt={`Upload ${idx}`} />
-                                         <button 
-                                            onClick={() => removeImage(idx)}
-                                            className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-[10px] backdrop-blur-md hover:bg-red-500 transition-colors"
-                                         >
-                                             ✕
-                                         </button>
-                                     </div>
-                                 ))}
-                             </div>
-                         )}
-                         
-                         <input 
-                            type="text"
-                            value={foodDescription}
-                            onChange={(e) => setFoodDescription(e.target.value)}
-                            placeholder="e.g. '2 servings of rice label, 1 cup of chicken'"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-white text-sm focus:outline-none focus:border-purple-500 transition-colors"
-                         />
-
-                         <button 
-                            onClick={handleAnalyzeFood}
-                            disabled={(foodImages.length === 0 && !foodDescription) || isAnalyzingFood}
-                            className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all disabled:opacity-50 disabled:grayscale"
-                         >
-                            {isAnalyzingFood ? "Analyzing..." : `Analyze ${foodImages.length > 0 ? `(${foodImages.length} Images)` : ''}`}
-                         </button>
-                     </div>
-                )}
-                
                 {scannedItems.length > 0 && (
                     // SCANNED ITEMS REVIEW LIST
                     <div className="space-y-4">
@@ -2248,9 +2222,25 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                     </div>
                 )}
                 
+                {addFoodMode === 'ai' && scannedItems.length === 0 && (
+                    <button
+                        onClick={() => setAddFoodMode('manual')}
+                        className="mx-auto mt-5 block text-[10px] text-gray-500 underline underline-offset-4 uppercase tracking-widest hover:text-cyan-400 transition-colors"
+                    >
+                        Enter macros manually
+                    </button>
+                )}
+
                 {addFoodMode === 'manual' && scannedItems.length === 0 && (
                     // MANUAL ENTRY FORM
                     <form onSubmit={(e) => { e.preventDefault(); addFoodEntry(); }} className="space-y-4">
+                        <button
+                            type="button"
+                            onClick={() => setAddFoodMode('ai')}
+                            className="text-[10px] text-gray-500 uppercase tracking-widest font-bold hover:text-white transition-colors"
+                        >
+                            ← Back
+                        </button>
                         <div>
                             <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Name</label>
                             <input type="text" value={foodForm.name} onChange={e => setFoodForm({...foodForm, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
