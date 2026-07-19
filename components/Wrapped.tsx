@@ -12,6 +12,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Flame, Beef, Wheat, Droplets, Trophy, Zap, Activity, TrendingUp,
@@ -773,7 +774,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
         </div>
 
       {/* Story mode overlay */}
-      {storyOpen && storySlides.length > 0 && (
+      {storyOpen && storySlides.length > 0 && createPortal(
         <div className="fixed inset-0 z-[240] bg-[#0d0a08] flex flex-col">
           <div className="flex gap-1 px-3" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
             {storySlides.map((s, i) => (
@@ -797,13 +798,13 @@ export const Wrapped: React.FC<WrappedProps> = ({
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="relative flex-1 flex items-center overflow-y-auto px-5 py-6">
+          <div className="relative flex-1 flex overflow-y-auto px-5 py-6">
             <motion.div
               key={storySlides[storyIdx].id}
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
-              className="w-full max-w-md mx-auto space-y-2"
+              className="w-full max-w-md m-auto space-y-2"
             >
               {storySlides[storyIdx].node}
             </motion.div>
@@ -824,7 +825,8 @@ export const Wrapped: React.FC<WrappedProps> = ({
           >
             Tap right for next · left to go back
           </p>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
@@ -855,8 +857,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
 const FadeIn: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => (
   <motion.section
     initial={{ opacity: 0, y: 14 }}
-    whileInView={{ opacity: 1, y: 0 }}
-    viewport={{ once: true, margin: '-50px' }}
+    animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.45, delay }}
     className="space-y-2"
   >
