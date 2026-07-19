@@ -295,9 +295,20 @@ export const Wrapped: React.FC<WrappedProps> = ({
 
   // ---- Headline / vibe based on consistency ----
   const consistencyPct = stats.days / (period === 'week' ? 7 : 30);
-  // Cuodi voice vibe headlines — see VOICE.md
+  // Cuodi voice vibe headlines — see VOICE.md. Top tier rotates through a
+  // pool so heavy users don't read the same line every visit; the pick is
+  // stable for a given view (seeded by day) so it doesn't flicker on
+  // re-renders.
   const vibe = useMemo(() => {
-    if (consistencyPct >= 0.85) return { title: 'This is crazy', sub: 'you are more consistent then me and I\'m a program!', tone: 'fire' };
+    const firePool = [
+      { title: 'This is crazy', sub: 'you are more consistent then me and I\'m a program!' },
+      { title: 'Keep up the great work!', sub: 'Seriously — this streak is something.' },
+      { title: 'Keep moving forward!', sub: 'The trail rewards showing up. You keep showing up.' },
+    ];
+    if (consistencyPct >= 0.85) {
+      const daySeed = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
+      return { ...firePool[daySeed % firePool.length], tone: 'fire' };
+    }
     if (consistencyPct >= 0.6)  return { title: 'We love to see this!', sub: 'Keep this rolling.', tone: 'growing' };
     if (consistencyPct >= 0.3)  return { title: 'Keep going!', sub: 'It can only get better from here.', tone: 'steady' };
     return { title: 'Day by day it will get better', sub: '(if you, ya know use the app)', tone: 'fresh' };
