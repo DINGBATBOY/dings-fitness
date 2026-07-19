@@ -9,6 +9,7 @@ import { Onboarding } from './components/Onboarding';
 import { RecompVelocity } from './components/RecompVelocity';
 import { RestaurantHub } from './components/RestaurantHub';
 import { FuelCoachSheet } from './components/FuelCoachSheet';
+import { BowLoader } from './components/BowLoader';
 import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
@@ -1812,6 +1813,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       )}
 
       {/* ADD FOOD BOTTOM SHEET MODAL */}
+      {/* AI scan in flight — full-screen bow loader */}
+      {isAnalyzingFood && (
+        <BowLoader subtitle="Ding is reading your photo and matching it against real nutrition data." />
+      )}
+
       {showAddFood && (
             <div
               className="fixed inset-0 z-[100] flex items-end justify-center"
@@ -1819,7 +1825,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               onClick={() => setShowAddFood(false)}
             >
               <div
-                className="w-full max-w-md rounded-t-[2.5rem] shadow-2xl overflow-y-auto max-h-[88vh] animate-slide-up"
+                className="w-full max-w-md rounded-t-[2.5rem] shadow-2xl overflow-y-auto h-[94dvh] max-h-[94dvh] overscroll-contain animate-slide-up"
                 style={{
                   background: '#161210',
                   borderTop: '1px solid rgba(255,255,255,0.08)',

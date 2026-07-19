@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+/* ───── Bow-and-arrow scan loader (BowLoader.tsx) ───── */
+@keyframes bowShot {
+  0%   { transform: translateX(0); opacity: 1; }
+  30%  { transform: translateX(-18px); opacity: 1; }
+  48%  { transform: translateX(-18px); opacity: 1; }
+  60%  { transform: translateX(190px); opacity: 1; }
+  61%  { transform: translateX(190px); opacity: 0; }
+  74%  { transform: translateX(0); opacity: 0; }
+  86%, 100% { transform: translateX(0); opacity: 1; }
+}
+.bow-arrow {
+  animation: bowShot 2s cubic-bezier(0.34, 0.02, 0.26, 1) infinite;
+}
+@keyframes bowString {
+  0%   { transform: translateX(0); }
+  30%  { transform: translateX(-14px); }
+  48%  { transform: translateX(-14px); }
+  56%  { transform: translateX(4px); }
+  62%, 100% { transform: translateX(0); }
+}
+.bow-string {
+  animation: bowString 2s cubic-bezier(0.34, 0.02, 0.26, 1) infinite;
+}
+
 /* Hide horizontal scrollbar on swipe carousels (MusclePoseCarousel) */
 .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
