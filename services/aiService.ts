@@ -948,9 +948,9 @@ export const detectIndieRestaurantIntent = (text: string): boolean => {
 // macros for whole foods and branded packaged products before it falls back
 // to estimation.
 //
-// `softenSearchBlock`: when true, the instruction allowing the AI to prefer
-// Google Search for restaurant-specific items overrides USDA for those items.
-// Set when indie restaurant intent is detected upstream.
+// `softenSearchBlock`: when true, the AI is told it may adjust away from the
+// USDA generics for restaurant-specific items (restaurant preparations run
+// higher). Set when indie restaurant intent is detected upstream.
 const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = false): string => {
   if (matches.length === 0) return '';
   const lines = matches.map(m => {
@@ -961,11 +961,12 @@ const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = f
   }).join('\n');
 
   const searchPolicy = softenSearchBlock
-    ? `For RESTAURANT-NAMED items in the user's query, prefer Google Search
-results (per the Independent Restaurant block above) — USDA generics are
-wrong for a named restaurant's preparation. For generic ingredients or
-sides not tied to the restaurant ("french fries", "ketchup"), use USDA.`
-    : `Do NOT use Google Search for foods covered here.`;
+    ? `For RESTAURANT-NAMED items in the user's query, treat these USDA
+values as a floor and adjust upward for restaurant preparation (added oil,
+butter, sauces, larger portions) per the Independent Restaurant block above.
+For generic ingredients or sides not tied to the restaurant ("french fries",
+"ketchup"), use these values as-is.`
+    : `Use these values as-is for the foods they cover — do not re-estimate them.`;
 
   return `
 
@@ -1013,7 +1014,7 @@ const buildFoodAnalysisPrompt = (
   // chain. Examples: "Ted Peters salmon dinner", "Joe's pizza", "Mama's
   // lasagna", "at Frenchy's", "from Versailles Cafe". When the user names a
   // specific place, generic USDA matches ("salmon" = 175 cal) are wrong — we
-  // need Google Search to find that restaurant's actual preparation.
+  // need an estimate tuned for that restaurant's actual preparation.
   const hasIndieRestaurantIntent =
     matched.length === 0 && detectIndieRestaurantIntent(textDescription);
 
@@ -1026,16 +1027,19 @@ const buildFoodAnalysisPrompt = (
 
 INDEPENDENT RESTAURANT DETECTED in the user's text — they named a specific
 non-chain restaurant (apostrophe-S name, "at [Place]", "from [Place]", or
-similar). For ANY items associated with that restaurant:
-1. USE the Google Search tool FIRST to find the restaurant's nutrition data,
-   menu photos, recipes, or reviews that describe portion sizes.
-2. Even if USDA matches were injected below, prefer search-derived numbers
-   for the restaurant-specific item — USDA's generic "salmon" or "potato
-   salad" is wrong for a named restaurant's preparation.
-3. Set "source": "restaurant_db" and "confidence": "medium" when search finds
-   the restaurant's data. Set "low" if you can only find similar dishes
-   from comparable restaurants.
-4. In "tip", state the restaurant + which search source you used.
+similar). You do NOT have web access, so do not claim to have looked the
+restaurant up. For ANY items associated with that restaurant:
+1. Estimate from what you know about how restaurants of that type and
+   cuisine prepare that dish — restaurant portions, cooking fats, sauces,
+   and sides run materially higher than home cooking.
+2. Treat injected USDA/Open Food Facts numbers as a floor, not the answer:
+   a generic "salmon" or "potato salad" entry understates a restaurant
+   preparation. Adjust upward for oil, butter, dressing, and plate size.
+3. Set "source": "visual_estimate" (or "text_only" with no photo) and
+   "confidence": "low" — you are estimating, not reading verified data.
+4. In "tip", name the restaurant, say the numbers are an estimate for a
+   restaurant-style portion, and invite the user to correct the values if
+   they know the real ones.
 ` : '';
 
   // Shared output schema description — same shape regardless of mode.
@@ -1140,10 +1144,12 @@ STEP 2 — FOR EACH ITEM you return:
   rice → "🍚", chicken → "🍗").
 
 - If the user mentions a SPECIFIC RESTAURANT or BRAND (e.g. "Chipotle",
-  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), USE the
-  Google Search tool to find that restaurant's published nutritional
-  data for EACH menu item first, BEFORE estimating visually. Set
-  "source": "restaurant_db" on each item you sourced this way.
+  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), first use any
+  VERIFIED MENU DATA supplied above — those numbers are authoritative, set
+  "source": "restaurant_db". If the chain is not in the supplied data, you
+  have no web access: recall the chain's published values if you know them
+  confidently, otherwise estimate a restaurant-style portion and set
+  "source": "visual_estimate" with "confidence": "low".
 - For homemade or generic items, set "source": "visual_estimate".
 - "confidence": "high" only for restaurant-database matches; "medium"
   for clear visual estimates; "low" for obscured or ambiguous items.
