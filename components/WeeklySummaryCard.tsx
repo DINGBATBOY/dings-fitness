@@ -17,7 +17,7 @@ import { Sparkles, TrendingDown, TrendingUp, Minus, RotateCcw } from 'lucide-rea
 import type { DailyLog, NutritionTargets, WeightEntry } from '../types';
 import { PhysiqueGoal } from '../types';
 import type { UserProfile } from '../types';
-import { analyzeWeeklyCalories, type WeeklyAnalysis, type WeeklyDaySummary } from '../services/geminiService';
+import { analyzeWeeklyCalories, type WeeklyAnalysis, type WeeklyDaySummary } from '../services/aiService';
 
 const C = {
   bg: '#161210',

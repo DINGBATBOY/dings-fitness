@@ -22,7 +22,7 @@ import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
-import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/geminiService';
+import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/aiService';
 import { db, auth, functions, isConfigured } from './services/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
