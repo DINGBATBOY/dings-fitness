@@ -168,3 +168,51 @@ Firebase emulators read `.secret.local` automatically.
 If something goes wrong, you can roll back the Functions deploy from the
 Firebase Console (Functions → callGemini → Logs/Versions). The client refactor
 is git-revertable.
+
+---
+
+## AI provider: OpenAI (migrated from Gemini, July 2026)
+
+All AI features run through the `callAI` Cloud Function, which holds the
+OpenAI key server-side and enforces the per-user daily quota.
+
+**Model:** `gpt-5.6-luna` by default (fast, cheap, supports vision +
+structured outputs). `gpt-5.6-terra` is allowlisted if a feature ever needs
+heavier reasoning — pass `model` in the request. The allowlist lives in
+`functions/src/index.ts`; clients can't switch to a pricier model.
+
+### One-time setup
+
+```
+firebase functions:secrets:set OPENAI_API_KEY
+firebase deploy --only functions
+```
+
+Get the key from platform.openai.com → API keys. Make sure the OpenAI
+account has billing enabled and a spend limit set.
+
+### After deploying, delete the retired function
+
+The old Gemini proxy is gone from the source, so Firebase will offer to
+remove it — accept, or run:
+
+```
+firebase functions:delete callGemini
+```
+
+**Order matters:** deploy the new function and ship the matching app build
+before deleting `callGemini`, or any older build still in TestFlight will
+fail its AI calls.
+
+### What changed functionally
+
+- **Structured outputs** now use OpenAI strict mode. Fields that were
+  optional are returned as `null` instead of being omitted.
+- **Web-search grounding was dropped.** Gemini's `googleSearch` tool had no
+  Chat Completions equivalent that also works with vision + structured
+  output. Restaurant accuracy now comes from the curated menu database in
+  `data/restaurants.ts` plus the USDA / Open Food Facts lookups in
+  `searchNutrition` — both already ran ahead of the AI tier.
+- **Cost:** roughly $1 / $6 per 1M input / output tokens on Luna. Watch the
+  admin usage dashboard for the first week; `DAILY_LIMIT_PER_USER` in
+  `functions/src/index.ts` is the throttle.
