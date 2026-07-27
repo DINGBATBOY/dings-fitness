@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { DailyLog, FoodItem, UserProfile, NutritionTargets } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, ChevronLeft, ChevronRight, Utensils, Droplets, Dumbbell, Trash2, Plus, Sparkles, AlertCircle, CheckCircle2, TrendingUp, Loader2, Download } from 'lucide-react';
-import { analyzeDailyLog } from '../services/aiService';
+import { analyzeDailyLog } from '../services/geminiService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Capacitor } from '@capacitor/core';

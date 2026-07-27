@@ -2,7 +2,7 @@
  * Ding! — Cloud Functions
  *
  * Currently exposes these callables:
- *   • callAI           — proxy to OpenAI chat completions with auth + quota.
+ *   • callGemini       — proxy to Gemini generateContent with auth + quota.
  *   • deleteAccount    — user-initiated full account wipe.
  *   • searchNutrition  — query Open Food Facts (free) + USDA FoodData Central
  *                        (requires user-supplied API key) for grounded
@@ -10,7 +10,7 @@
  *                        isn't configured.
  *
  * To set the secrets once:
- *   firebase functions:secrets:set OPENAI_API_KEY
+ *   firebase functions:secrets:set GEMINI_API_KEY
  *   firebase functions:secrets:set USDA_API_KEY   (optional)
  * Then deploy:
  *   firebase deploy --only functions
@@ -23,34 +23,34 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
 
-const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
+const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 // Optional. If absent, searchNutrition still works via Open Food Facts.
 const USDA_API_KEY = defineSecret("USDA_API_KEY");
 
 // ----- Tunables -----
 const DAILY_LIMIT_PER_USER = 50;          // AI calls/user/day
 const ALLOWED_MODELS = new Set([
-  "gpt-5.6-luna",   // default — fast + cheap, supports vision & structured outputs
-  "gpt-5.6-terra",  // mid-tier, for heavier reasoning if a feature needs it
-  // Keep this tight to prevent clients switching to a pricier model.
+  "gemini-2.5-flash",
+  // Add others here as needed. Keep this tight to prevent users
+  // from switching to a more expensive model client-side.
 ]);
-const DEFAULT_MODEL = "gpt-5.6-luna";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_REQUEST_BYTES = 9 * 1024 * 1024;  // ~9 MB (onCall hard cap is 10 MB)
 
 // ----- Token pricing (USD per 1M tokens) -----
-// Update these if OpenAI adjusts pricing.
+// Update these if Google adjusts Gemini pricing.
 // Source: https://ai.google.dev/pricing
 const PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-5.6-luna":  { input: 1.00, output: 6.00 },
-  "gpt-5.6-terra": { input: 2.50, output: 15.00 },
-  "gpt-5.6-sol":   { input: 5.00, output: 30.00 },
+  "gemini-2.5-flash":      { input: 0.075, output: 0.30 },
+  "gemini-2.5-flash-lite": { input: 0.0375, output: 0.15 },
+  "gemini-2.5-pro":        { input: 1.25, output: 5.00 },
 };
-const FALLBACK_PRICING = { input: 1.00, output: 6.00 };
+const FALLBACK_PRICING = { input: 0.075, output: 0.30 };
 
 const estimateCostUsd = (
   model: string,
@@ -65,35 +65,16 @@ const estimateCostUsd = (
 };
 
 // ============================================================================
-//  callAI
+//  callGemini
 // ============================================================================
-/**
- * Request body the client sends to `callAI`. Mirrors the subset of the
- * OpenAI chat-completions API the app actually uses.
- */
-interface AIRequest {
-  /** Optional — server enforces allowlist. Default: gpt-5.6-luna */
-  model?: string;
-  /** OpenAI chat messages array (supports text + image_url parts). */
-  messages: unknown;
-  /** Optional OpenAI response_format (e.g. json_schema for structured output). */
-  responseFormat?: unknown;
-  /** Optional OpenAI tools array for function calling. */
-  tools?: unknown;
-  /** Optional sampling temperature. */
-  temperature?: number;
-  /** Optional feature label for per-feature attribution in the admin dashboard. */
-  feature?: string;
-}
-
-export const callAI = onCall(
+export const callGemini = onCall(
   {
     cors: true,                  // Auth is enforced via Firebase ID token; CORS is a courtesy layer
-    secrets: [OPENAI_API_KEY],
+    secrets: [GEMINI_API_KEY],
     timeoutSeconds: 60,
     memory: "512MiB",
   },
-  async (req: CallableRequest<AIRequest>) => {
+  async (req: CallableRequest<GeminiRequest>) => {
     // ----- 1. Auth -----
     if (!req.auth) {
       throw new HttpsError("unauthenticated", "Sign in first.");
@@ -121,8 +102,8 @@ export const callAI = onCall(
     }
     const model = requestedModel;
 
-    if (!Array.isArray(data.messages) || data.messages.length === 0) {
-      throw new HttpsError("invalid-argument", "Missing `messages`.");
+    if (!data.contents) {
+      throw new HttpsError("invalid-argument", "Missing `contents`.");
     }
 
     // Optional feature label from the client for per-feature attribution
@@ -135,41 +116,36 @@ export const callAI = onCall(
     // ----- 3. Rate limit (atomic) -----
     await consumeQuota(uid);
 
-    // ----- 4. Forward to OpenAI -----
-    const client = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
+    // ----- 4. Forward to Gemini -----
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
 
     const startTime = Date.now();
     let result;
     try {
-      // Cast the pass-through fields — we're a thin proxy and don't want to
-      // pin the proxy's types to one SDK version's exact shape.
-      result = await client.chat.completions.create({
+      // Cast contents/config to any — we're a thin proxy that forwards whatever
+      // the client sends. We don't want to lock the proxy's types to a single
+      // Gemini SDK version's exact shape.
+      result = await ai.models.generateContent({
         model,
-        messages: data.messages as any,
-        ...(data.responseFormat ? { response_format: data.responseFormat as any } : {}),
-        ...(Array.isArray(data.tools) && data.tools.length > 0
-          ? { tools: data.tools as any }
-          : {}),
-        ...(typeof data.temperature === "number"
-          ? { temperature: data.temperature }
-          : {}),
+        contents: data.contents as any,
+        config: data.config as any,
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "OpenAI call failed";
-      console.error("[callAI] upstream error", uid, msg);
+      const msg = err instanceof Error ? err.message : "Gemini call failed";
+      console.error("[callGemini] upstream error", uid, msg);
       throw new HttpsError("internal", "AI service error. Try again.");
     }
     const durationMs = Date.now() - startTime;
 
     // ----- 5. Token usage logging (best-effort — don't block the response) -----
-    // OpenAI returns `usage` on every completion. We capture it for cost
-    // monitoring and write a per-call doc + update per-user totals.
+    // Gemini returns usageMetadata on every generateContent response. We capture
+    // it for cost monitoring and write a per-call doc + update per-user totals.
     // Failure here is non-fatal: the user still gets their AI result.
     try {
-      const usage = (result as any).usage ?? {};
-      const promptTokens = Number(usage.prompt_tokens ?? 0);
-      const candidatesTokens = Number(usage.completion_tokens ?? 0);
-      const totalTokens = Number(usage.total_tokens ?? promptTokens + candidatesTokens);
+      const usage = (result as any).usageMetadata ?? {};
+      const promptTokens = Number(usage.promptTokenCount ?? 0);
+      const candidatesTokens = Number(usage.candidatesTokenCount ?? 0);
+      const totalTokens = Number(usage.totalTokenCount ?? promptTokens + candidatesTokens);
       const costUsd = estimateCostUsd(model, promptTokens, candidatesTokens);
       const userEmail = req.auth.token?.email ?? null;
 
@@ -185,32 +161,16 @@ export const callAI = onCall(
         durationMs,
       });
     } catch (err) {
-      console.error("[callAI] usage logging failed (non-fatal)", uid, err);
+      console.error("[callGemini] usage logging failed (non-fatal)", uid, err);
     }
 
-    // ----- 6. Return shape (normalized for the client) -----
-    const choice = (result as any).choices?.[0];
-    const rawToolCalls = choice?.message?.tool_calls ?? null;
-    // Normalize OpenAI tool calls into the { name, args } shape the app uses.
-    const toolCalls = Array.isArray(rawToolCalls) && rawToolCalls.length > 0
-      ? rawToolCalls.map((tc: any) => {
-          let args: unknown = {};
-          try {
-            args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-          } catch {
-            args = {};
-          }
-          return { name: tc.function?.name ?? "", args };
-        })
-      : null;
-
+    // ----- 6. Return shape (matches what the client was using) -----
     return {
-      text: choice?.message?.content ?? "",
-      functionCalls: toolCalls,
+      text: result.text ?? "",
+      functionCalls: result.functionCalls ?? null,
     };
   },
 );
-
 
 // ============================================================================
 //  Quota helper
@@ -317,6 +277,16 @@ async function logTokenUsage(input: TokenUsageInput): Promise<void> {
 // ============================================================================
 //  Types
 // ============================================================================
+interface GeminiRequest {
+  /** Optional — server enforces allowlist. Default: gemini-2.5-flash */
+  model?: string;
+  /** Anything @google/genai accepts as `contents` (string, parts array, etc.) */
+  contents: unknown;
+  /** Anything @google/genai accepts as `config` (system instruction, tools, schema, etc.) */
+  config?: unknown;
+  /** Optional feature label for per-feature attribution in the admin dashboard. */
+  feature?: string;
+}
 
 // ============================================================================
 //  deleteAccount
@@ -406,7 +376,7 @@ export const deleteAccount = onCall(
  *
  * Returns a normalized list of matches with macros on a per-100g basis
  * plus, where available, the source's reported serving size. Callers
- * (analyzeFoodEntry in the client) inject these into the AI prompt as
+ * (analyzeFoodEntry in the client) inject these into the Gemini prompt as
  * authoritative data so the AI does the quantity scaling against verified
  * values rather than guessing.
  *
@@ -458,7 +428,7 @@ export const searchNutrition = onCall(
     }
     const limit = Math.min(Math.max(Number(req.data?.limit ?? 3), 1), 5);
 
-    // Light per-user quota: shares the same bucket as AI calls so a
+    // Light per-user quota: shares the same bucket as Gemini calls so a
     // misbehaving client can't bypass quotas by spamming this endpoint.
     await consumeQuota(uid);
 

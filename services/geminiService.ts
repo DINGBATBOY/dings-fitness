@@ -1,36 +1,14 @@
 /**
- * aiService — client side.
+ * Gemini service — client side.
  *
- * All AI calls go through the Cloud Function `callAI` (functions/src/index.ts),
- * which holds the OpenAI API key server-side and enforces per-user daily
- * quotas. Model: the GPT-5.6 family (default `gpt-5.6-luna`).
+ * All AI calls go through the Cloud Function `callGemini` (functions/src/index.ts),
+ * which holds the API key server-side and enforces per-user daily quotas.
  *
- * The public function names and return shapes are unchanged from the previous
- * Gemini implementation, so MainApp.tsx and other callers didn't need to
- * change. `callAIProxy` translates the legacy request shape (contents/config)
- * into an OpenAI chat-completions payload.
+ * The shape of inputs and outputs is unchanged from the previous direct-to-Gemini
+ * implementation, so MainApp.tsx and other callers don't need to change.
  */
 
-/**
- * Schema/tool vocabulary. These used to come from the Gemini SDK; they are
- * now local so the app has no Gemini dependency. The literal values are the JSON
- * Schema type names OpenAI expects, and `toJsonSchema` below normalizes the
- * rest of the shape (strict mode, nullability) before it goes over the wire.
- */
-const Type = {
-  STRING: "string",
-  NUMBER: "number",
-  INTEGER: "integer",
-  BOOLEAN: "boolean",
-  OBJECT: "object",
-  ARRAY: "array",
-} as const;
-
-interface FunctionDeclaration {
-  name: string;
-  description?: string;
-  parameters?: any;
-}
+import { Type, FunctionDeclaration } from "@google/genai";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
 import { ChatResponse, DailyLog, UserProfile, NutritionTargets } from "../types";
@@ -49,17 +27,10 @@ const sanitize = (text: string, maxLen = 4000): string =>
 // All AI calls in this file go through this function.
 // ---------------------------------------------------------------------------
 type ProxyRequest = {
-  /** Optional — server enforces an allowlist. Defaults to gpt-5.6-luna. */
+  /** Optional — server enforces an allowlist. Defaults to gemini-2.5-flash. */
   model?: string;
-  /**
-   * Prompt payload. Accepts the shapes this file already uses:
-   *   • a plain string
-   *   • { parts: [{ text }, { inlineData: { mimeType, data } }] }
-   *   • an array of { role, parts: [{ text }] } (chat history)
-   */
   contents: unknown;
-  /** systemInstruction / responseSchema / tools — translated to OpenAI below. */
-  config?: any;
+  config?: unknown;
   /**
    * Optional feature label so per-call token usage can be attributed to a
    * specific AI feature (food analysis vs coach vs onboarding) in the admin
@@ -72,174 +43,13 @@ type ProxyResponse = {
   functionCalls: any[] | null;
 };
 
-// ---------------------------------------------------------------------------
-// Schema translation.
-//
-// OpenAI structured outputs run in strict mode, which requires that EVERY
-// property is listed in `required` and that objects set
-// `additionalProperties: false`. Fields that were optional under the old
-// schema stay optional in spirit by becoming nullable — the model returns
-// null instead of omitting the key, which existing `?.` call sites already
-// handle.
-// ---------------------------------------------------------------------------
-const JSON_TYPES: Record<string, string> = {
-  STRING: "string",
-  NUMBER: "number",
-  INTEGER: "integer",
-  BOOLEAN: "boolean",
-  OBJECT: "object",
-  ARRAY: "array",
-};
-
-function toJsonSchema(node: any): any {
-  if (!node || typeof node !== "object") return node;
-
-  const rawType = typeof node.type === "string" ? node.type : undefined;
-  const type = rawType
-    ? JSON_TYPES[rawType.toUpperCase()] ?? rawType.toLowerCase()
-    : undefined;
-
-  const out: any = {};
-  if (type) out.type = type;
-  if (node.description) out.description = node.description;
-  if (Array.isArray(node.enum)) out.enum = node.enum;
-
-  if (type === "object" && node.properties) {
-    const declaredRequired: string[] = Array.isArray(node.required) ? node.required : [];
-    out.properties = {};
-    for (const [key, value] of Object.entries<any>(node.properties)) {
-      const child = toJsonSchema(value);
-      // Strict mode: keys the caller treated as optional become nullable.
-      if (!declaredRequired.includes(key) && typeof child.type === "string") {
-        child.type = [child.type, "null"];
-      }
-      out.properties[key] = child;
-    }
-    out.required = Object.keys(node.properties);
-    out.additionalProperties = false;
-  }
-
-  if (type === "array" && node.items) out.items = toJsonSchema(node.items);
-
-  return out;
-}
-
-/** Turn one Gemini-style part into an OpenAI content block. */
-function partToContent(part: any): any | null {
-  if (part?.inlineData?.data) {
-    const mime = part.inlineData.mimeType || "image/jpeg";
-    return {
-      type: "image_url",
-      image_url: { url: `data:${mime};base64,${part.inlineData.data}` },
-    };
-  }
-  if (typeof part?.text === "string") return { type: "text", text: part.text };
-  return null;
-}
-
-/** Collapse a content-block array to a plain string when it's all text. */
-function packContent(blocks: any[]): any {
-  if (blocks.length > 0 && blocks.every(b => b.type === "text")) {
-    return blocks.map(b => b.text).join("\n");
-  }
-  return blocks;
-}
-
-function toOpenAIMessages(contents: unknown, systemInstruction?: string): any[] {
-  const messages: any[] = [];
-  if (systemInstruction) {
-    messages.push({ role: "system", content: systemInstruction });
-  }
-
-  if (typeof contents === "string") {
-    messages.push({ role: "user", content: contents });
-  } else if (Array.isArray(contents)) {
-    // Chat history: [{ role: 'user' | 'model', parts: [{ text }] }, ...]
-    for (const entry of contents as any[]) {
-      const role = entry?.role === "model" || entry?.role === "assistant" ? "assistant" : "user";
-      const blocks = (Array.isArray(entry?.parts) ? entry.parts : [])
-        .map(partToContent)
-        .filter(Boolean) as any[];
-      if (blocks.length === 0) continue;
-      messages.push({ role, content: packContent(blocks) });
-    }
-  } else if (contents && Array.isArray((contents as any).parts)) {
-    const blocks = ((contents as any).parts as any[])
-      .map(partToContent)
-      .filter(Boolean) as any[];
-    if (blocks.length > 0) messages.push({ role: "user", content: packContent(blocks) });
-  }
-
-  return messages;
-}
-
-/** Translate the old `config.tools` shape into OpenAI tools. */
-function toOpenAITools(configTools: any): any[] | undefined {
-  if (!Array.isArray(configTools)) return undefined;
-  const out: any[] = [];
-  for (const group of configTools) {
-    // Web-search grounding has no Chat Completions equivalent that also
-    // supports vision + structured output, so it is intentionally dropped.
-    // Restaurant grounding comes from the local menu database and the
-    // USDA / Open Food Facts lookups in `searchNutrition` instead.
-    if (group?.googleSearch) continue;
-    const decls = group?.functionDeclarations;
-    if (Array.isArray(decls)) {
-      for (const d of decls) {
-        out.push({
-          type: "function",
-          function: {
-            name: d.name,
-            description: d.description,
-            parameters: d.parameters ? toJsonSchema(d.parameters) : { type: "object", properties: {} },
-          },
-        });
-      }
-    }
-  }
-  return out.length > 0 ? out : undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Low-level proxy caller.
-// All AI calls in this file go through this function. It accepts the request
-// shape this file has always used and translates it to the OpenAI chat
-// completions payload the `callAI` Cloud Function expects.
-// ---------------------------------------------------------------------------
-async function callAIProxy(req: ProxyRequest): Promise<ProxyResponse> {
+async function callGeminiProxy(req: ProxyRequest): Promise<ProxyResponse> {
   if (!functions) {
     throw new Error("Firebase not configured. AI features unavailable.");
   }
-
-  const config = req.config ?? {};
-  const messages = toOpenAIMessages(req.contents, config.systemInstruction);
-  const tools = toOpenAITools(config.tools);
-
-  let responseFormat: any | undefined;
-  if (config.responseSchema) {
-    responseFormat = {
-      type: "json_schema",
-      json_schema: {
-        name: (req.feature || "response").replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 60),
-        strict: true,
-        schema: toJsonSchema(config.responseSchema),
-      },
-    };
-  } else if (config.responseMimeType === "application/json") {
-    responseFormat = { type: "json_object" };
-  }
-
-  const payload = {
-    feature: req.feature,
-    model: req.model,
-    messages,
-    ...(responseFormat ? { responseFormat } : {}),
-    ...(tools ? { tools } : {}),
-  };
-
-  const fn = httpsCallable<typeof payload, ProxyResponse>(functions, "callAI");
+  const fn = httpsCallable<ProxyRequest, ProxyResponse>(functions, "callGemini");
   try {
-    const res = await fn(payload);
+    const res = await fn(req);
     return res.data;
   } catch (err: any) {
     // Surface a clean error message to the UI.
@@ -284,7 +94,7 @@ export interface SearchNutritionResponse {
 /**
  * Look up a food in USDA + Open Food Facts. Returns top normalized matches
  * (per-100g basis). Used as a tier-3 lookup inside analyzeFoodEntry before
- * the model-estimate fallback. Resolves to an empty result on any failure rather
+ * the Gemini fallback. Resolves to an empty result on any failure rather
  * than throwing — the caller treats failure as "no nutrition match" and
  * proceeds to the AI tier.
  */
@@ -402,7 +212,7 @@ export const sendChatMessage = async (
     parts: [{ text: safeMessage }],
   });
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'sendChatMessage',
     contents,
     config: {
@@ -428,7 +238,7 @@ export const generateMealSuggestion = async (
 ) => {
   const prompt = `Create a single specific meal recipe for these macros: ${remainingMacros.calories}kcal, ${remainingMacros.protein}g protein. Time: ${sanitize(time, 100)}. Vibe: ${sanitize(vibe, 200)}.`;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'generateMealSuggestion',
     contents: prompt,
     config: {
@@ -646,7 +456,7 @@ REQUIREMENTS:
 11. ${goal?.toLowerCase().includes('bulk') ? 'BULK: bias toward 8-12 rep hypertrophy range, longer rest, more isolation work in the back half of the week.' : goal?.toLowerCase().includes('weight loss') || goal?.toLowerCase().includes('lean') ? 'CUT/LEAN: keep working sets to 3-4, add short conditioning finishers to 4 of the training days, avoid grinding singles.' : goal?.toLowerCase().includes('recomp') ? 'RECOMP: heavy compound work early week (4-6 reps), volume isolations late week, one conditioning day.' : goal?.toLowerCase().includes('performance') ? 'PERFORMANCE: prioritize power output (3-5 reps on main lifts) and movement quality. Include sport-specific carry-over.' : 'GENERAL: balanced mix of strength, hypertrophy, and conditioning across the week.'}
 `;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'generateSmartSplit',
     contents: prompt,
     config: {
@@ -948,9 +758,9 @@ export const detectIndieRestaurantIntent = (text: string): boolean => {
 // macros for whole foods and branded packaged products before it falls back
 // to estimation.
 //
-// `softenSearchBlock`: when true, the AI is told it may adjust away from the
-// USDA generics for restaurant-specific items (restaurant preparations run
-// higher). Set when indie restaurant intent is detected upstream.
+// `softenSearchBlock`: when true, the instruction allowing the AI to prefer
+// Google Search for restaurant-specific items overrides USDA for those items.
+// Set when indie restaurant intent is detected upstream.
 const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = false): string => {
   if (matches.length === 0) return '';
   const lines = matches.map(m => {
@@ -961,12 +771,11 @@ const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = f
   }).join('\n');
 
   const searchPolicy = softenSearchBlock
-    ? `For RESTAURANT-NAMED items in the user's query, treat these USDA
-values as a floor and adjust upward for restaurant preparation (added oil,
-butter, sauces, larger portions) per the Independent Restaurant block above.
-For generic ingredients or sides not tied to the restaurant ("french fries",
-"ketchup"), use these values as-is.`
-    : `Use these values as-is for the foods they cover — do not re-estimate them.`;
+    ? `For RESTAURANT-NAMED items in the user's query, prefer Google Search
+results (per the Independent Restaurant block above) — USDA generics are
+wrong for a named restaurant's preparation. For generic ingredients or
+sides not tied to the restaurant ("french fries", "ketchup"), use USDA.`
+    : `Do NOT use Google Search for foods covered here.`;
 
   return `
 
@@ -1014,7 +823,7 @@ const buildFoodAnalysisPrompt = (
   // chain. Examples: "Ted Peters salmon dinner", "Joe's pizza", "Mama's
   // lasagna", "at Frenchy's", "from Versailles Cafe". When the user names a
   // specific place, generic USDA matches ("salmon" = 175 cal) are wrong — we
-  // need an estimate tuned for that restaurant's actual preparation.
+  // need Google Search to find that restaurant's actual preparation.
   const hasIndieRestaurantIntent =
     matched.length === 0 && detectIndieRestaurantIntent(textDescription);
 
@@ -1027,19 +836,16 @@ const buildFoodAnalysisPrompt = (
 
 INDEPENDENT RESTAURANT DETECTED in the user's text — they named a specific
 non-chain restaurant (apostrophe-S name, "at [Place]", "from [Place]", or
-similar). You do NOT have web access, so do not claim to have looked the
-restaurant up. For ANY items associated with that restaurant:
-1. Estimate from what you know about how restaurants of that type and
-   cuisine prepare that dish — restaurant portions, cooking fats, sauces,
-   and sides run materially higher than home cooking.
-2. Treat injected USDA/Open Food Facts numbers as a floor, not the answer:
-   a generic "salmon" or "potato salad" entry understates a restaurant
-   preparation. Adjust upward for oil, butter, dressing, and plate size.
-3. Set "source": "visual_estimate" (or "text_only" with no photo) and
-   "confidence": "low" — you are estimating, not reading verified data.
-4. In "tip", name the restaurant, say the numbers are an estimate for a
-   restaurant-style portion, and invite the user to correct the values if
-   they know the real ones.
+similar). For ANY items associated with that restaurant:
+1. USE the Google Search tool FIRST to find the restaurant's nutrition data,
+   menu photos, recipes, or reviews that describe portion sizes.
+2. Even if USDA matches were injected below, prefer search-derived numbers
+   for the restaurant-specific item — USDA's generic "salmon" or "potato
+   salad" is wrong for a named restaurant's preparation.
+3. Set "source": "restaurant_db" and "confidence": "medium" when search finds
+   the restaurant's data. Set "low" if you can only find similar dishes
+   from comparable restaurants.
+4. In "tip", state the restaurant + which search source you used.
 ` : '';
 
   // Shared output schema description — same shape regardless of mode.
@@ -1144,12 +950,10 @@ STEP 2 — FOR EACH ITEM you return:
   rice → "🍚", chicken → "🍗").
 
 - If the user mentions a SPECIFIC RESTAURANT or BRAND (e.g. "Chipotle",
-  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), first use any
-  VERIFIED MENU DATA supplied above — those numbers are authoritative, set
-  "source": "restaurant_db". If the chain is not in the supplied data, you
-  have no web access: recall the chain's published values if you know them
-  confidently, otherwise estimate a restaurant-style portion and set
-  "source": "visual_estimate" with "confidence": "low".
+  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), USE the
+  Google Search tool to find that restaurant's published nutritional
+  data for EACH menu item first, BEFORE estimating visually. Set
+  "source": "restaurant_db" on each item you sourced this way.
 - For homemade or generic items, set "source": "visual_estimate".
 - "confidence": "high" only for restaurant-database matches; "medium"
   for clear visual estimates; "low" for obscured or ambiguous items.
@@ -1298,7 +1102,7 @@ export const analyzeFoodEntry = async (
   // Keep googleSearch enabled for restaurant lookup. We continue to parse
   // plain text JSON (cleanText) because responseSchema cannot be combined
   // with the search tool in the current API.
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'analyzeFoodEntry',
     contents: { parts },
     config: {
@@ -1362,7 +1166,7 @@ export const analyzeFoodEntry = async (
 export const parseInsightAction = async (text: string) => {
   const prompt = `Extract type (FOOD/EXERCISE/NONE) from: "${sanitize(text, 500)}"`;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'parseInsightAction',
     contents: prompt,
     config: {
@@ -1441,7 +1245,7 @@ export const analyzeDailyLog = async (
   }
   `;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'analyzeDailyLog',
     contents: prompt,
     config: {
@@ -1523,7 +1327,7 @@ Also write a SHORT 1-sentence message (max 20 words) explaining WHY these are th
 
   const systemInstruction = `You are an expert sports nutritionist and fitness coach. A user has completed their assessment. Calculate their personalized nutrition protocol and provide it in the exact JSON format requested. Be precise with numbers. Show your reasoning briefly.`;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'generateOnboardingMacros',
     contents: prompt,
     config: {
@@ -1597,7 +1401,7 @@ export const generateVisionRoadmap = async (profile: any) => {
   Create 3 distinct steps/milestones to get from ${profile.weight}lbs to their goal.
   For each step, provide a list of 3 concrete "actionItems" (short, checkbox-style tasks).`;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'generateVisionRoadmap',
     contents: prompt,
     config: {
@@ -1733,7 +1537,7 @@ ${dayLines}
   }
   `;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: "analyzeWeeklyCalories",
     contents: prompt,
     config: {
@@ -1839,7 +1643,7 @@ export const generateFuelIdeas = async (
   priority to close. "intro" is 1-2 sentences, conversational, no fluff.
   `;
 
-  const response = await callAIProxy({
+  const response = await callGeminiProxy({
     feature: 'fuelCoachIdeas',
     contents: prompt,
     config: {

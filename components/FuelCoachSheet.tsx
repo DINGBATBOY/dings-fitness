@@ -27,7 +27,7 @@ import {
   type FuelCoachMode,
   type FuelIdea,
   type FuelIdeasResult,
-} from '../services/aiService';
+} from '../services/geminiService';
 
 const C = {
   bg: '#161210',

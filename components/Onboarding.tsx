@@ -24,7 +24,7 @@ import {
   getBMICategory,
   type BMICategory,
 } from '../constants';
-import { generateOnboardingMacros } from '../services/aiService';
+import { generateOnboardingMacros } from '../services/geminiService';
 import {
   AlertTriangle,
   Heart,
