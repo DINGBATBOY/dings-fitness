@@ -333,6 +333,14 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showFuelCoach, setShowFuelCoach] = useState(false);
+
+  // Single entry point for logging food. The FAB and the dashboard tile both
+  // call this so there is exactly one destination — the unified add-food
+  // sheet, which handles typing, photos, and your usuals in one screen.
+  const openAddFood = useCallback(() => {
+    setAddFoodMode('ai');
+    setShowAddFood(true);
+  }, []);
   // Direction of the page-turn transition. Positive when moving to a
   // later tab (forward), negative when going back. Recomputed inside the
   // tab-switch handler below. Default forward feels right on first paint.
@@ -1809,7 +1817,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       {!showAddFood && activeTab !== 'coach' && (
           <button
             data-tour="add-food-fab"
-            onClick={() => setShowAddFood(true)}
+            onClick={openAddFood}
             className="fixed bottom-28 right-6 w-14 h-14 bg-[#d97757] rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.4)] z-[60] flex items-center justify-center text-2xl text-white hover:scale-110 transition-transform"
           >
               +
@@ -2328,8 +2336,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           dailyLogs={appState.dailyLogs || []}
           weighIns={appState.weighIns || []}
           onLogWeight={(weight) => recordWeight(weight)}
-          onQuickAddFood={() => { setAddFoodMode('manual'); setShowAddFood(true); }}
-          onScanFood={() => { setAddFoodMode('ai'); setShowAddFood(true); }}
+          onQuickAddFood={openAddFood}
           onOpenWorkouts={() => switchTab('workouts')}
           onLogWater={() => updateWater(8)}
           onOpenReflect={() => switchTab('reflect')}
@@ -2397,10 +2404,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               }));
               triggerToast('Updated');
             }}
-            onAddFood={() => {
-                setAddFoodMode('manual');
-                setShowAddFood(true);
-            }}
+            onAddFood={openAddFood}
           />
         </div>
       )}

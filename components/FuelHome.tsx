@@ -10,7 +10,7 @@
  *   1. Compact date/streak strip
  *   2. Hero: "Morning, Ding 👋" + fire coach sub-line
  *   3. Ring card: ¾-arc CALORIES LEFT hero + clean tinted macro bars
- *   4. Quick actions 2×2: Log Food / Scan Meal / Start Workout / Weigh In
+ *   4. Quick actions 2×2: Log Food / Start Workout / Weigh In / Log Water
  *   5. Weight Trend + Hydration cards side by side
  *   6. Adaptive TDEE banner (only when actionable)
  *   7. Hidatsa credit footer
@@ -20,7 +20,7 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Feather, Droplets, Dumbbell, Plus, Camera, Scale, ChevronRight,
+  Feather, Droplets, Dumbbell, Plus, Scale, ChevronRight,
   TrendingDown, TrendingUp, Minus, X, Check, Share2, UtensilsCrossed,
 } from 'lucide-react';
 import { Share } from '@capacitor/share';
@@ -64,8 +64,6 @@ interface FuelHomeProps {
   weighIns: WeightEntry[];
   onLogWeight: (weight: number) => boolean;
   onQuickAddFood: () => void;
-  /** Opens the AddFood sheet directly in AI/scan mode. */
-  onScanFood: () => void;
   /** Switches the app tab to the Workouts view. */
   onOpenWorkouts: () => void;
   /** Adds a fixed increment of water (default caller adds 8oz). */
@@ -97,7 +95,6 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   weighIns,
   onLogWeight,
   onQuickAddFood,
-  onScanFood,
   onOpenWorkouts,
   onLogWater,
   onOpenReflect: _onOpenReflect,
@@ -293,18 +290,16 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
       </div>
 
       {/* ─────── Quick actions 2×2 ─────── */}
+      {/* One food entry point only. The add-food sheet handles typing AND
+          photos in a single screen, so a separate "Scan Meal" tile would be
+          a second door to the same room. The global + button in the corner
+          is the shortcut to this same sheet from any tab. */}
       <div className="grid grid-cols-2 gap-3 mt-4">
         <QuickActionTile
           label="Log Food"
           icon={<Plus className="w-5 h-5" strokeWidth={2.4} />}
           iconBg={C.fire}
           onClick={onQuickAddFood}
-        />
-        <QuickActionTile
-          label="Scan Meal"
-          icon={<Camera className="w-5 h-5" strokeWidth={2} />}
-          iconBg={C.sky}
-          onClick={onScanFood}
         />
         <QuickActionTile
           label="Start Workout"
@@ -317,6 +312,12 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           icon={<Scale className="w-5 h-5" strokeWidth={2} />}
           iconBg={C.purple}
           onClick={openWeightCheckIn}
+        />
+        <QuickActionTile
+          label="Log Water"
+          icon={<Droplets className="w-5 h-5" strokeWidth={2} />}
+          iconBg={C.sky}
+          onClick={onLogWater}
         />
       </div>
 
