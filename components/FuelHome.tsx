@@ -9,7 +9,7 @@
  * Layout (top → bottom):
  *   1. Compact date/streak strip
  *   2. Hero: "Morning, Ding 👋" + fire coach sub-line
- *   3. Ring card: ¾-arc CALORIES LEFT hero + clean tinted macro bars
+ *   3. Ring card: ¾-arc CALORIES LEFT hero + macro bars + movement row
  *   4. Quick actions 2×2: Log Food / Start Workout / Weigh In / Log Water
  *   5. Weight Trend + Hydration cards side by side
  *   6. Adaptive TDEE banner (only when actionable)
@@ -20,7 +20,7 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  Feather, Droplets, Dumbbell, Plus, Scale, ChevronRight,
+  Feather, Droplets, Dumbbell, Plus, Scale, ChevronRight, Flame,
   TrendingDown, TrendingUp, Minus, X, Check, Share2, UtensilsCrossed,
 } from 'lucide-react';
 import { Share } from '@capacitor/share';
@@ -79,13 +79,15 @@ interface FuelHomeProps {
   onAcceptAdaptiveSuggestion?: () => void;
   /** Opens the Fuel Coach sheet (meal ideas for remaining macros). */
   onOpenFuelCoach?: () => void;
+  /** Opens the log-activity modal (workout types or a manual kcal entry). */
+  onLogActivity?: () => void;
 }
 
 export const FuelHome: React.FC<FuelHomeProps> = ({
   profile,
   targets,
   consumed,
-  activityBurn: _activityBurn,     // no longer surfaced on Home
+  activityBurn,
   waterIntake,
   workoutCompletedToday: _workoutCompletedToday,
   streak,
@@ -102,6 +104,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   adaptiveSuggestion,
   onAcceptAdaptiveSuggestion,
   onOpenFuelCoach,
+  onLogActivity,
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
   const [showWeightCheckIn, setShowWeightCheckIn] = useState(false);
@@ -287,6 +290,39 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           <MacroRow label="Carbs"   current={consumed.carbs}   target={targets.carbs}   color={C.carbColor} />
           <MacroRow label="Fat"     current={consumed.fat}     target={targets.fat}     color={C.fatColor}  />
         </div>
+
+        {/* MOVEMENT — burned calories add back to the budget shown in the
+            ring above, so it lives in the same card as that number. */}
+        {onLogActivity && (
+          <button
+            onClick={onLogActivity}
+            className="w-full mt-5 pt-4 flex items-center gap-3 text-left"
+            style={{ borderTop: `1px solid ${C.border}` }}
+          >
+            <div
+              className="w-9 h-9 rounded-full shrink-0 flex items-center justify-center"
+              style={{ background: `${C.ochre}1f`, color: C.ochre }}
+            >
+              <Flame className="w-4 h-4" strokeWidth={1.8} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>
+                Movement
+              </div>
+              <div className="text-[12px] mt-0.5 leading-snug" style={{ color: activityBurn > 0 ? C.ink : C.inkMid }}>
+                {activityBurn > 0
+                  ? <><span className="font-bold tabular-nums" style={{ color: C.ochre }}>+{Math.round(activityBurn).toLocaleString()} kcal</span> earned back today</>
+                  : 'Log a workout or activity to earn calories back'}
+              </div>
+            </div>
+            <span
+              className="shrink-0 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest"
+              style={{ background: `${C.ochre}1f`, color: C.ochre, border: `1px solid ${C.ochre}44` }}
+            >
+              + Log
+            </span>
+          </button>
+        )}
       </div>
 
       {/* ─────── Quick actions 2×2 ─────── */}

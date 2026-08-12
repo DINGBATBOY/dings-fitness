@@ -2337,6 +2337,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           weighIns={appState.weighIns || []}
           onLogWeight={(weight) => recordWeight(weight)}
           onQuickAddFood={openAddFood}
+          onLogActivity={() => {
+            // Reset to a sensible default each open so a prior manual entry
+            // doesn't linger in the form.
+            setActivityModalForm({ kind: 'running', intensity: 'moderate', minutes: 30, manualKcal: '' });
+            setShowActivityModal(true);
+          }}
           onOpenWorkouts={() => switchTab('workouts')}
           onLogWater={() => updateWater(8)}
           onOpenReflect={() => switchTab('reflect')}
