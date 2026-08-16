@@ -110,6 +110,19 @@ automatically instead of being discovered by a user.
 - Crash-free rate < 99% → hotfix before any feature work
 - Any 4xx/5xx on the privacy/terms URLs → fix same day (listing compliance)
 
+## Dated deadlines (check these off as they're handled)
+
+| Deadline | What | Consequence if missed |
+|---|---|---|
+| **Sep 14, 2026** (general policy) / **Oct 12, 2026** (per Ding's account email, Aug 12) | Gemini API billing must move from **postpay to prepay** in Google AI Studio. Top up credits; calls draw against the balance. | AI calls start failing — food scan, coach, Fuel Coach all break. Do it early; it takes minutes. |
+| **Oct 30, 2026** | Cloud Functions **Node 20 runtime decommissioned**. `engines.node` is already `22` in functions/package.json — but that only counts once a deploy actually ships it. | Deploys refused. |
+| Annual | Apple Developer Program renewal ($99/yr) | App removed from sale. |
+| Annual | dings.fitness domain renewal | Site + all App Store listing URLs go dark. |
+
+Note the two Gemini dates disagree: Google's public policy says Sept 14, the
+account email says Oct 12. Treat **Sept 14 as the real deadline** and migrate
+well before it — per-account extensions are not something to bet the app on.
+
 ## Escalation contacts
 
 - Apple Developer Support: https://developer.apple.com/contact/ (review
