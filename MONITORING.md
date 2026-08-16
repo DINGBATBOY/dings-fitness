@@ -75,12 +75,30 @@ Still yours to click occasionally:
   - Capacitor major versions (currently v6).
   - Apple minimum-OS mandates (already on 15.0; Spring 2027 rule satisfied).
 
+## Web app staleness (the trap that already bit once)
+
+Three deploy targets drift apart easily. Codemagic only ships **iOS**;
+`--only functions` only ships the **backend**. The **web app** at
+dings.fitness/app is Firebase Hosting served from your local `dist/` — it
+stays frozen until you explicitly rebuild and deploy it:
+
+```
+npm run build          # MUST rebuild — hosting uploads whatever is in dist/
+firebase deploy --only hosting
+```
+
+Every build stamps `dist/version.json` with the git commit it came from,
+served at https://dings.fitness/version.json. The weekly ops agent fetches
+it and compares against the repo's HEAD, so a stale web app now gets caught
+automatically instead of being discovered by a user.
+
 ## Release-day checklist (every future update)
 
 1. `git push origin main` → Codemagic builds automatically
 2. `firebase deploy --only functions` **if** anything in `functions/` changed
-3. `firebase deploy --only hosting,firestore:rules,storage` **if** the web
-   app, landing page, or rules changed
+3. `npm run build && firebase deploy --only hosting` **whenever app code
+   changed** — this is what keeps the web app at parity with iOS. Add
+   `,firestore:rules,storage` if rules changed too.
 4. TestFlight pass on the new build before submitting the version
 5. App Store Connect → new version → attach build → Submit
 
