@@ -16,7 +16,8 @@
  *   firebase deploy --only functions
  */
 
-import { onCall, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError, CallableRequest } from "firebase-functions/v2/https";
+import { randomBytes } from "crypto";
 import { defineSecret } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { initializeApp } from "firebase-admin/app";
@@ -779,8 +780,6 @@ async function fetchFromOpenFoodFacts(query: string, limit: number): Promise<Nut
 //     with "Authorization: Bearer <key>". Read-only, returns a compact
 //     macro snapshot. No writes, no PII beyond first-name-free numbers.
 
-import { onRequest } from "firebase-functions/v2/https";
-import { randomBytes } from "crypto";
 
 export const createGptKey = onCall(async (req: CallableRequest): Promise<{ key: string }> => {
   const uid = req.auth?.uid;
