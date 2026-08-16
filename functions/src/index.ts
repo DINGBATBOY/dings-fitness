@@ -390,11 +390,15 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
       }));
 
     // Users at today's quota limit right now.
-    const quotaSnap = await db
-      .collection("quotas")
-      .where("day", "==", today)
-      .where("count", ">=", DAILY_LIMIT_PER_USER)
-      .get();
+    // NOTE: equality-only query on purpose. Adding `.where("count", ">=", …)`
+    // would combine equality + range and require a composite index; this
+    // collection holds one small doc per user per day, so filtering in
+    // memory is cheaper than maintaining an index.
+    const quotaSnap = await db.collection("quotas").where("day", "==", today).get();
+    let usersAtLimitToday = 0;
+    quotaSnap.forEach((doc) => {
+      if ((Number(doc.get("count")) || 0) >= DAILY_LIMIT_PER_USER) usersAtLimitToday += 1;
+    });
 
     // Error counters, last 7 days.
     const countersSnap = await db
@@ -430,14 +434,20 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
       },
       quota: {
         dailyLimitPerUser: DAILY_LIMIT_PER_USER,
-        usersAtLimitToday: quotaSnap.size,
+        usersAtLimitToday,
         exhaustedHits7d: quotaExhaustedHits,
       },
       errors: { upstreamErrors7d: upstreamErrors },
     });
   } catch (err) {
     console.error("[opsReport] failed", err);
-    res.status(500).json({ error: "Internal error" });
+    // Only reachable after the admin key check passed, so returning the real
+    // message is safe here and makes failures diagnosable without digging
+    // through Cloud Logging.
+    res.status(500).json({
+      error: "Report generation failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 });
 
