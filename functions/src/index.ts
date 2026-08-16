@@ -114,7 +114,14 @@ export const callGemini = onCall(
       : "unknown";
 
     // ----- 3. Rate limit (atomic) -----
-    await consumeQuota(uid);
+    try {
+      await consumeQuota(uid);
+    } catch (err) {
+      // Count exhaustion hits so the ops report can spot widespread limiting
+      // (fine when isolated, a signal when it's everyone). Best-effort.
+      bumpOpsCounter("quotaExhaustedHits").catch(() => undefined);
+      throw err;
+    }
 
     // ----- 4. Forward to Gemini -----
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY.value() });
@@ -133,6 +140,8 @@ export const callGemini = onCall(
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Gemini call failed";
       console.error("[callGemini] upstream error", uid, msg);
+      // Best-effort daily error counter for the ops report.
+      bumpOpsCounter("upstreamErrors").catch(() => undefined);
       throw new HttpsError("internal", "AI service error. Try again.");
     }
     const durationMs = Date.now() - startTime;
@@ -287,6 +296,149 @@ interface GeminiRequest {
   /** Optional feature label for per-feature attribution in the admin dashboard. */
   feature?: string;
 }
+
+// ============================================================================
+//  Ops counters + opsReport
+// ============================================================================
+/** Increment a named counter on today's opsCounters doc. Server-only data. */
+async function bumpOpsCounter(field: string): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10);
+  await getFirestore()
+    .collection("opsCounters")
+    .doc(day)
+    .set({ [field]: FieldValue.increment(1), day }, { merge: true });
+}
+
+/**
+ * opsReport — admin-only weekly health snapshot for the ops agent.
+ *
+ * Aggregates what the in-app admin dashboard shows, as JSON:
+ * 7-day AI spend/calls (total, per-feature, top spenders), today's
+ * quota-limited users, error counters, and total user count.
+ *
+ * Auth: the same personal bearer key as gptMacros (gptKeys/{key} -> uid),
+ * but the resolved uid must be on the admin allowlist. Accepts the key as
+ * `?key=` (the ops agent's fetch tool cannot set headers) or a Bearer
+ * header. HTTPS-only; the key is revocable by minting a new one in-app.
+ */
+const OPS_ADMIN_UIDS = new Set([
+  "bYGcwJKlN2b4myugbVGNv8e4syO2", // keep in sync with firestore.rules isAdmin()
+]);
+
+export const opsReport = onRequest({ cors: true }, async (req, res) => {
+  try {
+    const header = String(req.headers.authorization || "");
+    const key =
+      (typeof req.query.key === "string" && req.query.key) ||
+      (header.startsWith("Bearer ") ? header.slice(7).trim() : "");
+    if (!key) {
+      res.status(401).json({ error: "Missing key" });
+      return;
+    }
+
+    const db = getFirestore();
+    const keyDoc = await db.collection("gptKeys").doc(key).get();
+    const uid = keyDoc.exists ? (keyDoc.get("uid") as string) : null;
+    if (!uid || !OPS_ADMIN_UIDS.has(uid)) {
+      res.status(403).json({ error: "Not authorized" });
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const d7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    // 7-day AI usage from the tokenUsage audit trail.
+    const usageSnap = await db
+      .collection("tokenUsage")
+      .where("day", ">=", d7)
+      .get();
+
+    let totalCost = 0;
+    let totalCalls = 0;
+    let totalTokens = 0;
+    const byFeature: Record<string, { calls: number; costUsd: number }> = {};
+    const byUser: Record<string, { costUsd: number; calls: number; email?: string }> = {};
+    usageSnap.forEach((doc) => {
+      const d = doc.data() as Record<string, unknown>;
+      const cost = Number(d.costUsd) || 0;
+      totalCost += cost;
+      totalCalls += 1;
+      totalTokens += Number(d.totalTokens) || 0;
+      const feature = String(d.feature || "unknown");
+      byFeature[feature] = {
+        calls: (byFeature[feature]?.calls || 0) + 1,
+        costUsd: (byFeature[feature]?.costUsd || 0) + cost,
+      };
+      const u = String(d.uid || "unknown");
+      byUser[u] = {
+        calls: (byUser[u]?.calls || 0) + 1,
+        costUsd: (byUser[u]?.costUsd || 0) + cost,
+        email: typeof d.userEmail === "string" ? d.userEmail : byUser[u]?.email,
+      };
+    });
+    const topSpenders = Object.entries(byUser)
+      .sort((a, b) => b[1].costUsd - a[1].costUsd)
+      .slice(0, 5)
+      .map(([id, v]) => ({
+        uid: id.slice(0, 8) + "…", // partial uid — enough to correlate, not to target
+        email: v.email ?? null,
+        calls: v.calls,
+        costUsd: Number(v.costUsd.toFixed(4)),
+      }));
+
+    // Users at today's quota limit right now.
+    const quotaSnap = await db
+      .collection("quotas")
+      .where("day", "==", today)
+      .where("count", ">=", DAILY_LIMIT_PER_USER)
+      .get();
+
+    // Error counters, last 7 days.
+    const countersSnap = await db
+      .collection("opsCounters")
+      .where("day", ">=", d7)
+      .get();
+    let upstreamErrors = 0;
+    let quotaExhaustedHits = 0;
+    countersSnap.forEach((doc) => {
+      upstreamErrors += Number(doc.get("upstreamErrors")) || 0;
+      quotaExhaustedHits += Number(doc.get("quotaExhaustedHits")) || 0;
+    });
+
+    // Total registered users (Firestore user docs).
+    const usersCount = (await db.collection("users").count().get()).data().count;
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      windowDays: 7,
+      users: { total: usersCount },
+      ai: {
+        calls: totalCalls,
+        totalTokens,
+        costUsd: Number(totalCost.toFixed(4)),
+        avgCostPerDayUsd: Number((totalCost / 7).toFixed(4)),
+        byFeature: Object.fromEntries(
+          Object.entries(byFeature).map(([k, v]) => [
+            k,
+            { calls: v.calls, costUsd: Number(v.costUsd.toFixed(4)) },
+          ]),
+        ),
+        topSpenders,
+      },
+      quota: {
+        dailyLimitPerUser: DAILY_LIMIT_PER_USER,
+        usersAtLimitToday: quotaSnap.size,
+        exhaustedHits7d: quotaExhaustedHits,
+      },
+      errors: { upstreamErrors7d: upstreamErrors },
+    });
+  } catch (err) {
+    console.error("[opsReport] failed", err);
+    res.status(500).json({ error: "Internal error" });
+  }
+});
 
 // ============================================================================
 //  deleteAccount

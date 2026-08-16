@@ -34,7 +34,21 @@ uptime checks and reminds you of the rest.
 - **Support inbox** — support@dings.fitness. Apple reviewers and early users
   both land here. Reply within 24h.
 
-## Weekly (the ops agent reminds you)
+## Weekly (the ops agent runs most of this for you)
+
+The Monday agent pulls a JSON health snapshot from the `opsReport` Cloud
+Function (7-day AI spend, per-feature costs, top-spending users, quota
+exhaustion volume, upstream error counts, total users) and scans Gmail for
+Firebase billing alerts, Apple review-status emails, Codemagic build
+failures, and unanswered support@ mail. One-time setup:
+
+1. Deploy functions (`firebase deploy --only functions`)
+2. In the app: Profile → "Fuel Coach GPT key" (same key authorizes opsReport)
+3. Paste the key into a file named `.ops-key` in this folder (gitignored)
+4. Set the actual Firebase budget alert (console → Usage and billing →
+   Budgets) — the agent can only see the alert emails, not create them
+
+Still yours to click occasionally:
 
 - **Website up**: dings.fitness, /privacy/, /terms/, /disclaimer/ all return
   200. These URLs are printed in the App Store listing — a dead privacy page
