@@ -92,6 +92,27 @@ served at https://dings.fitness/version.json. The weekly ops agent fetches
 it and compares against the repo's HEAD, so a stale web app now gets caught
 automatically instead of being discovered by a user.
 
+## Two layers serve the web app — check both
+
+`dings.fitness` sits behind **Cloudflare**, which caches independently of
+Firebase. A successful deploy can be invisible to users for hours.
+
+| URL | What it tells you |
+|---|---|
+| `https://dings-fitness.web.app/version.json` | **Firebase origin** — did the deploy land? |
+| `https://dings.fitness/version.json` | **What users actually get** — has the CDN caught up? |
+
+- origin new + public old → deploy worked, **purge Cloudflare**
+  (Caching → Configuration → Purge Everything)
+- origin old → the deploy genuinely didn't land; re-run it and read the output
+
+Cloudflare ignores query strings in its cache key, so `?bust=123` does NOT
+defeat it. Comparing the two hostnames is the only reliable test.
+
+A Cache Rule set to **Bypass cache** for `/version.json`, `/`, `/index.html`,
+`/landing.html` and `/app*` prevents recurrence. Hashed JS/CSS stay cached —
+their filenames change per build, so stale copies simply go unused.
+
 ## Release-day checklist (every future update)
 
 1. `git push origin main` → Codemagic builds automatically
