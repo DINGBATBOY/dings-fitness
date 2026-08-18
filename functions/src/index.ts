@@ -415,6 +415,34 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
     // Total registered users (Firestore user docs).
     const usersCount = (await db.collection("users").count().get()).data().count;
 
+    // COST EARLY-WARNING: user-document size.
+    //
+    // Firestore egress = document size x how often snapshots fire. In Aug 2026
+    // an oversized user doc (raw base64 profile picture + whole-state writes)
+    // produced ~200GB of egress in two days. Document size is the leading
+    // indicator, so sample it here and let the ops agent alarm on growth
+    // BEFORE it shows up on a bill. Sampled (not scanned) so this check can't
+    // itself become the expensive thing.
+    const SAMPLE = 25;
+    const sampleSnap = await db.collection("users").limit(SAMPLE).get();
+    let totalBytes = 0;
+    let maxBytes = 0;
+    let biggestDocUid: string | null = null;
+    let docsWithEmbeddedImages = 0;
+    sampleSnap.forEach((doc) => {
+      const raw = JSON.stringify(doc.data() ?? {});
+      const bytes = Buffer.byteLength(raw, "utf8");
+      totalBytes += bytes;
+      if (bytes > maxBytes) {
+        maxBytes = bytes;
+        biggestDocUid = doc.id.slice(0, 8) + "…";
+      }
+      // A data: URI in the doc means an image is embedded rather than linked.
+      if (raw.includes("data:image/")) docsWithEmbeddedImages += 1;
+    });
+    const sampled = sampleSnap.size;
+    const avgBytes = sampled > 0 ? Math.round(totalBytes / sampled) : 0;
+
     const payload = {
       generatedAt: new Date().toISOString(),
       windowDays: 7,
@@ -438,6 +466,19 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
         exhaustedHits7d: quotaExhaustedHits,
       },
       errors: { upstreamErrors7d: upstreamErrors },
+      // Cost risk signals — see the sampling note above.
+      storage: {
+        sampledUsers: sampled,
+        avgUserDocKb: Number((avgBytes / 1024).toFixed(1)),
+        maxUserDocKb: Number((maxBytes / 1024).toFixed(1)),
+        biggestDocUid,
+        docsWithEmbeddedImages,
+        // Rough guide: >100KB average means snapshot traffic is getting
+        // expensive; >500KB on any single doc is the pattern that caused
+        // the Aug 2026 egress incident.
+        avgWarnKb: 100,
+        maxWarnKb: 500,
+      },
     };
 
     // `?format=html` renders the same numbers as a plain HTML page.
@@ -478,6 +519,13 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
 </ul>
 <h2>Errors</h2>
 <p>Upstream AI errors (7d): ${payload.errors.upstreamErrors7d}</p>
+<h2>Cost risk — Firestore document size</h2>
+<ul>
+<li>Sampled users: ${payload.storage.sampledUsers}</li>
+<li>Average user document: ${payload.storage.avgUserDocKb} KB (warn above ${payload.storage.avgWarnKb} KB)</li>
+<li>Largest user document: ${payload.storage.maxUserDocKb} KB${payload.storage.biggestDocUid ? ` (${esc(payload.storage.biggestDocUid)})` : ""} (warn above ${payload.storage.maxWarnKb} KB)</li>
+<li>Documents with embedded images: ${payload.storage.docsWithEmbeddedImages}</li>
+</ul>
 </body></html>`);
       return;
     }
