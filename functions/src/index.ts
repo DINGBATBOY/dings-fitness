@@ -415,7 +415,7 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
     // Total registered users (Firestore user docs).
     const usersCount = (await db.collection("users").count().get()).data().count;
 
-    res.json({
+    const payload = {
       generatedAt: new Date().toISOString(),
       windowDays: 7,
       users: { total: usersCount },
@@ -438,7 +438,51 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
         exhaustedHits7d: quotaExhaustedHits,
       },
       errors: { upstreamErrors7d: upstreamErrors },
-    });
+    };
+
+    // `?format=html` renders the same numbers as a plain HTML page.
+    // The weekly ops agent fetches with a page-oriented tool that cannot
+    // surface raw JSON bodies, so HTML is what actually reaches it. JSON
+    // stays the default for browsers, scripts, and anything programmatic.
+    if (req.query.format === "html") {
+      const esc = (s: unknown) =>
+        String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
+      const featureRows = Object.entries(payload.ai.byFeature)
+        .sort((a, b) => b[1].costUsd - a[1].costUsd)
+        .map(([k, v]) => `<li>${esc(k)}: ${v.calls} calls, $${v.costUsd.toFixed(4)}</li>`)
+        .join("");
+      const spenderRows = payload.ai.topSpenders
+        .map((s) => `<li>${esc(s.email ?? s.uid)}: ${s.calls} calls, $${s.costUsd.toFixed(4)}</li>`)
+        .join("");
+      res.set("Content-Type", "text/html; charset=utf-8");
+      res.send(`<!doctype html><html><head><meta charset="utf-8">
+<title>Ding ops report</title></head><body>
+<h1>Ding! Fitness — ops report</h1>
+<p>Generated ${esc(payload.generatedAt)} · window ${payload.windowDays} days</p>
+<h2>Users</h2>
+<p>Total registered users: ${payload.users.total}</p>
+<h2>AI usage (7 days)</h2>
+<ul>
+<li>Calls: ${payload.ai.calls}</li>
+<li>Total tokens: ${payload.ai.totalTokens}</li>
+<li>Cost: $${payload.ai.costUsd.toFixed(4)}</li>
+<li>Average cost per day: $${payload.ai.avgCostPerDayUsd.toFixed(4)}</li>
+</ul>
+<h3>By feature</h3><ul>${featureRows || "<li>none</li>"}</ul>
+<h3>Top spenders</h3><ul>${spenderRows || "<li>none</li>"}</ul>
+<h2>Quota</h2>
+<ul>
+<li>Daily limit per user: ${payload.quota.dailyLimitPerUser}</li>
+<li>Users at limit today: ${payload.quota.usersAtLimitToday}</li>
+<li>Quota-exhausted hits (7d): ${payload.quota.exhaustedHits7d}</li>
+</ul>
+<h2>Errors</h2>
+<p>Upstream AI errors (7d): ${payload.errors.upstreamErrors7d}</p>
+</body></html>`);
+      return;
+    }
+
+    res.json(payload);
   } catch (err) {
     console.error("[opsReport] failed", err);
     // Only reachable after the admin key check passed, so returning the real
