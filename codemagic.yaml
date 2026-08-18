@@ -112,8 +112,27 @@ workflows:
 
       - name: Bump iOS build number
         script: |
+          # Build numbers MUST increase monotonically. App Store Connect
+          # treats the highest CFBundleVersion as the newest build, so a
+          # number that ever goes DOWN makes an older upload look newer.
+          #
+          # This previously used `$(date +%s) % 100000`, which wraps every
+          # ~27.8 hours — builds made a day apart could come out in the wrong
+          # order. Now we ask App Store Connect for the highest build number
+          # already uploaded for this app and add one, which is monotonic by
+          # construction and immune to wraparound.
           cd ios/App
-          BUILD_NUMBER=$(($(date +%s) % 100000))
+          LATEST=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo "")
+          if [ -z "$LATEST" ] || ! echo "$LATEST" | grep -qE '^[0-9]+$'; then
+            # First upload, or the lookup failed — fall back to a plain epoch
+            # timestamp. Always increasing, just a larger number.
+            LATEST=$(date +%s)
+            BUILD_NUMBER=$LATEST
+            echo "Could not read latest build number; falling back to epoch: $BUILD_NUMBER"
+          else
+            BUILD_NUMBER=$((LATEST + 1))
+            echo "Latest build on App Store Connect: $LATEST -> using $BUILD_NUMBER"
+          fi
           agvtool new-version -all $BUILD_NUMBER
 
       # ─── Build & archive ────────────────────────────────────────────────
