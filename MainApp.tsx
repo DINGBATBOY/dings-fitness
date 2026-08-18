@@ -490,11 +490,37 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       }
   }, [user, appStateKey]);
 
-  // Wrappers for state updates that also sync
+  // Wrappers for state updates that also sync.
+  //
+  // COST-CRITICAL: this used to hand the ENTIRE AppState to saveToCloud on
+  // every change — every water tap re-uploaded the full document (profile,
+  // all daily logs, food history, meal history, the profile picture…), and
+  // the onSnapshot listener then re-downloaded all of it. That amplification
+  // is what drove the Firestore egress spike in Aug 2026.
+  //
+  // Now we diff against the previous state and send only the fields that
+  // actually changed. setDoc(..., { merge: true }) applies a partial update,
+  // so this is behaviourally identical but a fraction of the bytes.
   const handleUpdateAppState = (newState: AppState | ((prev: AppState) => AppState)) => {
       setAppState(prev => {
           const updated = typeof newState === 'function' ? newState(prev) : newState;
-          saveToCloud(updated); // Fire and forget
+
+          const changed: Partial<AppState> = {};
+          (Object.keys(updated) as Array<keyof AppState>).forEach(key => {
+              // Reference check first (cheap); fall back to a value compare so
+              // recreated-but-identical objects don't trigger a write.
+              if (prev[key] === updated[key]) return;
+              try {
+                  if (JSON.stringify(prev[key]) === JSON.stringify(updated[key])) return;
+              } catch {
+                  // Non-serializable — treat as changed and let it save.
+              }
+              (changed as Record<string, unknown>)[key as string] = updated[key];
+          });
+
+          if (Object.keys(changed).length > 0) {
+              saveToCloud(changed); // Fire and forget
+          }
           return updated;
       });
   };
@@ -570,7 +596,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         // Persist immediately. Fire-and-forget is OK because localStorage
         // is also written synchronously inside saveToCloud, so a closed tab
         // doesn't lose data — the next sign-in will push it.
-        saveToCloud(next);
+        // Send only the fields rollover actually changes — spreading `next`
+        // here would re-upload the entire document (see handleUpdateAppState).
+        saveToCloud({
+          dailyLogs: nextDailyLogs,
+          todayLog: [],
+          activityBurn: 0,
+          waterIntake: 0,
+          lastActiveDate: todayStr,
+        });
         return next;
       });
 
@@ -613,11 +647,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             if (docSnapshot.exists()) {
                 const data = docSnapshot.data() as Partial<AppState>;
 
-                // ONE-TIME CLEANUP: remove empty dailyLogs (no food, no water,
-                // no burn) and de-dupe by date. The old rollover code created
-                // empty placeholder entries every time the app opened without
-                // logging. Self-terminating — once dailyLogs is clean, future
-                // snapshots find no empties and skip the write.
+                // Sanitize dailyLogs for local use only: drop empty/duplicate
+                // entries left by old rollover code.
+                //
+                // DO NOT write back to Firestore from inside this listener.
+                // A write here re-triggers this same snapshot, and each
+                // iteration re-downloads the entire user document. That
+                // write/read cycle is what produced ~200GB of Firestore
+                // egress over two days in Aug 2026. Cleaning in memory is
+                // enough — the next real save persists the cleaned array.
                 const rawDailyLogs = Array.isArray(data.dailyLogs) ? data.dailyLogs : [];
                 const seenDates = new Set<string>();
                 const cleanedDailyLogs = rawDailyLogs.filter(log => {
@@ -631,12 +669,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                       (log.caloriesBurned || 0) > 0;
                     return hasActivity;
                 });
-                if (cleanedDailyLogs.length !== rawDailyLogs.length) {
-                    const removed = rawDailyLogs.length - cleanedDailyLogs.length;
-                    if (import.meta.env.DEV) console.log(`[Cleanup] Removed ${removed} empty/duplicate dailyLogs entries from storage.`);
-                    // Write back the cleaned version. saveToCloud merges, so
-                    // this replaces only the dailyLogs field. Fire and forget.
-                    saveToCloud({ dailyLogs: cleanedDailyLogs });
+                if (import.meta.env.DEV && cleanedDailyLogs.length !== rawDailyLogs.length) {
+                    console.log(`[Cleanup] Ignoring ${rawDailyLogs.length - cleanedDailyLogs.length} empty/duplicate dailyLogs entries (in memory only).`);
                 }
 
                 setAppState(prev => {
@@ -1731,17 +1765,40 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
+    // COST-CRITICAL: the profile picture is stored inside the user document,
+    // and every Firestore snapshot re-downloads that whole document. A raw
+    // phone photo as base64 is ~1MB, so it was being sent down the wire on
+    // every sync — that egress is what blew up the bill in Aug 2026.
+    // Downscale to 256px JPEG (~15-30KB) before storing: ~97% smaller,
+    // still sharp for a 96px avatar.
     const reader = new FileReader();
     reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      handleUpdateAppState(prev => ({
-        ...prev,
-        profile: {
-          ...prev.profile!,
-          profilePicture: base64
-        }
-      }));
+      const src = event.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 256;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        // If canvas is unavailable for any reason, fall back to the original
+        // rather than losing the upload entirely.
+        const compressed = ctx
+          ? (ctx.drawImage(img, 0, 0, w, h), canvas.toDataURL('image/jpeg', 0.8))
+          : src;
+        handleUpdateAppState(prev => ({
+          ...prev,
+          profile: { ...prev.profile!, profilePicture: compressed },
+        }));
+      };
+      img.onerror = () => {
+        triggerToast("Couldn't read that image. Try another one.");
+      };
+      img.src = src;
     };
     reader.readAsDataURL(file);
   };
