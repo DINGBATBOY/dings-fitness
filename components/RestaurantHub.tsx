@@ -2,7 +2,10 @@
  * Restaurant Hub — curated chain restaurant database with one-tap logging.
  *
  * Two views in one component:
- *   • List view   — restaurants grouped by health tier, with filter chips.
+ *   • List view   — restaurants grouped by cuisine (type of food), with
+ *                   filter chips. Deliberately NOT ranked by 'healthiness':
+ *                   that framing is subjective and sits badly in an app that
+ *                   takes eating-disorder safety seriously.
  *   • Detail view — selected restaurant's menu, grouped by category, with
  *                   per-item quantity stepper and one-tap "log to today".
  *
@@ -14,6 +17,10 @@ import React, { useMemo, useState } from 'react';
 import {
   RESTAURANTS,
   TIER_INFO,
+  CUISINE_INFO,
+  ACTIVE_CUISINES,
+  getCuisine,
+  type Cuisine,
   sortedRestaurants,
   searchMenuItems,
   findMacroFitMatches,
@@ -54,7 +61,7 @@ const GOAL_TAG_LABELS: Record<string, string> = {
 };
 
 export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetMacros, consumedMacros, customMenuItems }) => {
-  const [tierFilter, setTierFilter] = useState<RestaurantTier | 'all'>('all');
+  const [cuisineFilter, setCuisineFilter] = useState<Cuisine | 'all'>('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Restaurant | null>(null);
   // Per-item quantity in the detail view (keyed by `${restaurantId}/${itemId}`).
@@ -96,9 +103,9 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
   // ----- LIST VIEW DATA ----------------------------------------------------
   const filteredRestaurants = useMemo(() => {
     const list = sortedRestaurants();
-    if (tierFilter === 'all') return list;
-    return list.filter(r => r.tier === tierFilter);
-  }, [tierFilter]);
+    if (cuisineFilter === 'all') return list;
+    return list.filter(r => getCuisine(r) === cuisineFilter);
+  }, [cuisineFilter]);
 
   const searchResults = useMemo(() => {
     if (!search.trim()) return [];
@@ -132,8 +139,10 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
   //  DETAIL VIEW
   // ========================================================================
   if (selected) {
-    const tierColors = TIER_CLASSES[selected.tier];
-    const tier = TIER_INFO[selected.tier];
+    // Neutral styling + a cuisine badge. Health tiers are not surfaced —
+    // see the CUISINE GROUPING note in data/restaurants.ts.
+    const tierColors = { badge: 'bg-white/5 text-gray-300 border-white/15', border: 'border-white/10' };
+    const cuisine = CUISINE_INFO[getCuisine(selected)];
     // Merge built-in items with any user-added custom items so "Added by you"
     // shows up as a category alongside Bowls, Sides, etc.
     const effectiveItems = getEffectiveMenuItems(selected, customMenuItems);
@@ -146,7 +155,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
 
     return (
       <div className="space-y-5 pb-24 animate-fade-in">
-        {/* Back button + tier badge */}
+        {/* Back button + cuisine badge */}
         <div className="flex items-center justify-between">
           <button
             onClick={() => setSelected(null)}
@@ -155,7 +164,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
             ← All Restaurants
           </button>
           <span className={`text-[9px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${tierColors.badge}`}>
-            {tier.emoji} Tier {selected.tier} · {tier.label}
+            {cuisine.emoji} {cuisine.label}
           </span>
         </div>
 
@@ -300,7 +309,6 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
 
           <div className="space-y-1.5">
             {macroFitMatches.map(({ restaurant, item, reason }) => {
-              const tier = TIER_INFO[restaurant.tier];
               return (
                 <button
                   key={`${restaurant.id}-${item.id}`}
@@ -367,94 +375,61 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
         />
       </div>
 
-      {/* Tier filter chips */}
+      {/* Cuisine filter chips */}
       {!search.trim() && (
         <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
           <button
-            onClick={() => setTierFilter('all')}
+            onClick={() => setCuisineFilter('all')}
             className={`shrink-0 text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-full border transition-all ${
-              tierFilter === 'all'
+              cuisineFilter === 'all'
                 ? 'bg-white/10 text-white border-white/30'
                 : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
             }`}
           >
             All
           </button>
-          {([1, 2, 3, 4, 5] as RestaurantTier[]).map(t => {
-            const colors = TIER_CLASSES[t];
-            const info = TIER_INFO[t];
-            const count = RESTAURANTS.filter(r => r.tier === t).length;
+          {ACTIVE_CUISINES.map(c => {
+            const info = CUISINE_INFO[c];
+            const count = RESTAURANTS.filter(r => getCuisine(r) === c).length;
+            if (count === 0) return null;
             return (
               <button
-                key={t}
-                onClick={() => setTierFilter(t)}
-                className={`shrink-0 text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-full border transition-all ${
-                  tierFilter === t ? colors.chip : 'bg-white/5 text-gray-500 border-white/10 hover:bg-white/10'
+                key={c}
+                onClick={() => setCuisineFilter(c)}
+                className={`shrink-0 text-[10px] uppercase tracking-widest font-bold px-3 py-1.5 rounded-full border transition-all whitespace-nowrap ${
+                  cuisineFilter === c
+                    ? 'bg-[#d97757]/20 text-[#d97757] border-[#d97757]/50'
+                    : 'bg-white/5 text-gray-500 border-white/10 hover:bg-white/10'
                 }`}
               >
-                {info.emoji} T{t} <span className="opacity-60">({count})</span>
+                {info.emoji} {info.label} <span className="opacity-60">({count})</span>
               </button>
             );
           })}
         </div>
       )}
 
-      {/* Search results */}
-      {search.trim() && (
-        <section className="space-y-2">
-          <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-1">
-            {searchResults.length} match{searchResults.length !== 1 ? 'es' : ''}
-          </h3>
-          {searchResults.length === 0 ? (
-            <div className="text-center py-8 text-sm text-gray-500">No menu items match &ldquo;{search}&rdquo;.</div>
-          ) : (
-            searchResults.map(({ restaurant, item }) => (
-              <button
-                key={`${restaurant.id}-${item.id}`}
-                onClick={() => { setSelected(restaurant); setSearch(''); }}
-                className="w-full text-left bg-white/[0.03] hover:bg-white/[0.05] border border-white/5 hover:border-white/10 rounded-2xl p-3.5 transition-colors"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl leading-none">{restaurant.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-white text-sm truncate">{item.name}</h4>
-                    <p className="text-[10px] text-gray-500 mt-0.5">{restaurant.shortName} · {item.category}</p>
-                    <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-1 text-[10px] font-medium tabular-nums">
-                      <span className="text-white"><span className="font-bold">{item.calories}</span> cal</span>
-                      <span className="text-emerald-400"><span className="font-bold">{item.protein}</span>p</span>
-                      <span className="text-blue-400"><span className="font-bold">{item.carbs}</span>c</span>
-                      <span className="text-amber-400"><span className="font-bold">{item.fat}</span>f</span>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            ))
-          )}
-        </section>
-      )}
-
-      {/* Restaurant list grouped by tier */}
+      {/* Restaurant list grouped by cuisine (type of food, not a health ranking) */}
       {!search.trim() && (
         <>
-          {([1, 2, 3, 4, 5] as RestaurantTier[])
-            .filter(t => tierFilter === 'all' || tierFilter === t)
-            .map(t => {
-              const tierRestaurants = filteredRestaurants.filter(r => r.tier === t);
-              if (tierRestaurants.length === 0) return null;
-              const info = TIER_INFO[t];
-              const colors = TIER_CLASSES[t];
+          {ACTIVE_CUISINES
+            .filter(c => cuisineFilter === 'all' || cuisineFilter === c)
+            .map(c => {
+              const cuisineRestaurants = filteredRestaurants.filter(r => getCuisine(r) === c);
+              if (cuisineRestaurants.length === 0) return null;
+              const info = CUISINE_INFO[c];
+              const colors = { border: 'border-white/10' };
               return (
-                <section key={t} className="space-y-2">
+                <section key={c} className="space-y-2">
                   <div className="flex items-baseline justify-between px-1">
                     <h3 className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">
                       <span className="mr-1.5">{info.emoji}</span>
-                      Tier {t} · {info.label}
+                      {info.label}
                     </h3>
-                    <span className="text-[10px] text-gray-600 font-mono tabular-nums">{tierRestaurants.length}</span>
+                    <span className="text-[10px] text-gray-600 font-mono tabular-nums">{cuisineRestaurants.length}</span>
                   </div>
-                  <p className="text-[10px] text-gray-500 px-1 -mt-1">{info.description}</p>
                   <div className="space-y-2">
-                    {tierRestaurants.map(r => (
+                    {cuisineRestaurants.map(r => (
                       <button
                         key={r.id}
                         onClick={() => setSelected(r)}

@@ -29,6 +29,89 @@ export const TIER_INFO: Record<
   5: { label: 'Landmines',     description: 'Almost no viable healthy options.',                           color: 'red',     emoji: '🚨' },
 };
 
+// ---------------------------------------------------------------------------
+// CUISINE GROUPING
+//
+// The UI groups restaurants by the KIND OF FOOD they serve, not by a
+// health ranking. Labels like "Healthiest" / "Landmines" encode a value
+// judgement about food that is subjective, varies by goal, and sits badly
+// in an app that takes eating-disorder safety seriously. Cuisine is a
+// neutral, factual property — the user decides what fits their day.
+//
+// `tier` is retained on each restaurant because macro-fit ranking still
+// uses it internally, but it is no longer surfaced as a label.
+// ---------------------------------------------------------------------------
+
+export type Cuisine =
+  | 'mexican'
+  | 'burgers'
+  | 'chicken'
+  | 'sandwiches'
+  | 'bowls'
+  | 'pizza'
+  | 'coffee'
+  | 'smoothies'
+  | 'breakfast'
+  | 'seafood'
+  | 'pasta';
+
+export const CUISINE_INFO: Record<Cuisine, { label: string; emoji: string; color: string }> = {
+  mexican:    { label: 'Mexican',            emoji: '🌯', color: 'amber'   },
+  burgers:    { label: 'Burgers',            emoji: '🍔', color: 'orange'  },
+  chicken:    { label: 'Chicken',            emoji: '🍗', color: 'yellow'  },
+  sandwiches: { label: 'Sandwiches & Subs',  emoji: '🥪', color: 'lime'    },
+  bowls:      { label: 'Bowls & Salads',     emoji: '🥗', color: 'emerald' },
+  pizza:      { label: 'Pizza',              emoji: '🍕', color: 'red'     },
+  coffee:     { label: 'Coffee & Bakery',    emoji: '☕', color: 'orange'  },
+  smoothies:  { label: 'Smoothies & Juice',  emoji: '🥤', color: 'emerald' },
+  breakfast:  { label: 'Breakfast & Diner',  emoji: '🥞', color: 'amber'   },
+  seafood:    { label: 'Seafood',            emoji: '🐟', color: 'cyan'    },
+  pasta:      { label: 'Pasta & Noodles',    emoji: '🍝', color: 'lime'    },
+};
+
+/** Restaurant id -> cuisine. Anything unmapped falls back to 'bowls'. */
+const CUISINE_BY_ID: Record<string, Cuisine> = {
+  // Mexican
+  'chipotle': 'mexican', 'qdoba': 'mexican', 'moes': 'mexican',
+  'taco-bell': 'mexican', 'del-taco': 'mexican',
+  // Burgers
+  'mcdonalds': 'burgers', 'wendys': 'burgers', 'burger-king': 'burgers',
+  'five-guys': 'burgers', 'shake-shack': 'burgers', 'whataburger': 'burgers',
+  'carls-jr': 'burgers', 'jack-in-the-box': 'burgers', 'sonic': 'burgers',
+  'checkers': 'burgers', 'culvers': 'burgers', 'dairy-queen': 'burgers',
+  // Chicken
+  'chick-fil-a': 'chicken', 'huey-magoos': 'chicken', 'popeyes': 'chicken',
+  'wingstop': 'chicken', 'daves-hot-chicken': 'chicken',
+  // Sandwiches & subs
+  'subway': 'sandwiches', 'jersey-mikes': 'sandwiches', 'jimmy-johns': 'sandwiches',
+  'jasons-deli': 'sandwiches', 'arbys': 'sandwiches', 'cosi': 'sandwiches',
+  // Bowls & salads
+  'sweetgreen': 'bowls', 'cava': 'bowls', 'fresh-kitchen': 'bowls',
+  // Pizza
+  'dominos': 'pizza', 'pizza-hut': 'pizza', 'papa-johns': 'pizza',
+  // Coffee & bakery
+  'starbucks': 'coffee', 'dunkin': 'coffee', 'panera': 'coffee',
+  'krispy-kreme': 'coffee',
+  // Smoothies
+  'tropical-smoothie': 'smoothies', 'jamba': 'smoothies',
+  // Breakfast & diner
+  'ihop': 'breakfast', 'waffle-house': 'breakfast',
+  // Seafood
+  'long-john-silvers': 'seafood',
+  // Pasta
+  'noodles': 'pasta',
+};
+
+/** Cuisine for a restaurant, falling back to a sensible default. */
+export const getCuisine = (r: { id: string }): Cuisine =>
+  CUISINE_BY_ID[r.id] ?? 'bowls';
+
+/** Cuisines that actually have restaurants, in display order. */
+export const ACTIVE_CUISINES: Cuisine[] = (
+  ['bowls', 'mexican', 'chicken', 'sandwiches', 'burgers', 'pizza',
+   'coffee', 'smoothies', 'breakfast', 'pasta', 'seafood'] as Cuisine[]
+);
+
 export type GoalTag = 'high-protein' | 'low-cal' | 'low-carb' | 'plant-based' | 'gluten-free';
 
 export interface MenuItem {
