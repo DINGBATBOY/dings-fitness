@@ -21,7 +21,7 @@ import { SafeMarkdown } from './components/SafeMarkdown';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
-import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser } from './constants';
+import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser, calculateTDEEDetailed } from './constants';
 import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/geminiService';
 import { db, auth, functions, isConfigured } from './services/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -932,6 +932,23 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // of weight logs are available. The suggestion is offered to the user
   // (in the dashboard banner); they accept by tapping a button which writes
   // it back to the profile's nutrition targets.
+  // Resting + baseline burn, straight from the onboarding profile.
+  // bmr  = calories burned at complete rest
+  // tdee = bmr x activity multiplier (the "normal day" burn)
+  const energyBaseline = useMemo(() => {
+    if (!appState.profile) return null;
+    const bf = appState.profile.inBodyData?.pbf ?? appState.profile.bodyFat;
+    const detail = calculateTDEEDetailed(
+      appState.profile.weight,
+      appState.profile.height,
+      appState.profile.age,
+      appState.profile.activityLevel,
+      appState.profile.sex,
+      bf,
+    );
+    return { bmr: detail.bmr, tdee: detail.tdee };
+  }, [appState.profile]);
+
   const adaptiveSuggestion = useMemo(() => {
     if (!appState.profile || !appState.dailyLogs) {
       return { hasEnoughData: false };
@@ -996,8 +1013,16 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       fiber: acc.fiber + (Number(item.fiber) || 0)
     }), { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
 
-    // Adjust calories based on activity burn
-    totals.calories = Math.max(0, totals.calories - (appState.activityBurn || 0));
+    // NOTE: activity burn is deliberately NOT subtracted here.
+    //
+    // The daily target already comes from TDEE = BMR x activityMultiplier,
+    // where the multiplier reflects the activity level chosen at onboarding.
+    // Subtracting logged workouts on top of that double-counts them and
+    // silently inflates the budget — which made "calories left" mean two
+    // different things depending on whether a workout had been logged.
+    //
+    // Eaten is now purely what was eaten. Burn is surfaced separately in the
+    // energy-balance card so the user can see it without it moving the target.
     
     return totals;
   }, [appState.todayLog, appState.activityBurn]);
@@ -2394,6 +2419,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           weighIns={appState.weighIns || []}
           onLogWeight={(weight) => recordWeight(weight)}
           onQuickAddFood={openAddFood}
+          energyBaseline={energyBaseline}
           onLogActivity={() => {
             // Reset to a sensible default each open so a prior manual entry
             // doesn't linger in the form.

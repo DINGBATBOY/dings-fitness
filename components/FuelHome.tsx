@@ -81,6 +81,8 @@ interface FuelHomeProps {
   onOpenFuelCoach?: () => void;
   /** Opens the log-activity modal (workout types or a manual kcal entry). */
   onLogActivity?: () => void;
+  /** Resting (BMR) and normal-day (TDEE) burn, derived from the profile. */
+  energyBaseline?: { bmr: number; tdee: number } | null;
 }
 
 export const FuelHome: React.FC<FuelHomeProps> = ({
@@ -105,6 +107,7 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
   onAcceptAdaptiveSuggestion,
   onOpenFuelCoach,
   onLogActivity,
+  energyBaseline,
 }) => {
   const firstName = (profile.name || 'Warrior').split(' ')[0];
   const [showWeightCheckIn, setShowWeightCheckIn] = useState(false);
@@ -291,8 +294,73 @@ export const FuelHome: React.FC<FuelHomeProps> = ({
           <MacroRow label="Fat"     current={consumed.fat}     target={targets.fat}     color={C.fatColor}  />
         </div>
 
-        {/* MOVEMENT — burned calories add back to the budget shown in the
-            ring above, so it lives in the same card as that number. */}
+        {/* ENERGY BALANCE — informational only.
+            Burn does NOT change the target above. The daily target already
+            includes normal activity (TDEE = BMR x activity level), so
+            crediting logged workouts on top would double-count them and make
+            "calories left" mean different things on different days. This card
+            shows the full picture separately so the number above stays
+            unambiguous: calories left = target - eaten. Always. */}
+        {energyBaseline && (
+          <div className="mt-5 pt-4 rounded-2xl" style={{ borderTop: `1px solid ${C.border}` }}>
+            <div className="text-[10px] uppercase tracking-[0.3em] font-bold mb-3" style={{ color: C.inkLight }}>
+              Today's energy
+            </div>
+            <div className="rounded-2xl p-4" style={{ background: C.bg, border: `1px solid ${C.border}` }}>
+              <div className="flex items-center justify-between text-[12px]">
+                <span style={{ color: C.inkMid }}>Resting burn (BMR)</span>
+                <span className="tabular-nums font-semibold" style={{ color: C.ink }}>
+                  {energyBaseline.bmr.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[12px] mt-2">
+                <span style={{ color: C.inkMid }}>Normal daily activity</span>
+                <span className="tabular-nums font-semibold" style={{ color: C.ink }}>
+                  +{Math.max(0, energyBaseline.tdee - energyBaseline.bmr).toLocaleString()}
+                </span>
+              </div>
+              {activityBurn > 0 && (
+                <div className="flex items-center justify-between text-[12px] mt-2">
+                  <span style={{ color: C.ochre }}>Logged movement</span>
+                  <span className="tabular-nums font-semibold" style={{ color: C.ochre }}>
+                    +{Math.round(activityBurn).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
+                <span className="text-[11px] uppercase tracking-widest font-bold" style={{ color: C.inkLight }}>
+                  Estimated burn
+                </span>
+                <span className="text-[17px] font-bold tabular-nums" style={{ color: C.ink }}>
+                  {(energyBaseline.tdee + Math.round(activityBurn)).toLocaleString()}
+                  <span className="text-[10px] font-semibold ml-1" style={{ color: C.inkLight }}>kcal</span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[11px]" style={{ color: C.inkMid }}>Eaten today</span>
+                <span className="text-[13px] font-bold tabular-nums" style={{ color: C.inkMid }}>
+                  {Math.round(consumed.calories).toLocaleString()}
+                </span>
+              </div>
+              {(() => {
+                const net = Math.round(consumed.calories) - (energyBaseline.tdee + Math.round(activityBurn));
+                const deficit = net < 0;
+                return (
+                  <p className="text-[11px] mt-2.5 leading-snug" style={{ color: C.inkLight }}>
+                    Net{' '}
+                    <span className="font-bold tabular-nums" style={{ color: deficit ? C.emerald : C.fire }}>
+                      {net > 0 ? '+' : ''}{net.toLocaleString()} kcal
+                    </span>
+                    {deficit ? ' — burning more than you ate.' : ' — eating more than you burned.'}
+                    {' '}This is an estimate and does not change your target above.
+                  </p>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Log movement */}
         {onLogActivity && (
           <button
             onClick={onLogActivity}
