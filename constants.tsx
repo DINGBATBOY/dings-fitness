@@ -263,6 +263,109 @@ export const MIN_CALORIES_MALE = 1500;
 export const MIN_CALORIES_FEMALE = 1200;
 export const MIN_TDEE_FRACTION = 0.75; // Don't recommend below 75% of TDEE
 
+// ---------------------------------------------------------------------------
+// ENERGY BALANCE (informational)
+//
+// Model: totalBurn = BMR + activeBurn + TEF
+//
+//   BMR        calories at complete rest over 24h (Katch-McArdle when body fat
+//              is known, otherwise Mifflin-St Jeor)
+//   activeBurn all movement: non-exercise activity (NEAT) plus workouts
+//   TEF        thermic effect of food, ~10% of calories eaten
+//
+// SOURCE MATTERS — this is where double-counting creeps in:
+//
+//   'health'    Apple Health activeEnergyBurned ALREADY includes workouts,
+//               walking, standing, everything. Logged workouts are shown as a
+//               BREAKDOWN of that number, never added to it.
+//   'estimated' No wearable data. NEAT is estimated from the onboarding
+//               activity level, and logged workouts ARE added on top, because
+//               nothing else is capturing them.
+//
+// The NEAT_BASELINE numbers below deliberately exclude deliberate exercise and
+// are conservative. They are NOT the activity-multiplier delta (BMR x 1.725
+// implies ~1,300 kcal of activity, which overstates a typical day). Under-
+// promising here is the safer error: it avoids "I earned a big dinner" math.
+//
+// NOTE: this is display-only. The daily calorie TARGET is computed separately
+// in CALCULATE_MACROS from multiplier-based TDEE and is intentionally NOT
+// affected by anything here — a target that moved with daily activity would
+// make "calories left" mean something different every day.
+// ---------------------------------------------------------------------------
+
+const NEAT_BASELINE: Record<string, number> = {
+  'Sedentary': 150,
+  'Lightly Active': 250,
+  'Moderately Active': 350,
+  'Very Active': 450,
+  'Extra Active': 600,
+};
+
+/** Fraction of calories eaten spent digesting them. ~10% mixed diet. */
+const TEF_FRACTION = 0.10;
+
+export interface EnergyBalanceInput {
+  bmr: number;
+  activityLevel: string;
+  caloriesEaten: number;
+  /** Workout calories logged in-app today. */
+  loggedWorkoutKcal: number;
+  /**
+   * Apple Health activeEnergyBurned for today, when available. When present
+   * this becomes the source of truth for active burn and logged workouts are
+   * treated as a component of it rather than additional calories.
+   */
+  healthActiveEnergy?: number | null;
+  /** Include the thermic effect of food. Default true. */
+  includeTef?: boolean;
+}
+
+export interface EnergyBalance {
+  bmr: number;
+  /** Total movement calories, however they were determined. */
+  activeBurn: number;
+  activeSource: 'health' | 'estimated';
+  /** Non-exercise portion of activeBurn (walking, fidgeting, standing). */
+  neat: number;
+  /** Workout portion. A COMPONENT of activeBurn, never added to it. */
+  workouts: number;
+  tef: number;
+  totalBurn: number;
+  eaten: number;
+  /** eaten - totalBurn. Negative = deficit. */
+  net: number;
+}
+
+export const computeEnergyBalance = (input: EnergyBalanceInput): EnergyBalance => {
+  const bmr = Math.max(0, Math.round(input.bmr || 0));
+  const eaten = Math.max(0, Math.round(input.caloriesEaten || 0));
+  const workouts = Math.max(0, Math.round(input.loggedWorkoutKcal || 0));
+  const health = input.healthActiveEnergy;
+
+  let activeBurn: number;
+  let neat: number;
+  let activeSource: 'health' | 'estimated';
+
+  if (typeof health === 'number' && health > 0) {
+    // Health data already contains workouts. Do NOT add them again.
+    activeSource = 'health';
+    activeBurn = Math.round(health);
+    // Whatever isn't attributable to logged workouts is everyday movement.
+    neat = Math.max(0, activeBurn - workouts);
+  } else {
+    // No wearable data: estimate everyday movement, then add logged workouts,
+    // which nothing else is capturing.
+    activeSource = 'estimated';
+    neat = NEAT_BASELINE[input.activityLevel] ?? NEAT_BASELINE['Sedentary'];
+    activeBurn = neat + workouts;
+  }
+
+  const tef = input.includeTef === false ? 0 : Math.round(eaten * TEF_FRACTION);
+  const totalBurn = bmr + activeBurn + tef;
+
+  return { bmr, activeBurn, activeSource, neat, workouts, tef, totalBurn, eaten, net: eaten - totalBurn };
+};
+
 export const getMinSafeCalories = (sex?: string, tdee?: number): number => {
   const isFemale = sex?.toLowerCase() === 'female';
   const absoluteFloor = isFemale ? MIN_CALORIES_FEMALE : MIN_CALORIES_MALE;
