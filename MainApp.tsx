@@ -18,6 +18,16 @@ import { SpotlightTour } from './components/SpotlightTour';
 import { FeatherCelebration } from './components/FeatherCelebration';
 import { WorkoutsHome } from './components/WorkoutsHome';
 import { SafeMarkdown } from './components/SafeMarkdown';
+import { HealthConnectCard } from './components/HealthConnectCard';
+import {
+  isHealthSupported,
+  healthAvailable,
+  requestHealthPermissions,
+  fetchTodayActiveEnergy,
+  fetchTodayWorkouts,
+  fetchLatestBodyMass,
+} from './services/health';
+import { App as CapApp } from '@capacitor/app';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
@@ -329,6 +339,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   });
 
   const [weeklyCompletedWorkouts, setWeeklyCompletedWorkouts] = useState<string[]>([]);
+
+  // Apple Health (iOS only). Today's active energy is EPHEMERAL — recomputed
+  // each launch/foreground straight from HealthKit and never written to the
+  // user doc, so it can't grow the document (gotcha 3). Weigh-ins and workout
+  // completions flow through the existing bounded arrays. `healthDeviceAvailable`
+  // gates the connect prompt; `healthConnecting` disables the button mid-request.
+  const [healthActiveEnergy, setHealthActiveEnergy] = useState<number | null>(null);
+  const [healthDeviceAvailable, setHealthDeviceAvailable] = useState(false);
+  const [healthConnecting, setHealthConnecting] = useState(false);
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -1065,6 +1084,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     // not a check-in dialog.
     const toastMsg = source === 'chat'
       ? `Got it — saved ${entry.weight} lbs`
+      : source === 'health'
+      ? `Synced ${entry.weight} lbs from Apple Health`
       : `Checked in at ${entry.weight} lbs`;
     triggerToast(toastMsg);
     return true;
@@ -1379,6 +1400,146 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           ]
       }));
       triggerToast("Workout logged");
+  };
+
+  // ----------------------------------------------------------------------
+  // APPLE HEALTH SYNC (iOS only)
+  // ----------------------------------------------------------------------
+  // Pulls three things and nothing else: today's active energy (ephemeral,
+  // feeds the FuelHome energy card), the latest body-mass sample (seeds a
+  // weigh-in), and today's workouts (auto-completes the scheduled split day).
+  //
+  // Defined as a plain function so each render closes over the freshest
+  // appState — a ref hands the latest copy to effects/listeners without
+  // making them re-subscribe. Every step is guarded and best-effort; any
+  // failure leaves the app exactly as it was with no Health data.
+  const healthSyncInFlight = useRef(false);
+  const runHealthSync = async (force = false) => {
+      if (!isHealthSupported()) return;
+      if (!force && !appState.profile?.healthSyncEnabled) return;
+      // Prevent overlapping runs (launch fires both the enable-effect and the
+      // foreground listener). Overlap could seed a weigh-in / complete a day
+      // twice before the first run's state commit lands.
+      if (healthSyncInFlight.current) return;
+      healthSyncInFlight.current = true;
+      try {
+
+      // 1) Active energy — EPHEMERAL. Never persisted, so it cannot grow the
+      //    user doc. null => the card falls back to the estimated model.
+      const kcal = await fetchTodayActiveEnergy();
+      setHealthActiveEnergy(kcal);
+
+      // 2) Latest weight — seed a weigh-in only when the user hasn't already
+      //    checked in today (manual check-ins always win; no duplicates).
+      try {
+          const mass = await fetchLatestBodyMass();
+          if (mass) {
+              const now = new Date();
+              const todayKey = [
+                  now.getFullYear(),
+                  String(now.getMonth() + 1).padStart(2, '0'),
+                  String(now.getDate()).padStart(2, '0'),
+              ].join('-');
+              const hasTodayWeighIn = (appState.weighIns || []).some(w => w.date === todayKey);
+              if (!hasTodayWeighIn) {
+                  recordWeight(mass.lbs, 'health');
+              }
+          }
+      } catch { /* best-effort */ }
+
+      // 3) Today's workouts — auto-complete the scheduled split day. We do NOT
+      //    add workout calories anywhere: Apple's active energy already
+      //    includes workouts, and completeWorkoutDay only marks the day +
+      //    awards XP (it never touches the calorie target). The idempotency
+      //    guard inside completeWorkoutDay prevents double-counting across
+      //    repeated syncs and against a manual completion.
+      try {
+          const workouts = await fetchTodayWorkouts();
+          const meaningful = workouts.some(w => (w.durationMin || 0) >= 10);
+          if (meaningful) {
+              const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+              const idx = workoutSplit.findIndex((d: any) => d?.day === todayName);
+              if (idx >= 0) {
+                  const label = String(workoutSplit[idx]?.label || '');
+                  const isRestDay = /rest/i.test(label);
+                  if (!isRestDay && !weeklyCompletedWorkouts.includes(todayName)) {
+                      completeWorkoutDay(idx);
+                  }
+              }
+          }
+      } catch { /* best-effort */ }
+
+      } finally {
+          healthSyncInFlight.current = false;
+      }
+  };
+
+  // Hand effects/listeners the latest sync closure without re-subscribing.
+  const syncHealthRef = useRef<(force?: boolean) => void>(() => {});
+  syncHealthRef.current = runHealthSync;
+
+  // Detect HealthKit availability once (gates the connect prompt).
+  useEffect(() => {
+      if (!isHealthSupported()) return;
+      let cancelled = false;
+      healthAvailable().then(a => { if (!cancelled) setHealthDeviceAvailable(a); });
+      return () => { cancelled = true; };
+  }, []);
+
+  // Sync when the feature is enabled (on mount for returning users, and when
+  // the user first connects). Cheap boolean dep — won't spin.
+  useEffect(() => {
+      if (!isHealthSupported()) return;
+      if (!appState.profile?.healthSyncEnabled) return;
+      syncHealthRef.current(false);
+  }, [appState.profile?.healthSyncEnabled]);
+
+  // Re-sync whenever the app returns to the foreground (fresh watch/scale data).
+  useEffect(() => {
+      if (!isHealthSupported()) return;
+      let handle: { remove: () => void } | undefined;
+      CapApp.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) syncHealthRef.current(false);
+      }).then(l => { handle = l; }).catch(() => {});
+      return () => { handle?.remove(); };
+  }, []);
+
+  // Show the HealthKit permission sheet, then remember the choice + sync now.
+  const connectHealth = async () => {
+      if (!isHealthSupported()) return;
+      setHealthConnecting(true);
+      try {
+          const granted = await requestHealthPermissions();
+          // Mark enabled regardless of the (opaque) read-status flag: if the
+          // user actually denied, queries just return null and we quietly stay
+          // in estimated mode. This also dismisses the prompt.
+          handleUpdateAppState(prev => ({
+              ...prev,
+              profile: prev.profile
+                  ? { ...prev.profile, healthSyncEnabled: true, healthPromptDismissed: true }
+                  : prev.profile,
+          }));
+          await syncHealthRef.current(true);
+          triggerToast(granted ? 'Apple Health connected' : 'Apple Health connected — allow access when prompted');
+      } finally {
+          setHealthConnecting(false);
+      }
+  };
+
+  const dismissHealthPrompt = () => {
+      handleUpdateAppState(prev => ({
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, healthPromptDismissed: true } : prev.profile,
+      }));
+  };
+
+  const disconnectHealth = () => {
+      setHealthActiveEnergy(null);
+      handleUpdateAppState(prev => ({
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, healthSyncEnabled: false } : prev.profile,
+      }));
+      triggerToast('Apple Health disconnected');
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2401,6 +2562,15 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
           >
       {activeTab === 'dashboard' && (
+        <>
+        {isHealthSupported() && healthDeviceAvailable &&
+         !appState.profile?.healthSyncEnabled && !appState.profile?.healthPromptDismissed && (
+          <HealthConnectCard
+            onConnect={connectHealth}
+            onDismiss={dismissHealthPrompt}
+            busy={healthConnecting}
+          />
+        )}
         <FuelHome
           profile={appState.profile}
           targets={targetMacros}
@@ -2433,7 +2603,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           adaptiveSuggestion={adaptiveSuggestion}
           onAcceptAdaptiveSuggestion={acceptAdaptiveSuggestion}
           onOpenFuelCoach={() => setShowFuelCoach(true)}
+          healthActiveEnergy={healthActiveEnergy}
         />
+        </>
       )}
 
 
@@ -2706,6 +2878,44 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                  <p className="text-3xl font-mono text-cyan-400 tracking-tighter">{liveMetrics.currentPBF}<span className="text-sm text-cyan-400/50">%</span></p>
               </div>
            </div>
+
+           {/* APPLE HEALTH (iOS only) */}
+           {isHealthSupported() && healthDeviceAvailable && (
+              <div className="glass-panel p-6 rounded-3xl">
+                 <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                       <p className="text-[9px] text-gray-500 font-bold uppercase mb-1 tracking-widest">Apple Health</p>
+                       <p className="text-sm text-white leading-snug">
+                          {appState.profile?.healthSyncEnabled
+                             ? 'Connected — active energy, workouts and weight sync automatically.'
+                             : 'Not connected. Pull activity from Apple Health instead of logging by hand.'}
+                       </p>
+                       <p className="text-[10px] text-gray-500 mt-1">Read-only. Never used for ads and never sold.</p>
+                    </div>
+                    {appState.profile?.healthSyncEnabled ? (
+                       <button
+                          onClick={disconnectHealth}
+                          className="shrink-0 px-4 py-2 rounded-full border border-red-500/20 bg-red-500/10 text-red-400 text-[11px] font-bold uppercase tracking-widest hover:bg-red-500/20 transition-colors"
+                       >
+                          Disconnect
+                       </button>
+                    ) : (
+                       <button
+                          onClick={connectHealth}
+                          disabled={healthConnecting}
+                          className="shrink-0 px-4 py-2 rounded-full border border-[#d97757]/30 bg-[#d97757]/15 text-[#d97757] text-[11px] font-bold uppercase tracking-widest hover:bg-[#d97757]/25 transition-colors disabled:opacity-60"
+                       >
+                          {healthConnecting ? 'Connecting…' : 'Connect'}
+                       </button>
+                    )}
+                 </div>
+                 {appState.profile?.healthSyncEnabled && (
+                    <p className="text-[10px] text-gray-500 mt-3 leading-snug">
+                       To fully revoke access, open the Health app → Sharing → Apps → Ding! Fitness.
+                    </p>
+                 )}
+              </div>
+           )}
 
            {/* CALORIE CALENDAR */}
            <div className="glass-panel p-6 rounded-3xl">

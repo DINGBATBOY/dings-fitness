@@ -129,6 +129,14 @@ export interface UserProfile {
   // mathematically; the Coach can reference it in check-ins to feel less
   // generic. Short string, capped in the UI at ~120 chars.
   motivation?: string;
+  // Apple Health (iOS only). `healthSyncEnabled` is set once the user taps
+  // Connect and we've shown the HealthKit permission sheet; it drives whether
+  // we sync on launch/foreground. `healthPromptDismissed` remembers a "Not
+  // now" so we don't nag. Both are tiny booleans — no health data is stored
+  // in the profile (see gotcha 3: today's active energy lives in ephemeral
+  // state, weigh-ins/workouts flow through the existing bounded arrays).
+  healthSyncEnabled?: boolean;
+  healthPromptDismissed?: boolean;
 }
 
 export interface WorkoutExercise {
@@ -235,7 +243,7 @@ export interface WeightEntry {
   date: string; // Local YYYY-MM-DD date for grouping one check-in per day
   weight: number;
   createdAt: string;
-  source: 'check-in' | 'chat';
+  source: 'check-in' | 'chat' | 'health';
 }
 
 export interface SavedNote {

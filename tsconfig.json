@@ -31,6 +31,7 @@
     "dist",
     "functions",
     "ios",
-    "node_modules"
+    "node_modules",
+    "plugins"
   ]
 }

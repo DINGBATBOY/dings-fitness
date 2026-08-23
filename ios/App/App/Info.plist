@@ -55,5 +55,10 @@
 	<string>Ding! Fitness needs photo library access so you can pick a profile picture or attach existing food photos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Ding! Fitness can save your exported reports and progress photos to your photo library.</string>
+	<!-- HealthKit: iOS REQUIRES this string before the app may request read
+	     access to Health data. It appears in the permission sheet. We only
+	     READ (never write), so no NSHealthUpdateUsageDescription is needed. -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>Ding! Fitness reads your active energy, workouts, and weight from Apple Health so your energy balance and check-ins stay accurate without manual logging. Your health data is never used for advertising and never sold.</string>
 </dict>
 </plist>

@@ -1,0 +1,31 @@
+{
+  "name": "ding-health",
+  "version": "0.0.1",
+  "description": "Read-only HealthKit bridge for Ding! Fitness (active energy, workouts, body mass).",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "dist/",
+    "ios/Sources/",
+    "Package.swift",
+    "DingHealth.podspec"
+  ],
+  "author": "Ding! Fitness",
+  "license": "UNLICENSED",
+  "private": true,
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "native",
+    "healthkit"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  }
+}

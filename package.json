@@ -15,6 +15,7 @@
     "@capacitor/app": "^6.0.0",
     "@capacitor/camera": "^6.1.2",
     "@capacitor/core": "^6.2.0",
+    "ding-health": "file:./plugins/ding-health",
     "@capacitor/filesystem": "^6.0.3",
     "@capacitor/ios": "^6.2.0",
     "@capacitor/share": "^6.0.3",
