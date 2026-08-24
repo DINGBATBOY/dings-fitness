@@ -60,5 +60,11 @@
 	     READ (never write), so no NSHealthUpdateUsageDescription is needed. -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ding! Fitness reads your active energy, workouts, and weight from Apple Health so your energy balance and check-ins stay accurate without manual logging. Your health data is never used for advertising and never sold.</string>
+	<!-- Ding! Fitness never WRITES to Apple Health (read-only). Apple's upload
+	     validation still requires this key whenever the HealthKit entitlement is
+	     present, so it is included for completeness. The permission is never
+	     surfaced to users because the app requests zero write types. -->
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Ding! Fitness does not write any data to Apple Health. It only reads your activity, workouts, and weight to keep your energy balance and check-ins accurate.</string>
 </dict>
 </plist>
