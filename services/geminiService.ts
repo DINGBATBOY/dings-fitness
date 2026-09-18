@@ -119,6 +119,85 @@ export const searchNutrition = async (
 };
 
 // ===========================================================================
+// OpenAI path — food macro analysis only
+//
+// The food scan runs on OpenAI (accuracy); every other AI feature stays on
+// Gemini via callGeminiProxy. Two separate Cloud Functions, two separate
+// providers, one shared quota.
+//
+// TWO-PASS DESIGN. OpenAI cannot combine web search with vision + strict
+// JSON in a single call. So when the user names a restaurant we don't have
+// in the local menu database:
+//   pass 1  gpt-5-search-api looks the dish up on the web (text only)
+//   pass 2  gpt-5.6-terra reads the photo and returns strict JSON, with
+//           pass 1's findings injected as context
+// Ordinary scans (no named restaurant) skip pass 1 entirely and cost one call.
+// ===========================================================================
+
+type OpenAIProxyRequest = {
+  model?: string;
+  messages: unknown[];
+  responseFormat?: unknown;
+  webSearch?: boolean;
+  temperature?: number;
+  feature?: string;
+};
+
+async function callOpenAIProxy(req: OpenAIProxyRequest): Promise<{ text: string }> {
+  if (!functions) {
+    throw new Error("Firebase not configured. AI features unavailable.");
+  }
+  const fn = httpsCallable<OpenAIProxyRequest, { text: string }>(functions, "callOpenAI");
+  try {
+    const res = await fn(req);
+    return res.data;
+  } catch (err: any) {
+    const code = err?.code as string | undefined;
+    const message = err?.message as string | undefined;
+    if (code === "functions/unauthenticated") {
+      throw new Error("Please sign in again to use AI features.");
+    }
+    if (code === "functions/resource-exhausted") {
+      throw new Error(message || "Daily AI limit reached. Try again tomorrow.");
+    }
+    throw new Error(message || "AI service unavailable. Please try again.");
+  }
+}
+
+/**
+ * Pass 1 — look up a named independent restaurant's dish on the web.
+ * Returns a short plain-text digest to inject into the vision call, or ''
+ * when nothing useful comes back. Never throws: a failed lookup degrades to
+ * an ordinary estimate rather than breaking the scan.
+ */
+async function lookupRestaurantDish(query: string): Promise<string> {
+  try {
+    const res = await callOpenAIProxy({
+      feature: 'foodRestaurantLookup',
+      model: 'gpt-5-search-api',
+      webSearch: true,
+      messages: [{
+        role: 'user',
+        content: `Find published nutrition information for this restaurant order: "${sanitize(query, 300)}".
+
+Search the restaurant's own site, nutrition PDFs, and reputable nutrition databases. Report ONLY what you actually find, in at most 6 short lines:
+- Restaurant name and whether you found its real menu
+- The dish, with calories and protein/carbs/fat if published
+- Typical portion size or weight if stated
+- If you could NOT find real data, say exactly: NO DATA FOUND
+
+Do not guess numbers. Do not pad with general nutrition advice.`,
+      }],
+    });
+    const text = (res.text || '').trim();
+    if (!text || /NO DATA FOUND/i.test(text)) return '';
+    return text.slice(0, 1200);
+  } catch {
+    return '';
+  }
+}
+
+// ===========================================================================
 // TOOL DEFINITIONS (sent server-side as part of `config.tools`)
 // ===========================================================================
 const saveInsightTool: FunctionDeclaration = {
@@ -1099,15 +1178,60 @@ export const analyzeFoodEntry = async (
     });
   }
 
-  // Keep googleSearch enabled for restaurant lookup. We continue to parse
-  // plain text JSON (cleanText) because responseSchema cannot be combined
-  // with the search tool in the current API.
-  const response = await callGeminiProxy({
+  // ---- PASS 1 (conditional): live web lookup for a named indie restaurant ----
+  // Only runs when the user named a restaurant that is NOT in the local menu
+  // database — chains and packaged food are already grounded by the curated
+  // DB and USDA/Open Food Facts, so spending a second call there would be
+  // waste. A failed or empty lookup degrades silently to a normal estimate.
+  //
+  // Recomputed here (the prompt builder derives it independently in its own
+  // scope): a named restaurant that is NOT one of the curated chains.
+  const namedIndieRestaurant =
+    detectRestaurantsInText(textDescription).length === 0 &&
+    detectIndieRestaurantIntent(textDescription);
+
+  let webLookup = '';
+  if (namedIndieRestaurant && textDescription.trim()) {
+    webLookup = await lookupRestaurantDish(textDescription);
+  }
+
+  // ---- PASS 2: vision + strict JSON ----
+  // Convert the accumulated parts into OpenAI message content. Images become
+  // data URLs; text stays text.
+  const content: any[] = [];
+  parts.forEach((part: any) => {
+    if (part?.inlineData?.data) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:${part.inlineData.mimeType || 'image/jpeg'};base64,${part.inlineData.data}` },
+      });
+    } else if (typeof part?.text === 'string') {
+      content.push({ type: 'text', text: part.text });
+    }
+  });
+
+  if (webLookup) {
+    content.push({
+      type: 'text',
+      text: `
+
+WEB LOOKUP RESULTS for the restaurant the user named. These came from a live
+search of the restaurant's published information. Treat them as more
+authoritative than a visual estimate for the items they cover, and set
+"source": "restaurant_db" with "confidence": "medium" for those items. Say in
+"tip" that the numbers came from the restaurant's published data.
+
+${webLookup}`,
+    });
+  }
+
+  const response = await callOpenAIProxy({
     feature: 'analyzeFoodEntry',
-    contents: { parts },
-    config: {
-      tools: [{ googleSearch: {} }],
-    },
+    messages: [{ role: 'user', content }],
+    // json_object (not json_schema): the prompt already specifies the exact
+    // shape, items are normalized defensively below, and a strict schema here
+    // would force every optional field to be present or null for no benefit.
+    responseFormat: { type: 'json_object' },
   });
 
   const cleanText = (text: string) => text.replace(/```json\n?|\n?```/g, "").trim();

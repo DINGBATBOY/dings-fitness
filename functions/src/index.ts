@@ -25,11 +25,13 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
 
 const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
+const OPENAI_API_KEY = defineSecret("OPENAI_API_KEY");
 // Optional. If absent, searchNutrition still works via Open Food Facts.
 const USDA_API_KEY = defineSecret("USDA_API_KEY");
 
@@ -41,6 +43,19 @@ const ALLOWED_MODELS = new Set([
   // from switching to a more expensive model client-side.
 ]);
 const DEFAULT_MODEL = "gemini-2.5-flash";
+
+// ----- OpenAI (food scan only; see callOpenAI below) -----
+// Vision + strict structured output is required for photo analysis, which
+// rules out GPT-6 Astra (no vision). Terra is the accuracy/cost balance;
+// Sol is allowlisted if food scans need more. gpt-5-search-api is the
+// only one of these that can do a live web lookup, and it cannot be
+// combined with vision, hence the two-pass design on the client.
+const ALLOWED_OPENAI_MODELS = new Set([
+  "gpt-5.6-terra",     // default for vision + macros
+  "gpt-5.6-sol",       // stronger, pricier
+  "gpt-5-search-api",  // text-only search pass
+]);
+const DEFAULT_OPENAI_MODEL = "gpt-5.6-terra";
 const MAX_REQUEST_BYTES = 9 * 1024 * 1024;  // ~9 MB (onCall hard cap is 10 MB)
 
 // ----- Token pricing (USD per 1M tokens) -----
@@ -50,6 +65,10 @@ const PRICING: Record<string, { input: number; output: number }> = {
   "gemini-2.5-flash":      { input: 0.075, output: 0.30 },
   "gemini-2.5-flash-lite": { input: 0.0375, output: 0.15 },
   "gemini-2.5-pro":        { input: 1.25, output: 5.00 },
+  // OpenAI, USD per 1M tokens (Sept 2026)
+  "gpt-5.6-terra":    { input: 2.00, output: 12.00 },
+  "gpt-5.6-sol":      { input: 4.00, output: 20.00 },
+  "gpt-5-search-api": { input: 2.00, output: 12.00 },
 };
 const FALLBACK_PRICING = { input: 0.075, output: 0.30 };
 
@@ -542,6 +561,115 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
     });
   }
 });
+
+
+// ============================================================================
+//  callOpenAI
+// ============================================================================
+/**
+ * OpenAI proxy, used ONLY by the food-macro scan (analyzeFoodEntry).
+ *
+ * Deliberately separate from callGemini rather than a provider flag inside
+ * it: nine other features depend on that path and there is no reason to put
+ * them at risk. Both share the same auth, quota bucket and usage logging.
+ *
+ * Supports two call shapes the client needs:
+ *   1. vision + strict JSON  (gpt-5.6-terra) - reads the plate
+ *   2. text-only web search  (gpt-5-search-api + webSearch) - looks up a
+ *      named restaurant's dish first. These cannot be combined in one call,
+ *      which is why the client runs them as two passes.
+ */
+interface OpenAIRequest {
+  model?: string;
+  messages: unknown;
+  responseFormat?: unknown;
+  /** Enables web search. Only valid on a search-capable model. */
+  webSearch?: boolean;
+  temperature?: number;
+  feature?: string;
+}
+
+export const callOpenAI = onCall(
+  {
+    cors: true,
+    secrets: [OPENAI_API_KEY],
+    timeoutSeconds: 120,   // vision + search can be slower than text
+    memory: "512MiB",
+  },
+  async (req: CallableRequest<OpenAIRequest>) => {
+    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+    const uid = req.auth.uid;
+
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+      throw new HttpsError("invalid-argument", "Missing request body.");
+    }
+    if (JSON.stringify(data).length > MAX_REQUEST_BYTES) {
+      throw new HttpsError("invalid-argument", "Request too large.");
+    }
+    if (!Array.isArray(data.messages) || data.messages.length === 0) {
+      throw new HttpsError("invalid-argument", "Missing `messages`.");
+    }
+
+    const model = data.model || DEFAULT_OPENAI_MODEL;
+    if (!ALLOWED_OPENAI_MODELS.has(model)) {
+      throw new HttpsError("invalid-argument", `Model not allowed: ${model}`);
+    }
+
+    const feature = typeof data.feature === "string"
+      ? data.feature.slice(0, 64).replace(/[^a-zA-Z0-9_.-]/g, "")
+      : "unknown";
+
+    // Shares the Gemini quota bucket so one user cannot bypass the daily cap
+    // by using the food scan.
+    try {
+      await consumeQuota(uid);
+    } catch (err) {
+      bumpOpsCounter("quotaExhaustedHits").catch(() => undefined);
+      throw err;
+    }
+
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
+    const startTime = Date.now();
+    let result;
+    try {
+      result = await client.chat.completions.create({
+        model,
+        messages: data.messages as any,
+        ...(data.responseFormat ? { response_format: data.responseFormat as any } : {}),
+        ...(data.webSearch ? { web_search_options: {} } : {}),
+        ...(typeof data.temperature === "number" ? { temperature: data.temperature } : {}),
+      } as any);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "OpenAI call failed";
+      console.error("[callOpenAI] upstream error", uid, feature, msg);
+      bumpOpsCounter("upstreamErrors").catch(() => undefined);
+      throw new HttpsError("internal", "AI service error. Try again.");
+    }
+    const durationMs = Date.now() - startTime;
+
+    try {
+      const usage = (result as any).usage ?? {};
+      const promptTokens = Number(usage.prompt_tokens ?? 0);
+      const candidatesTokens = Number(usage.completion_tokens ?? 0);
+      await logTokenUsage({
+        uid,
+        userEmail: req.auth.token?.email ?? null,
+        feature,
+        model,
+        promptTokens,
+        candidatesTokens,
+        totalTokens: Number(usage.total_tokens ?? promptTokens + candidatesTokens),
+        costUsd: estimateCostUsd(model, promptTokens, candidatesTokens),
+        durationMs,
+      });
+    } catch (err) {
+      console.error("[callOpenAI] usage logging failed (non-fatal)", uid, err);
+    }
+
+    return { text: (result as any).choices?.[0]?.message?.content ?? "" };
+  },
+);
 
 // ============================================================================
 //  deleteAccount
