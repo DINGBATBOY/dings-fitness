@@ -688,7 +688,7 @@ const formatRestaurantContext = (
 
     // CASE 1: no menu item matches the user's query.
     if (matchedItems.length === 0 && (!r.components || r.components.length === 0)) {
-      return `${r.shortName}: User mentioned this restaurant, but their specific item is NOT in our verified menu list. USE THE GOOGLE SEARCH TOOL to find the official nutrition data for the specific item from ${r.shortName}'s nutrition guide (${r.nutritionSourceUrl || r.officialUrl || ''}). Do NOT guess. Set "source": "restaurant_db" if you find authoritative data; "visual_estimate" otherwise. Confidence: "medium". Note in the tip that you searched for the specific item.`;
+      return `${r.shortName}: User mentioned this restaurant, but their specific item is NOT in our verified menu list. If a WEB LOOKUP RESULTS section appears below, it was fetched from ${r.shortName}'s published nutrition data (${r.nutritionSourceUrl || r.officialUrl || ''}) — use it and set "source": "restaurant_db". If there is no such section, estimate from the dish's visible/described composition and typical chain portion sizes, set "source": "visual_estimate", and say in the tip that this item wasn't in our verified list.  Confidence: "medium" either way.`;
     }
 
     const menuLines = matchedItems.map(formatItem).join('\n');
@@ -724,7 +724,7 @@ const formatRestaurantContext = (
       ? `${r.shortName} (verified items matching the user's query):`
       : `${r.shortName} (verified ingredient components):`;
     const fallbackNote = matchedItems.length === 0
-      ? `  (NO complete menu item matched the user's query. If you can compose the user's item from the components below, do so and SHOW THE MATH in the tip. If you cannot, USE GOOGLE SEARCH for the official ${r.shortName} nutrition.)`
+      ? `  (NO complete menu item matched the user's query. If you can compose the user's item from the components below, do so and SHOW THE MATH in the tip. If you cannot, use the WEB LOOKUP RESULTS section below when one is present; otherwise estimate and mark "confidence": "medium".)`
       : '';
 
     return `${header}\n${menuLines}${fallbackNote}${componentSection}`;
@@ -746,18 +746,18 @@ If the user describes an item that is NOT exactly in the listed menu (e.g.
 they ordered a "flatbread" but only "wrap" is in our list, or they ordered a
 "large" but only the "small" is listed), do NOT silently substitute the
 listed item's macros. Instead:
-  • USE THE GOOGLE SEARCH TOOL to find the actual item's nutrition data from
-    the restaurant's official source.
-  • Set "source": "restaurant_db" if the search returned authoritative data
-    from the chain's site; otherwise "visual_estimate".
+  • Check the WEB LOOKUP RESULTS section below, if one is present — it holds
+    data fetched from the restaurant's published source for this order.
+  • Set "source": "restaurant_db" if that section covers the actual item;
+    otherwise estimate the real item and set "visual_estimate".
   • Set "confidence": "medium" — note in the tip that the specific item
-    wasn't in our verified list and you searched for it instead.
+    wasn't in our verified list.
   • In the tip, name BOTH what the user ordered AND what was different from
     our listed item, so they know we used a fallback.
 Example: user says "Chicken Bacon Ranch Flatbread from Tropical Smoothie";
-list has "Chicken Bacon Ranch Wrap." → DO NOT use the wrap's macros. Search
-for the flatbread, return its actual values, tip: "Searched for the
-flatbread directly — our verified list only had the wrap."
+list has "Chicken Bacon Ranch Wrap." → DO NOT use the wrap's macros. Return
+the flatbread's own values, tip: "Estimated the flatbread directly — our
+verified list only had the wrap."
 
 MODIFIER HANDLING — read carefully when components are listed above:
 For build-your-own concepts (Chipotle bowls, Sweetgreen salads, Subway subs,
@@ -837,9 +837,10 @@ export const detectIndieRestaurantIntent = (text: string): boolean => {
 // macros for whole foods and branded packaged products before it falls back
 // to estimation.
 //
-// `softenSearchBlock`: when true, the instruction allowing the AI to prefer
-// Google Search for restaurant-specific items overrides USDA for those items.
-// Set when indie restaurant intent is detected upstream.
+// `softenSearchBlock`: when true, tells the model that web-lookup results for
+// a named restaurant outrank USDA generics for that restaurant's items. Set
+// when indie restaurant intent is detected upstream (the same condition that
+// triggers the pass-1 web lookup in analyzeFoodEntry).
 const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = false): string => {
   if (matches.length === 0) return '';
   const lines = matches.map(m => {
@@ -850,11 +851,13 @@ const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = f
   }).join('\n');
 
   const searchPolicy = softenSearchBlock
-    ? `For RESTAURANT-NAMED items in the user's query, prefer Google Search
-results (per the Independent Restaurant block above) — USDA generics are
-wrong for a named restaurant's preparation. For generic ingredients or
-sides not tied to the restaurant ("french fries", "ketchup"), use USDA.`
-    : `Do NOT use Google Search for foods covered here.`;
+    ? `For RESTAURANT-NAMED items in the user's query, prefer the WEB LOOKUP
+RESULTS section below if one is present (per the Independent Restaurant block
+above) — USDA generics are wrong for a named restaurant's preparation. For
+generic ingredients or sides not tied to the restaurant ("french fries",
+"ketchup"), use USDA.`
+    : `These values are authoritative for the foods they cover — use them
+rather than estimating.`;
 
   return `
 
@@ -901,30 +904,33 @@ const buildFoodAnalysisPrompt = (
   // Detect INDEPENDENT restaurant intent for queries that don't match a known
   // chain. Examples: "Ted Peters salmon dinner", "Joe's pizza", "Mama's
   // lasagna", "at Frenchy's", "from Versailles Cafe". When the user names a
-  // specific place, generic USDA matches ("salmon" = 175 cal) are wrong — we
-  // need Google Search to find that restaurant's actual preparation.
+  // specific place, generic USDA matches ("salmon" = 175 cal) are wrong — this
+  // is the condition that triggers the pass-1 web lookup in analyzeFoodEntry.
   const hasIndieRestaurantIntent =
     matched.length === 0 && detectIndieRestaurantIntent(textDescription);
 
   // If we have USDA/OFF matches, inject those too. When indie restaurant
-  // intent is present we soften the "don't use search" instruction so Gemini
-  // can prefer restaurant-specific data over USDA generics.
+  // intent is present we soften the USDA-is-authoritative instruction so the
+  // model prefers restaurant-specific lookup data over USDA generics.
   const nutritionContext = formatNutritionContext(nutritionMatches, hasIndieRestaurantIntent);
 
   const indieRestaurantHint = hasIndieRestaurantIntent ? `
 
 INDEPENDENT RESTAURANT DETECTED in the user's text — they named a specific
 non-chain restaurant (apostrophe-S name, "at [Place]", "from [Place]", or
-similar). For ANY items associated with that restaurant:
-1. USE the Google Search tool FIRST to find the restaurant's nutrition data,
-   menu photos, recipes, or reviews that describe portion sizes.
-2. Even if USDA matches were injected below, prefer search-derived numbers
-   for the restaurant-specific item — USDA's generic "salmon" or "potato
-   salad" is wrong for a named restaurant's preparation.
-3. Set "source": "restaurant_db" and "confidence": "medium" when search finds
-   the restaurant's data. Set "low" if you can only find similar dishes
-   from comparable restaurants.
-4. In "tip", state the restaurant + which search source you used.
+similar). We ran a live web lookup for this order. For ANY items associated
+with that restaurant:
+1. If a WEB LOOKUP RESULTS section appears below, treat it as the primary
+   source for those items — it holds what the search actually found.
+2. Even if USDA matches were injected below, prefer the lookup's numbers for
+   the restaurant-specific item — USDA's generic "salmon" or "potato salad"
+   is wrong for a named restaurant's preparation.
+3. Set "source": "restaurant_db" and "confidence": "medium" when the lookup
+   covers the item. If NO lookup section is present, the search found
+   nothing: estimate from the dish's visible/described composition and
+   typical restaurant portions, set "source": "visual_estimate" and
+   "confidence": "low", and say so plainly in "tip".
+4. In "tip", state the restaurant and where the numbers came from.
 ` : '';
 
   // Shared output schema description — same shape regardless of mode.
@@ -1029,10 +1035,13 @@ STEP 2 — FOR EACH ITEM you return:
   rice → "🍚", chicken → "🍗").
 
 - If the user mentions a SPECIFIC RESTAURANT or BRAND (e.g. "Chipotle",
-  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), USE the
-  Google Search tool to find that restaurant's published nutritional
-  data for EACH menu item first, BEFORE estimating visually. Set
-  "source": "restaurant_db" on each item you sourced this way.
+  "Chick-fil-A", "Starbucks", "Sweetgreen", "Huey Magoo's"), use the
+  authoritative restaurant data and/or WEB LOOKUP RESULTS sections above
+  for EACH menu item first, BEFORE estimating visually. Set
+  "source": "restaurant_db" on each item you sourced that way.
+- You have NO live web access in this step. Every external source you are
+  allowed to cite has already been gathered and placed in the sections
+  above. Never claim to have looked something up, and never invent a URL.
 - For homemade or generic items, set "source": "visual_estimate".
 - "confidence": "high" only for restaurant-database matches; "medium"
   for clear visual estimates; "low" for obscured or ambiguous items.
@@ -1051,7 +1060,7 @@ SANITY CHECK (run before returning):
 - Total calories should be within ~10% of (4 × protein + 4 × carbs + 9 × fat).
 - If any check fails, drop "confidence" to "medium" or "low" and note the uncertainty in "tip".
 
-When you cite a source from web search, include the source URL or restaurant name in "tip" so the user can verify.
+When you cite a source from the provided data sections, include the source URL or restaurant name in "tip" so the user can verify.
 `;
 
   const autoInstructions = `
@@ -1178,20 +1187,34 @@ export const analyzeFoodEntry = async (
     });
   }
 
-  // ---- PASS 1 (conditional): live web lookup for a named indie restaurant ----
-  // Only runs when the user named a restaurant that is NOT in the local menu
-  // database — chains and packaged food are already grounded by the curated
-  // DB and USDA/Open Food Facts, so spending a second call there would be
-  // waste. A failed or empty lookup degrades silently to a normal estimate.
+  // ---- PASS 1 (conditional): live web lookup for a named restaurant ----
+  // The vision model in pass 2 has no web access, so anything it should be
+  // able to cite has to be fetched here first. Two cases qualify:
   //
-  // Recomputed here (the prompt builder derives it independently in its own
-  // scope): a named restaurant that is NOT one of the curated chains.
+  //   (a) the user named a NON-CHAIN restaurant ("Ted Peters salmon dinner")
+  //   (b) the user named a curated CHAIN but ordered something our menu DB
+  //       does not cover ("the flatbread from Tropical Smoothie")
+  //
+  // Case (b) matters because it is exactly where the curated DB stops being
+  // authoritative — it used to be covered by Gemini's search tool. A chain
+  // order we DO have data for skips the lookup, as does packaged food that
+  // USDA/Open Food Facts already grounds, so the second call is only spent
+  // where it changes the answer. A failed or empty lookup degrades silently
+  // to an ordinary estimate.
   const namedIndieRestaurant =
-    detectRestaurantsInText(textDescription).length === 0 &&
-    detectIndieRestaurantIntent(textDescription);
+    restaurantMatched.length === 0 && detectIndieRestaurantIntent(textDescription);
+
+  // Chain named, but nothing in our data covers what they ordered: no menu
+  // item matched the text AND the chain has no per-ingredient components to
+  // compose from. Mirrors the CASE 1 condition in formatRestaurantContext.
+  const chainItemNotInDb =
+    restaurantMatched.length > 0 &&
+    restaurantMatched.every(r =>
+      findMenuItemMatches(textDescription, getEffectiveMenuItems(r, customMenuItems)).length === 0 &&
+      (!r.components || r.components.length === 0));
 
   let webLookup = '';
-  if (namedIndieRestaurant && textDescription.trim()) {
+  if ((namedIndieRestaurant || chainItemNotInDb) && textDescription.trim()) {
     webLookup = await lookupRestaurantDish(textDescription);
   }
 
