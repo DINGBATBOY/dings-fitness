@@ -141,6 +141,26 @@ export const UsageDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) =
       .sort((a, b) => b[1].costUsd - a[1].costUsd);
   }, [rows]);
 
+  // Per-model breakdown. With two providers (Gemini + OpenAI), this is the
+  // quickest proof of which one actually served a request: an OpenAI food
+  // scan shows up as gpt-* here, never as gemini-*.
+  const byModel = useMemo(() => {
+    const map = new Map<string, { calls: number; tokens: number; costUsd: number }>();
+    for (const r of rows) {
+      const prev = map.get(r.model) || { calls: 0, tokens: 0, costUsd: 0 };
+      prev.calls += 1;
+      prev.tokens += r.totalTokens;
+      prev.costUsd += r.costUsd;
+      map.set(r.model, prev);
+    }
+    return [...map.entries()].sort((a, b) => b[1].calls - a[1].calls);
+  }, [rows]);
+
+  const recent = useMemo(() => rows.slice(0, 12), [rows]);
+
+  const providerOf = (model: string) =>
+    model.startsWith('gpt-') ? 'OpenAI' : model.startsWith('gemini') ? 'Gemini' : '?';
+
   const byUser = useMemo(() => {
     const map = new Map<string, { email: string | null; calls: number; tokens: number; costUsd: number }>();
     for (const r of rows) {
@@ -238,6 +258,58 @@ export const UsageDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) =
                 <span><span className="text-gray-500">Avg/call:</span> {totals.calls > 0 ? formatUsd(totals.costUsd / totals.calls) : '—'}</span>
               </div>
 
+              {/* Recent calls: newest first, with the model that served each */}
+              <section>
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Recent calls</h3>
+                {recent.length === 0 ? (
+                  <div className="text-[11px] text-gray-600 italic">No AI calls in this window.</div>
+                ) : (
+                  <div className="space-y-1">
+                    {recent.map((r, i) => {
+                      const provider = providerOf(r.model);
+                      return (
+                        <div key={i} className="bg-white/[0.03] rounded-lg px-3 py-1.5 flex items-center justify-between gap-3 text-[11px]">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-bold text-white">{r.feature}</span>
+                            <span className="text-gray-600"> · {r.timestamp.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                          </div>
+                          <span className={`font-mono shrink-0 px-2 py-0.5 rounded-full border text-[10px] ${
+                            provider === 'OpenAI'
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          }`}>
+                            {r.model}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              {/* By model */}
+              <section>
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">By model</h3>
+                {byModel.length === 0 ? (
+                  <div className="text-[11px] text-gray-600 italic">No AI calls in this window.</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {byModel.map(([model, v]) => (
+                      <div key={model} className="bg-white/[0.03] rounded-lg px-3 py-2 flex justify-between items-baseline">
+                        <span className="text-xs font-bold text-white truncate">
+                          {model} <span className="text-gray-500 font-normal">({providerOf(model)})</span>
+                        </span>
+                        <div className="flex gap-3 text-[10px] font-mono tabular-nums shrink-0">
+                          <span className="text-gray-500">{v.calls} calls</span>
+                          <span className="text-gray-400">{formatTokens(v.tokens)}</span>
+                          <span className="text-emerald-400">{formatUsd(v.costUsd)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
               {/* By feature */}
               <section>
                 <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">By feature</h3>
@@ -295,8 +367,9 @@ export const UsageDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) =
 
               {/* Footer note */}
               <p className="text-[10px] text-gray-600 italic pt-2">
-                Cost is estimated from published Gemini pricing × token counts. Actual billing may
-                differ for image inputs and edge cases. Verify against Google Cloud Console invoices.
+                Cost is estimated from published Gemini and OpenAI pricing × token counts. Actual
+                billing may differ for image inputs and edge cases. Verify against the Google Cloud
+                and OpenAI billing dashboards.
               </p>
             </>
           )}

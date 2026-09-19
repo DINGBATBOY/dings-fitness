@@ -138,6 +138,9 @@ _(App Store Connect → App Privacy → Get Started. This is what shows on your 
 | Health & Fitness data (weight, body fat, macros, workouts) | App Functionality, Product Personalization | Yes — linked | No |
 | Other Diagnostic Data (food log entries, AI usage counters) | Analytics, App Functionality | Yes — linked | No |
 | Photos | App Functionality (food scan, profile pic) | Yes — linked | No |
+| Fitness (Apple Health: active energy, workouts) | App Functionality | Yes — linked | No |
+
+Health & Fitness must be declared because of HealthKit. Also answer **Yes** to "data shared with third parties" for Photos and Health & Fitness (food scan goes to OpenAI, coach to Google), purpose App Functionality.
 
 **What we do NOT collect:**
 - Location
@@ -150,6 +153,8 @@ _(App Store Connect → App Privacy → Get Started. This is what shows on your 
 **Third-party SDKs to disclose:**
 - Firebase (authentication, Firestore database, Cloud Functions, Analytics) — Google
 - Gemini API (via your own Cloud Function proxy, not direct from device) — Google
+- OpenAI API (food photo scan + restaurant web lookup, via the `callOpenAI` Cloud Function) — OpenAI
+- HealthKit (read-only: active energy, workouts, weight) — Apple, on-device; never sent to AI providers
 - USDA FoodData Central + Open Food Facts (server-side queries only)
 
 **Key answer: "Used for tracking"** → **No** for everything. You don't have ads, don't share with data brokers, don't track across other apps/websites.

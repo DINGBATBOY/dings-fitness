@@ -182,10 +182,20 @@ Ordered by what blocks what.
    run of HealthKit. Batch it rather than spending a build number per
    change.
 5. Wire the Codemagic webhook so pushes build iOS automatically.
-6. Submit v1.0 to the App Store (needs the App Privacy health-data label).
+6. Submit v1.0 to the App Store. Before submitting: fill the App Privacy
+   label per `APP_STORE_LISTING.md` §9 (Health & Fitness + Photos, shared
+   with third parties for App Functionality) and install a HealthKit build
+   on a real iPhone. Done Sept 18: privacy policy / terms / in-app legal now
+   name OpenAI; one-time AI data-sharing consent sheet gates the food scan
+   and coach chat (`acceptedAiDataSharing` on the profile, Guideline
+   5.1.2(i)); `ITSAppUsesNonExemptEncryption=false` in Info.plist.
 7. Cloud Functions Node 20 decommission Oct 30, 2026 (code is on 22; ships
    on next functions deploy).
 8. Firestore subcollection migration (see gotcha 3).
+
+The admin **AI Usage** dashboard (Profile, admin only) now shows *Recent
+calls* with the model for each, plus a *By model* breakdown. That's the
+fastest in-app way to confirm a food scan hit `gpt-*` and not `gemini-*`.
 
 Nice-to-have: add a `byModel` breakdown to `opsReport` — it already groups
 `byFeature`, and with two providers billing, per-model cost is the number

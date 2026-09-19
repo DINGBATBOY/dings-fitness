@@ -453,6 +453,21 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // and accept it at least once. Triggered below once profile is loaded.
   const [showHealthDisclaimer, setShowHealthDisclaimer] = useState(false);
 
+  // One-time AI data-sharing consent (App Store Guideline 5.1.2(i)). Shown the
+  // first time the user triggers an AI feature that sends their own content
+  // (a food photo/description, a coach message) to OpenAI or Google. The
+  // pending action runs only after they agree.
+  const [aiConsentPending, setAiConsentPending] = useState<null | (() => void)>(null);
+  // Ref mirrors the profile flag so an action re-run right after acceptance
+  // (from a closure created before the state update) sees consent immediately.
+  const aiConsentRef = useRef(false);
+  aiConsentRef.current = aiConsentRef.current || appState.profile?.acceptedAiDataSharing === true;
+  const hasAiConsent = () => aiConsentRef.current;
+  const requireAiConsent = (action: () => void) => {
+    if (hasAiConsent()) { action(); return; }
+    setAiConsentPending(() => action);
+  };
+
   // First-launch spotlight tour. Fires once per user (gated by a uid-namespaced
   // localStorage flag). Triggered on first profile load OR via the "Show tour
   // again" button in Profile.
@@ -1563,6 +1578,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   const handleAnalyzeFood = async () => {
     if (foodImages.length === 0 && !foodDescription) return;
+    if (!hasAiConsent()) {
+      requireAiConsent(() => { handleAnalyzeFood(); });
+      return;
+    }
     setIsAnalyzingFood(true);
     setAnalysisTip(pickVoice([
       'Trying to figure out what the hell you are eating....',
@@ -1879,6 +1898,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !appState.profile) return;
+    if (!hasAiConsent()) {
+      requireAiConsent(() => { handleSendMessage(); });
+      return;
+    }
     const userMsg = chatInput;
     setChatInput('');
     setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
@@ -3584,6 +3607,77 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               >
                 I UNDERSTAND & AGREE
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ONE-TIME AI DATA-SHARING CONSENT (Guideline 5.1.2(i)) */}
+      {aiConsentPending && (
+        <div
+          className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ background: 'rgba(0,0,0,0.92)' }}
+        >
+          <div
+            className="w-full sm:max-w-md glass rounded-t-3xl sm:rounded-3xl flex flex-col overflow-hidden"
+            style={{ maxHeight: '90vh', background: '#0a0a0a' }}
+          >
+            <div className="overflow-y-auto px-6 py-8 space-y-5">
+              <div className="flex flex-col items-center gap-2">
+                <h2 className="text-lg font-orbitron font-bold text-white tracking-wider text-center">
+                  BEFORE WE SCAN
+                </h2>
+                <p className="text-[10px] text-gray-500 uppercase tracking-widest text-center">
+                  How AI features use your data
+                </p>
+              </div>
+              <div className="space-y-3 text-sm text-gray-300 leading-relaxed">
+                <p>
+                  To estimate macros, Dings sends your food photos and descriptions to
+                  <span className="text-white font-semibold"> OpenAI</span>. Coach chats and other AI
+                  features are processed by <span className="text-white font-semibold">Google Gemini</span>.
+                </p>
+                <p>
+                  Food scans send only the photo and what you typed. Coach chats include relevant profile
+                  details like your goals and stats. Neither provider gets your email, password, or Apple
+                  Health data, and we don&rsquo;t keep your photos after the analysis.
+                </p>
+                <p className="text-[12px] text-gray-400">
+                  You can always log food manually instead. Details are in the Privacy Policy.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <button
+                  onClick={() => {
+                    const run = aiConsentPending;
+                    aiConsentRef.current = true;
+                    handleUpdateAppState(prev => ({
+                      ...prev,
+                      profile: prev.profile
+                        ? {
+                            ...prev.profile,
+                            acceptedAiDataSharing: true,
+                            aiDataSharingAcceptedAt: new Date().toISOString(),
+                          }
+                        : prev.profile,
+                    }));
+                    setAiConsentPending(null);
+                    run && run();
+                  }}
+                  className="w-full py-4 rounded-2xl bg-white text-black font-orbitron font-bold text-sm tracking-widest hover:bg-gray-200 transition-colors"
+                >
+                  AGREE & CONTINUE
+                </button>
+                <button
+                  onClick={() => {
+                    setAiConsentPending(null);
+                    triggerToast('No problem. You can still log food manually.');
+                  }}
+                  className="w-full py-3 rounded-2xl bg-white/5 text-gray-400 text-xs font-bold tracking-widest hover:bg-white/10 transition-colors"
+                >
+                  NOT NOW
+                </button>
+              </div>
             </div>
           </div>
         </div>

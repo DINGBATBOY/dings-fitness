@@ -20,7 +20,7 @@ const PUBLISHER_DBA = 'Ding! Fitness';
 const PUBLISHER_FULL = `${PUBLISHER_LEGAL_NAME}, doing business as ${PUBLISHER_DBA}`;
 const CONTACT_EMAIL = 'support@dings.fitness';
 const GOVERNING_STATE = 'Florida';
-const EFFECTIVE_DATE = 'May 16, 2026';
+const EFFECTIVE_DATE = 'September 18, 2026';
 
 const sections: { id: Tab; label: string }[] = [
   { id: 'privacy', label: 'Privacy Policy' },
@@ -129,13 +129,39 @@ function PrivacyPolicy() {
         to track.
       </P>
       <P>
-        <strong className="text-white">Food images.</strong> If you photograph meals for AI
-        analysis, the image is sent to Google&rsquo;s Gemini API for nutritional estimation. We do
-        not store these images on our servers after analysis completes.
+        <strong className="text-white">Food images and descriptions.</strong> If you photograph or
+        describe a meal for AI analysis, the image and text are sent to OpenAI&rsquo;s API for
+        nutritional estimation. When you name a restaurant, the dish name may also be sent to
+        OpenAI&rsquo;s web-search model to look up published nutrition information. We do not store
+        these images on our servers after analysis completes. We ask for your permission in the App
+        before the first AI request.
       </P>
       <P>
-        <strong className="text-white">Chat messages.</strong> Conversations with the in-app AI
-        coach are processed by Google&rsquo;s Gemini API to generate responses.
+        <strong className="text-white">Chat messages and other AI features.</strong> Conversations
+        with the in-app AI coach, meal suggestions, and other AI features are processed by
+        Google&rsquo;s Gemini API to generate responses.
+      </P>
+
+      <H2>Apple Health (HealthKit)</H2>
+      <P>
+        On iPhone, you may optionally connect Apple Health. If you grant permission, the App reads
+        the following data from HealthKit, on a <strong className="text-white">read-only</strong>{' '}
+        basis, to reduce manual logging: your active energy burned for the current day, your
+        workouts for the current day (type, duration, and calories), and your most recent
+        body-mass (weight) sample. The App never writes to Apple Health.
+      </P>
+      <P>
+        We use HealthKit data solely to provide App functionality: to display your daily energy
+        balance, to mark your scheduled workout as complete, and to seed a weight check-in. We{' '}
+        <strong className="text-white">never</strong> use HealthKit data for advertising or
+        marketing, never sell it, and never disclose it to third parties (including our AI
+        providers). Only compact daily aggregates are stored in your own private account; we do not
+        store raw HealthKit samples.
+      </P>
+      <P>
+        Connecting Apple Health is optional and the App works fully without it. You can revoke
+        access at any time in iOS under Settings &rarr; Health &rarr; Data Access &amp; Devices
+        &rarr; Ding! Fitness, or by tapping Disconnect on the Profile screen.
       </P>
 
       <H2>What We Do Not Collect</H2>
@@ -163,8 +189,15 @@ function PrivacyPolicy() {
         privacy practices.
       </P>
       <P>
+        <strong className="text-white">OpenAI API (OpenAI, L.L.C.)</strong> — processes the food
+        photos and meal descriptions you submit for macro estimation. It receives no profile details
+        and never receives your email address, password, or Apple Health data. OpenAI may retain API inputs for a limited period as
+        described in its published API data-usage policies, and does not use API data to train its
+        models by default.
+      </P>
+      <P>
         <strong className="text-white">Google Gemini API (Google LLC)</strong> — processes the text
-        prompts, food images, and AI coach conversations you submit. Google may retain API inputs
+        prompts and AI coach conversations you submit for all other AI features. Google may retain API inputs
         as described in their published API usage and privacy policies. Do not submit images
         containing sensitive personal information you would not want analyzed by an AI service.
       </P>
@@ -294,7 +327,7 @@ function TermsOfService() {
 
       <H2>AI-Generated Content</H2>
       <P>
-        The App uses third-party artificial intelligence (currently Google&rsquo;s Gemini API) to
+        The App uses third-party artificial intelligence (currently OpenAI&rsquo;s API and Google&rsquo;s Gemini API) to
         generate nutritional estimates, meal suggestions, coaching responses, and other content.
         AI outputs are estimates and may be inaccurate, incomplete, or unsuitable for your
         situation. You are responsible for evaluating AI-generated content before acting on it.
@@ -458,7 +491,7 @@ function HealthDisclaimer() {
       <H2>AI Accuracy Limitations</H2>
       <P>
         Nutritional estimates derived from food images, text descriptions, or chat messages are
-        approximations generated by artificial intelligence (Google Gemini). Actual caloric and
+        approximations generated by artificial intelligence (OpenAI and Google Gemini). Actual caloric and
         macronutrient content may vary significantly based on portion sizes, preparation methods,
         ingredient substitutions, and other factors. Do not rely on these estimates for medical
         dietary management of conditions such as diabetes, kidney disease, food allergies, or

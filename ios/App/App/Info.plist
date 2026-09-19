@@ -66,5 +66,7 @@
 	     surfaced to users because the app requests zero write types. -->
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Ding! Fitness does not write any data to Apple Health. It only reads your activity, workouts, and weight to keep your energy balance and check-ins accurate.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

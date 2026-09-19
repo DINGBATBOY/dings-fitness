@@ -105,6 +105,11 @@ export interface UserProfile {
   // Required for App Store / Play Store submission for any fitness/health app.
   acceptedHealthDisclaimer?: boolean;
   disclaimerAcceptedAt?: string; // ISO timestamp
+  // Set when the user agrees to have photos/text sent to third-party AI
+  // providers (OpenAI, Google). App Store Guideline 5.1.2(i) requires explicit
+  // permission before personal data is shared with third-party AI.
+  acceptedAiDataSharing?: boolean;
+  aiDataSharingAcceptedAt?: string; // ISO timestamp
   // When true (default), items logged 5+ times are auto-favorited.
   // Set to false explicitly to disable.
   autoFavoriteEnabled?: boolean;
