@@ -108,7 +108,7 @@ interface ScannedItem {
     // Optional enrichment from the AI analysis. These drive UI badges and the
     // collapsible "what's in this number?" panel. None of them are required;
     // legacy/manual entries omit them and the UI gracefully hides the badges.
-    source?: 'label' | 'restaurant_db' | 'visual_estimate' | 'text_only';
+    source?: 'label' | 'restaurant_db' | 'nutrition_db' | 'web_lookup' | 'visual_estimate' | 'text_only';
     confidence?: 'high' | 'medium' | 'low';
     ingredients?: Array<{
         name: string;
@@ -2367,6 +2367,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                                     item.source === 'label' ? '📋 Nutrition label' :
                                     item.source === 'restaurant_db' ? '🔍 Restaurant menu' :
                                     item.source === 'nutrition_db' ? '🗄 USDA / Open Food Facts' :
+                                    item.source === 'web_lookup' ? '🌐 Web lookup' :
                                     item.source === 'visual_estimate' ? '👁 Visual estimate' :
                                     item.source === 'text_only' ? '✏️ Text estimate' :
                                     null;

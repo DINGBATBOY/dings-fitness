@@ -165,20 +165,19 @@ async function callOpenAIProxy(req: OpenAIProxyRequest): Promise<{ text: string 
 }
 
 /**
- * Pass 1 — look up a named independent restaurant's dish on the web.
+ * Pass 1 — live web lookup (gpt-5-search-api). Two flavours:
+ *   'restaurant' — a named restaurant's dish (feature foodRestaurantLookup)
+ *   'food'       — a generic/branded food that USDA + Open Food Facts could
+ *                  not match (feature foodWebLookup)
  * Returns a short plain-text digest to inject into the vision call, or ''
  * when nothing useful comes back. Never throws: a failed lookup degrades to
- * an ordinary estimate rather than breaking the scan.
+ * an ordinary estimate rather than breaking the scan — so check tokenUsage
+ * for the feature name to confirm it actually ran.
  */
-async function lookupRestaurantDish(query: string): Promise<string> {
-  try {
-    const res = await callOpenAIProxy({
-      feature: 'foodRestaurantLookup',
-      model: 'gpt-5-search-api',
-      webSearch: true,
-      messages: [{
-        role: 'user',
-        content: `Find published nutrition information for this restaurant order: "${sanitize(query, 300)}".
+async function lookupFoodOnWeb(query: string, kind: 'restaurant' | 'food'): Promise<string> {
+  const q = sanitize(query, 300);
+  const prompt = kind === 'restaurant'
+    ? `Find published nutrition information for this restaurant order: "${q}".
 
 Search the restaurant's own site, nutrition PDFs, and reputable nutrition databases. Report ONLY what you actually find, in at most 6 short lines:
 - Restaurant name and whether you found its real menu
@@ -186,8 +185,22 @@ Search the restaurant's own site, nutrition PDFs, and reputable nutrition databa
 - Typical portion size or weight if stated
 - If you could NOT find real data, say exactly: NO DATA FOUND
 
-Do not guess numbers. Do not pad with general nutrition advice.`,
-      }],
+Do not guess numbers. Do not pad with general nutrition advice.`
+    : `Find published nutrition facts for this food: "${q}".
+
+The USDA and Open Food Facts databases had no match, so search the web: the brand's or manufacturer's own site first, then retailer listings (Target, Walmart, Amazon, Instacart), then reputable nutrition sites (nutritionix, fatsecret, eatthismuch). Report ONLY what you actually find, in at most 6 short lines:
+- The exact product or dish you matched, with brand if any, and the site it came from
+- Serving size (with grams if stated)
+- Calories, protein, carbs, fat, and fiber per serving
+- If you could NOT find real data for this specific food, say exactly: NO DATA FOUND
+
+Do not guess numbers. Do not substitute a different product. Do not pad with general nutrition advice.`;
+  try {
+    const res = await callOpenAIProxy({
+      feature: kind === 'restaurant' ? 'foodRestaurantLookup' : 'foodWebLookup',
+      model: 'gpt-5-search-api',
+      webSearch: true,
+      messages: [{ role: 'user', content: prompt }],
     });
     const text = (res.text || '').trim();
     if (!text || /NO DATA FOUND/i.test(text)) return '';
@@ -947,7 +960,7 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this shape:
       "carbs": number,
       "fat": number,
       "fiber": number,
-      "source": "label" | "restaurant_db" | "nutrition_db" | "visual_estimate" | "text_only",
+      "source": "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only",
       "confidence": "high" | "medium" | "low",
       "servingSize": "string — only for nutrition labels, e.g. '1 cup (245g)'",
       "servingsConsumed": number,
@@ -1119,7 +1132,7 @@ const normalizeItem = (raw: any): FoodAnalysisItem => {
     ? raw.ingredients.map(normalizeIngredient).filter((i: FoodIngredient) => i.name)
     : undefined;
 
-  const validSources = ["label", "restaurant_db", "nutrition_db", "visual_estimate", "text_only"];
+  const validSources = ["label", "restaurant_db", "nutrition_db", "web_lookup", "visual_estimate", "text_only"];
   const validConfidence = ["high", "medium", "low"];
 
   return {
@@ -1213,9 +1226,21 @@ export const analyzeFoodEntry = async (
       findMenuItemMatches(textDescription, getEffectiveMenuItems(r, customMenuItems)).length === 0 &&
       (!r.components || r.components.length === 0));
 
+  // (c) USDA / Open Food Facts were queried and came back empty (or with
+  //     only low-confidence guesses) — search the web for the food itself
+  //     before falling back to an AI estimate.
+  const nutritionDbMissed =
+    shouldQueryNutritionDb &&
+    (nutritionMatches.length === 0 || nutritionMatches.every(m => m.confidence === 'low'));
+
   let webLookup = '';
+  let webLookupKind: 'restaurant' | 'food' | null = null;
   if ((namedIndieRestaurant || chainItemNotInDb) && textDescription.trim()) {
-    webLookup = await lookupRestaurantDish(textDescription);
+    webLookupKind = 'restaurant';
+    webLookup = await lookupFoodOnWeb(textDescription, 'restaurant');
+  } else if (nutritionDbMissed) {
+    webLookupKind = 'food';
+    webLookup = await lookupFoodOnWeb(textDescription, 'food');
   }
 
   // ---- PASS 2: vision + strict JSON ----
@@ -1233,7 +1258,21 @@ export const analyzeFoodEntry = async (
     }
   });
 
-  if (webLookup) {
+  if (webLookup && webLookupKind === 'food') {
+    content.push({
+      type: 'text',
+      text: `
+
+WEB LOOKUP RESULTS. USDA and Open Food Facts had no match for this food, so
+we searched the web for its published nutrition facts. Treat these as more
+authoritative than an estimate or than any low-confidence database matches
+above, scale them to the amount the user described, and set
+"source": "web_lookup" with "confidence": "medium" for the items they cover.
+Say in "tip" which site the numbers came from.
+
+${webLookup}`,
+    });
+  } else if (webLookup) {
     content.push({
       type: 'text',
       text: `

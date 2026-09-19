@@ -30,6 +30,7 @@ tested and **reverted** (`52cc4a1`) once before, and survives on the
 | Gemini | `callGemini` | `gemini-2.5-flash` | the other 9 |
 | OpenAI | `callOpenAI` | `gpt-5.6-terra` | `analyzeFoodEntry` |
 | OpenAI | `callOpenAI` | `gpt-5-search-api` | `foodRestaurantLookup` |
+| OpenAI | `callOpenAI` | `gpt-5-search-api` | `foodWebLookup` |
 
 `callOpenAI` is a **separate function**, not a provider flag inside
 `callGemini` — nine working features had no reason to share that risk. Both
@@ -41,7 +42,10 @@ restaurant's dish, then pass 2 (`gpt-5.6-terra`) reads the photo with pass
 1's findings injected as context. Pass 1 only fires where it changes the
 answer: a non-chain restaurant, **or** a curated chain where the user
 ordered something the menu DB doesn't cover. Chain orders we have data for,
-and packaged food USDA/OFF already grounds, skip it.
+and packaged food USDA/OFF already grounds, skip it. Third trigger (Sept 19): a
+text-only food that USDA/OFF was queried for and **missed** (no matches, or
+only low-confidence ones) gets a generic web lookup, feature `foodWebLookup`;
+items it grounds carry `source: "web_lookup"` (UI badge "Web lookup").
 
 **The two passes fail differently, and this matters for debugging.** Pass 2
 fails loudly — a bad key throws and the scan visibly errors. Pass 1 fails
