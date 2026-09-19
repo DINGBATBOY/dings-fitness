@@ -11,7 +11,8 @@
  *
  * To set the secrets once:
  *   firebase functions:secrets:set GEMINI_API_KEY
- *   firebase functions:secrets:set USDA_API_KEY   (optional)
+ *   firebase functions:secrets:set OPENAI_API_KEY  (food scan; callOpenAI)
+ *   firebase functions:secrets:set USDA_API_KEY    (optional)
  * Then deploy:
  *   firebase deploy --only functions
  */
