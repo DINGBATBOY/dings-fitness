@@ -39,10 +39,11 @@ share auth, the same daily quota bucket, usage logging and ops counters.
 **Why two passes.** OpenAI cannot combine web search with vision + strict
 JSON in one call. So pass 1 (`gpt-5-search-api`) looks up a named
 restaurant's dish, then pass 2 (`gpt-5.6-terra`) reads the photo with pass
-1's findings injected as context. Pass 1 only fires where it changes the
-answer: a non-chain restaurant, **or** a curated chain where the user
-ordered something the menu DB doesn't cover. Chain orders we have data for,
-and packaged food USDA/OFF already grounds, skip it. Third trigger (Sept 19): a
+1's findings injected as context. Pass 1 fires for **any meal from a named
+place** — curated chain or not (changed Sept 19; curated menu data still wins
+for items it covers exactly). Place detection is case-insensitive ("bowl from
+ted peters") and ignores "at home", "from scratch", times like "at 7pm". Packaged food USDA/OFF already
+grounds skips it. Third trigger (Sept 19): a
 text-only food that USDA/OFF was queried for and **missed** (no matches, or
 only low-confidence ones) gets a generic web lookup, feature `foodWebLookup`;
 items it grounds carry `source: "web_lookup"` (UI badge "Web lookup").

@@ -827,9 +827,18 @@ export const detectIndieRestaurantIntent = (text: string): boolean => {
   // 1. Possessive: "Joe's", "Ted Peters'", "Mama's"
   if (/\b[A-Z][a-zA-Z]+(\s+[A-Z][a-zA-Z]+)?'s?\b/.test(t)) return true;
 
-  // 2. Location phrases: "at X", "from X", "ordered from X", "@ X"
-  //    where X starts with a capital letter (a proper noun).
-  if (/\b(?:at|from|@)\s+[A-Z][a-zA-Z]+/.test(t)) return true;
+  // 2. Location phrases: "at X", "from X", "ordered from X", "@ X".
+  //    Case-insensitive, because people type "bowl from ted peters" on a
+  //    phone keyboard. Phrases that name a situation rather than a place
+  //    ("at home", "from scratch", "from leftovers") are excluded.
+  const locMatch = t.match(/(?:^|\s)(?:at|from|@)\s+(?:the\s+)?([a-z0-9][\w'&.-]*)(.*)$/i);
+  if (locMatch) {
+    const [, word, rest] = locMatch;
+    const notAPlace = /^(home|work|school|scratch|leftovers?|last|my|our|a|an|this|that|night|noon|lunch|dinner|breakfast|brunch|about|around|least|most|once|all|first)$/i;
+    // "at 5", "at 7pm", "at 12:30" are times; "at 5 guys" is a place.
+    const isTime = /^\d{1,2}(:\d{2})?(am|pm)?$/i.test(word) && !/^\s*[a-z]/i.test(rest.replace(/^\s*(am|pm)\b/i, ''));
+    if (!notAPlace.test(word) && !isTime) return true;
+  }
 
   // 3. Two-or-more capitalized words at the start, followed by a food noun.
   //    Catches "Ted Peters salmon dinner", "Café Versailles palomilla" etc.
@@ -1200,31 +1209,19 @@ export const analyzeFoodEntry = async (
     });
   }
 
-  // ---- PASS 1 (conditional): live web lookup for a named restaurant ----
+  // ---- PASS 1 (conditional): live web lookup ----
   // The vision model in pass 2 has no web access, so anything it should be
   // able to cite has to be fetched here first. Two cases qualify:
   //
-  //   (a) the user named a NON-CHAIN restaurant ("Ted Peters salmon dinner")
-  //   (b) the user named a curated CHAIN but ordered something our menu DB
-  //       does not cover ("the flatbread from Tropical Smoothie")
+  //   (a) the user named a place — a curated chain ("Chipotle bowl") or any
+  //       other restaurant ("salmon dinner from ted peters"). Always looked
+  //       up; curated menu data still wins for items it covers exactly.
+  //   (b) see (c) below — USDA / Open Food Facts missed.
   //
-  // Case (b) matters because it is exactly where the curated DB stops being
-  // authoritative — it used to be covered by Gemini's search tool. A chain
-  // order we DO have data for skips the lookup, as does packaged food that
-  // USDA/Open Food Facts already grounds, so the second call is only spent
-  // where it changes the answer. A failed or empty lookup degrades silently
-  // to an ordinary estimate.
+  // Packaged food that USDA/OFF already grounds skips it. A failed or empty
+  // lookup degrades silently to an ordinary estimate.
   const namedIndieRestaurant =
     restaurantMatched.length === 0 && detectIndieRestaurantIntent(textDescription);
-
-  // Chain named, but nothing in our data covers what they ordered: no menu
-  // item matched the text AND the chain has no per-ingredient components to
-  // compose from. Mirrors the CASE 1 condition in formatRestaurantContext.
-  const chainItemNotInDb =
-    restaurantMatched.length > 0 &&
-    restaurantMatched.every(r =>
-      findMenuItemMatches(textDescription, getEffectiveMenuItems(r, customMenuItems)).length === 0 &&
-      (!r.components || r.components.length === 0));
 
   // (c) USDA / Open Food Facts were queried and came back empty (or with
   //     only low-confidence guesses) — search the web for the food itself
@@ -1233,9 +1230,15 @@ export const analyzeFoodEntry = async (
     shouldQueryNutritionDb &&
     (nutritionMatches.length === 0 || nutritionMatches.every(m => m.confidence === 'low'));
 
+  // Any meal tied to a named place — chain or independent — gets a live web
+  // lookup, even when our curated menu DB has the item. The curated data
+  // still wins where it covers the exact item (it's verified); the lookup
+  // fills everything else and catches menu changes.
+  const namedPlace = restaurantMatched.length > 0 || namedIndieRestaurant;
+
   let webLookup = '';
   let webLookupKind: 'restaurant' | 'food' | null = null;
-  if ((namedIndieRestaurant || chainItemNotInDb) && textDescription.trim()) {
+  if (namedPlace && textDescription.trim()) {
     webLookupKind = 'restaurant';
     webLookup = await lookupFoodOnWeb(textDescription, 'restaurant');
   } else if (nutritionDbMissed) {
@@ -1277,9 +1280,11 @@ ${webLookup}`,
       type: 'text',
       text: `
 
-WEB LOOKUP RESULTS for the restaurant the user named. These came from a live
-search of the restaurant's published information. Treat them as more
-authoritative than a visual estimate for the items they cover, and set
+WEB LOOKUP RESULTS for the place the user named. These came from a live
+search of the restaurant's published information. If VERIFIED MENU data
+above covers the exact item ordered, keep using it (it is checked against the
+official source). For everything else, treat these results as more
+authoritative than USDA generics or a visual estimate, and set
 "source": "restaurant_db" with "confidence": "medium" for those items. Say in
 "tip" that the numbers came from the restaurant's published data.
 
