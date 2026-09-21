@@ -42,7 +42,11 @@ restaurant's dish, then pass 2 (`gpt-5.6-terra`) reads the photo with pass
 1's findings injected as context. Pass 1 fires for **any meal from a named
 place** — curated chain or not (changed Sept 19; curated menu data still wins
 for items it covers exactly). Place detection is case-insensitive ("bowl from
-ted peters") and ignores "at home", "from scratch", times like "at 7pm". Packaged food USDA/OFF already
+ted peters"), fires on venue words ("cheddars scratch kitchen", "... cafe",
+"... steakhouse") and on real possessives ("joe's"), and ignores "at home",
+"from scratch", contractions, and times like "at 7pm". `lookupFoodOnWeb`
+still swallows failures, but now logs `[lookupFoodOnWeb:<kind>] FAILED` to
+the console — a silent empty lookup and a broken one look the same in the UI. Packaged food USDA/OFF already
 grounds skips it. Third trigger (Sept 19): a
 text-only food that USDA/OFF was queried for and **missed** (no matches, or
 only low-confidence ones) gets a generic web lookup, feature `foodWebLookup`;

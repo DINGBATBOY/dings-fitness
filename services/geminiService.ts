@@ -203,9 +203,17 @@ Do not guess numbers. Do not substitute a different product. Do not pad with gen
       messages: [{ role: 'user', content: prompt }],
     });
     const text = (res.text || '').trim();
-    if (!text || /NO DATA FOUND/i.test(text)) return '';
+    if (!text || /NO DATA FOUND/i.test(text)) {
+      console.info(`[lookupFoodOnWeb:${kind}] search ran, no usable data for`, q);
+      return '';
+    }
     return text.slice(0, 1200);
-  } catch {
+  } catch (err) {
+    // Swallowed on purpose (a failed lookup must not break the scan), but
+    // logged loudly: a broken search model otherwise looks identical to
+    // "the web had nothing". tokenUsage is the other tell — no doc means the
+    // call never completed.
+    console.error(`[lookupFoodOnWeb:${kind}] FAILED — falling back to estimate`, err);
     return '';
   }
 }
@@ -824,8 +832,25 @@ export const detectIndieRestaurantIntent = (text: string): boolean => {
   if (!text || text.length < 3) return false;
   const t = text.trim();
 
-  // 1. Possessive: "Joe's", "Ted Peters'", "Mama's"
-  if (/\b[A-Z][a-zA-Z]+(\s+[A-Z][a-zA-Z]+)?'s?\b/.test(t)) return true;
+  // 0. Venue words: "Cheddars Scratch Kitchen", "joe's bar and grill",
+  //    "versailles cafe". This is what catches a restaurant typed as a bare
+  //    name with no "from"/"at" and no capital letters — the common case on a
+  //    phone. "my kitchen" / "home kitchen" style phrases are stripped first
+  //    so cooking at home doesn't look like a venue.
+  const venueText = t.replace(/\b(?:my|our|the|a|home)\s+(?:kitchen|grill|oven|kitchen's)\b/gi, ' ');
+  if (/\b(?:scratch\s+kitchen|kitchen|grill|grille|cafe|café|caf|diner|bistro|tavern|pub|steakhouse|roadhouse|smokehouse|pizzeria|taqueria|trattoria|cantina|brewery|brewhouse|bakery|deli|delicatessen|creamery|eatery|restaurant|bar\s*(?:&|and)\s*grill|house\s+of|buffet|grillhouse)\b/i.test(venueText)) {
+    return true;
+  }
+
+  // 1. Possessive place names: "Joe's", "Ted Peters'", "cheddar's"
+  //    (case-insensitive — people don't capitalize on a phone). Everyday
+  //    contractions like "it's" or "that's" don't count.
+  // Requires an actual possessive: "joe's" or "peters'" — not "didn't".
+  const possMatch = t.match(/\b([a-zA-Z]{2,})(?:'s\b|s'(?!\w))/);
+  if (possMatch) {
+    const contraction = /^(it|that|there|here|what|who|he|she|let|one|today|tonight|yesterday|everyone|someone|somebody|nobody|everybody|wife|husband|friend|mom|mum|mother|dad|father|grandma|grandpa|sister|brother|kid|kids)$/i;
+    if (!contraction.test(possMatch[1])) return true;
+  }
 
   // 2. Location phrases: "at X", "from X", "ordered from X", "@ X".
   //    Case-insensitive, because people type "bowl from ted peters" on a
