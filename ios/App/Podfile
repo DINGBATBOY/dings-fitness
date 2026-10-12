@@ -12,6 +12,7 @@ def capacitor_pods
   pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorApp', :path => '../../node_modules/@capacitor/app'
+  pod 'CapacitorBarcodeScanner', :path => '../../node_modules/@capacitor/barcode-scanner'
   pod 'CapacitorCamera', :path => '../../node_modules/@capacitor/camera'
   pod 'DingHealth', :path => '../../plugins/ding-health'
   pod 'CapacitorFilesystem', :path => '../../node_modules/@capacitor/filesystem'

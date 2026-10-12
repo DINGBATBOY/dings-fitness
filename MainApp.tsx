@@ -32,7 +32,7 @@ import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser, calculateTDEEDetailed } from './constants';
-import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry } from './services/geminiService';
+import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry, lookupBarcode } from './services/geminiService';
 import { db, auth, functions, isConfigured } from './services/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
@@ -108,8 +108,16 @@ interface ScannedItem {
     // Optional enrichment from the AI analysis. These drive UI badges and the
     // collapsible "what's in this number?" panel. None of them are required;
     // legacy/manual entries omit them and the UI gracefully hides the badges.
-    source?: 'label' | 'restaurant_db' | 'nutrition_db' | 'web_lookup' | 'visual_estimate' | 'text_only';
+    source?: 'label' | 'barcode' | 'restaurant_db' | 'nutrition_db' | 'web_lookup' | 'visual_estimate' | 'text_only';
     confidence?: 'high' | 'medium' | 'low';
+    // What amount the numbers assume ("6 oz chicken + 1 cup rice").
+    portionNote?: string;
+    // Portion multiplier picked with the ½ / 1 / 1.5 / 2 buttons, and the
+    // 1× values it scales from. `base` is cleared when the user types a
+    // number by hand, and re-derived from the current values on the next tap.
+    portion?: number;
+    base?: { calories: number; protein: number; carbs: number; fat: number; fiber: number;
+             ingredients?: ScannedItem['ingredients'] };
     ingredients?: Array<{
         name: string;
         grams: number;
@@ -1576,6 +1584,68 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       setFoodImages(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Barcode path: scan -> lookupBarcode Cloud Function (Open Food Facts, then
+  // USDA branded) -> one review item at label values. No AI call, so no AI
+  // consent gate and no AI quota beyond the lookup itself.
+  const handleScanBarcode = async () => {
+      let code = '';
+      try {
+          const { CapacitorBarcodeScanner, CapacitorBarcodeScannerTypeHint } = await import('@capacitor/barcode-scanner');
+          const res = await CapacitorBarcodeScanner.scanBarcode({
+              hint: CapacitorBarcodeScannerTypeHint.ALL,
+              scanInstructions: 'Point at the barcode on the package',
+          });
+          code = (res?.ScanResult || '').trim();
+      } catch (err) {
+          // Cancelled, or camera permission denied.
+          console.warn('[barcode] scan cancelled or failed', err);
+      }
+      if (!code) return;
+
+      setIsAnalyzingFood(true);
+      setAnalysisTip('Looking up that barcode…');
+      try {
+          const res = await lookupBarcode(code);
+          const p = res.product;
+          const macros = p?.perServing ?? p?.per100g ?? null;
+          if (!res.found || !p || !macros) {
+              setAnalysisTip('');
+              triggerToast("Couldn't find that barcode. Snap the nutrition label instead and I'll read it.", 5000);
+              return;
+          }
+          const servingText = p.perServing ? (p.servingSize || '1 serving') : '100 g';
+          const displayName = p.brand && !p.name.toLowerCase().includes(p.brand.toLowerCase())
+              ? `${p.brand} ${p.name}`
+              : p.name;
+          setScannedItems([{
+              name: displayName,
+              calories: String(Math.round(macros.calories)),
+              protein: String(macros.protein),
+              carbs: String(macros.carbs),
+              fat: String(macros.fat),
+              fiber: String(macros.fiber ?? 0),
+              source: 'barcode',
+              confidence: 'high',
+              servingSize: servingText,
+              portionNote: `1 serving · ${servingText}`,
+              portion: 1,
+          }]);
+          setExpandedIngredients(new Set());
+          setAnalysisNutritionSources([]);
+          setAnalysisNutritionMatchCount(0);
+          setAnalysisNutritionSkipped([]);
+          setAnalysisTip(
+              `From ${p.source === 'usda' ? 'USDA FoodData Central' : 'Open Food Facts'} — label values for ${servingText}. ` +
+              `Use the portion buttons if you had more or less than one serving.`,
+          );
+      } catch (err: any) {
+          setAnalysisTip('');
+          triggerToast(err?.message || 'Barcode lookup failed. Try again.', 4000);
+      } finally {
+          setIsAnalyzingFood(false);
+      }
+  };
+
   const handleAnalyzeFood = async () => {
     if (foodImages.length === 0 && !foodDescription) return;
     if (!hasAiConsent()) {
@@ -1610,6 +1680,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           ingredients: Array.isArray(item.ingredients) ? item.ingredients : undefined,
           servingSize: typeof item.servingSize === 'string' ? item.servingSize : undefined,
           servingsConsumed: typeof item.servingsConsumed === 'number' ? item.servingsConsumed : undefined,
+          portionNote: typeof item.portionNote === 'string' ? item.portionNote : undefined,
+          portion: 1,
       }));
 
       setScannedItems(items);
@@ -1874,8 +1946,57 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   const updateScannedItem = (index: number, field: keyof ScannedItem, value: string) => {
       const updated = [...scannedItems];
-      updated[index] = { ...updated[index], [field]: value };
+      const isMacro = field === 'calories' || field === 'protein' || field === 'carbs' || field === 'fat' || field === 'fiber';
+      // A hand-typed number becomes the new truth at the current portion, so
+      // drop the cached 1x values; the next portion tap re-derives them.
+      updated[index] = { ...updated[index], [field]: value, ...(isMacro ? { base: undefined } : {}) };
       setScannedItems(updated);
+  };
+
+  // Scale one scanned item to a portion multiplier (0.5, 1, 1.5, 2).
+  const setScannedPortion = (index: number, portion: number) => {
+      setScannedItems(prev => prev.map((item, i) => {
+          if (i !== index) return item;
+          const current = item.portion ?? 1;
+          const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+          const base = item.base ?? {
+              calories: num(item.calories) / current,
+              protein: num(item.protein) / current,
+              carbs: num(item.carbs) / current,
+              fat: num(item.fat) / current,
+              fiber: num(item.fiber) / current,
+              ingredients: item.ingredients?.map(ing => ({
+                  ...ing,
+                  grams: ing.grams / current,
+                  calories: ing.calories / current,
+                  protein: ing.protein / current,
+                  carbs: ing.carbs / current,
+                  fat: ing.fat / current,
+                  fiber: ing.fiber !== undefined ? ing.fiber / current : undefined,
+              })),
+          };
+          const r0 = (n: number) => String(Math.round(n));
+          const r1 = (n: number) => String(Math.round(n * 10) / 10);
+          return {
+              ...item,
+              portion,
+              base,
+              calories: r0(base.calories * portion),
+              protein: r1(base.protein * portion),
+              carbs: r1(base.carbs * portion),
+              fat: r1(base.fat * portion),
+              fiber: r1(base.fiber * portion),
+              ingredients: base.ingredients?.map(ing => ({
+                  ...ing,
+                  grams: Math.round(ing.grams * portion),
+                  calories: Math.round(ing.calories * portion),
+                  protein: Math.round(ing.protein * portion * 10) / 10,
+                  carbs: Math.round(ing.carbs * portion * 10) / 10,
+                  fat: Math.round(ing.fat * portion * 10) / 10,
+                  fiber: ing.fiber !== undefined ? Math.round(ing.fiber * portion * 10) / 10 : undefined,
+              })),
+          };
+      }));
   };
 
   const removeScannedItem = (index: number) => {
@@ -2154,6 +2275,18 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                             >
                                 📷
                             </button>
+                            <button
+                                onClick={handleScanBarcode}
+                                disabled={isAnalyzingFood}
+                                className="w-11 h-11 shrink-0 rounded-xl bg-white/10 border border-white/15 text-white flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+                                aria-label="Scan a barcode"
+                                title="Scan a barcode"
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+                                    <path d="M7 8v8M10 8v8M13 8v8M17 8v8" />
+                                </svg>
+                            </button>
                          </div>
                          <input
                             type="file"
@@ -2365,6 +2498,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                                 // Source label: short, human-readable, with emoji.
                                 const sourceLabel =
                                     item.source === 'label' ? '📋 Nutrition label' :
+                                    item.source === 'barcode' ? '🏷 Barcode' :
                                     item.source === 'restaurant_db' ? '🔍 Restaurant menu' :
                                     item.source === 'nutrition_db' ? '🗄 USDA / Open Food Facts' :
                                     item.source === 'web_lookup' ? '🌐 Web lookup' :
@@ -2434,6 +2568,34 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                                             )}
                                         </div>
                                     )}
+
+                                    {/* What the numbers assume, then quick portion scaling. */}
+                                    {item.portionNote && !item.servingSize && (
+                                        <div className="text-[10px] text-gray-500">
+                                            Assumes: <span className="text-gray-300">{item.portionNote}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[9px] uppercase tracking-widest text-gray-500 font-bold mr-1">
+                                            {item.source === 'barcode' ? 'Servings' : 'Portion'}
+                                        </span>
+                                        {[0.5, 1, 1.5, 2].map(p => {
+                                            const active = (item.portion ?? 1) === p;
+                                            return (
+                                                <button
+                                                    key={p}
+                                                    onClick={() => setScannedPortion(idx, p)}
+                                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
+                                                        active
+                                                            ? 'bg-[#d97757]/20 text-[#f0a080] border-[#d97757]/50'
+                                                            : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
+                                                    }`}
+                                                >
+                                                    {p === 0.5 ? '½' : p === 1.5 ? '1½' : `${p}`}×
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
 
                                     <div className="grid grid-cols-5 gap-2">
                                         <div>

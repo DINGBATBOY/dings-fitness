@@ -69,6 +69,34 @@ Secrets: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `USDA_API_KEY` (optional).
 Setting a secret does nothing until `firebase deploy --only functions` binds
 the new version to the running function.
 
+## Food lookup pipeline (Oct 2026)
+
+Order of truth, best first:
+
+1. **Barcode** (`lookupBarcode` function, no AI): Open Food Facts product
+   API, then USDA branded foods matched on `gtinUpc`. Cached in
+   `barcodeCache/{code}` (hits 180 d, misses 7 d). Client:
+   `@capacitor/barcode-scanner` (native on iOS, html5-qrcode on web), the
+   barcode button next to the camera in the food sheet. Items carry
+   `source: "barcode"`.
+2. **Curated menu DB** (`data/restaurants.ts`) for exact chain items.
+3. **USDA / Open Food Facts text search** (`searchNutrition`). Now also runs
+   when a photo is attached with a short typed name (<= 60 chars).
+4. **Web lookup** (`foodWebLookup` function, `gpt-5-search-api`): named
+   places always; foods USDA/OFF missed. Prompts live server-side now.
+   Shared cache `foodLookupCache/{sha256(kind:normalized query)}`; found 90 d,
+   not found 3 d. **Cache hits write no `tokenUsage` doc** — a scan with no
+   `foodRestaurantLookup` entry may simply have been a cache hit; check the
+   browser console for `[lookupFoodOnWeb:…] cache hit`.
+5. **Vision/text estimate** (`callOpenAI`, `gpt-5.6-terra`).
+
+Review screen: every item gets ½ / 1 / 1½ / 2× portion buttons (they scale
+macros and ingredients from cached 1× values; typing a number by hand resets
+the base) and an "Assumes: …" line from the model's `portionNote`.
+
+Both cache collections are server-only (default-deny rule). To purge a bad
+cached answer, delete its doc in the console.
+
 ## Three deploy targets — they drift apart
 
 This has caused more lost time than anything else in the project.

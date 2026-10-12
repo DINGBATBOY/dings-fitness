@@ -119,6 +119,50 @@ export const searchNutrition = async (
 };
 
 // ===========================================================================
+// lookupBarcode — UPC/EAN -> label nutrition via Cloud Function (no AI)
+// ===========================================================================
+export interface BarcodeMacros {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+}
+
+export interface BarcodeProduct {
+  barcode: string;
+  name: string;
+  brand?: string;
+  servingSize?: string;
+  perServing: BarcodeMacros | null;
+  per100g: BarcodeMacros | null;
+  source: "openfoodfacts" | "usda";
+  sourceUrl?: string;
+}
+
+export const lookupBarcode = async (
+  barcode: string,
+): Promise<{ found: boolean; cached: boolean; product?: BarcodeProduct }> => {
+  if (!functions) throw new Error("Firebase not configured.");
+  const fn = httpsCallable<{ barcode: string }, { found: boolean; cached: boolean; product?: BarcodeProduct }>(
+    functions,
+    "lookupBarcode",
+  );
+  try {
+    const res = await fn({ barcode });
+    return res.data;
+  } catch (err: any) {
+    if (err?.code === "functions/resource-exhausted") {
+      throw new Error(err?.message || "Daily limit reached. Try again tomorrow.");
+    }
+    if (err?.code === "functions/invalid-argument") {
+      throw new Error(err?.message || "That doesn't look like a product barcode.");
+    }
+    throw new Error("Barcode lookup is unavailable right now.");
+  }
+};
+
+// ===========================================================================
 // OpenAI path — food macro analysis only
 //
 // The food scan runs on OpenAI (accuracy); every other AI feature stays on
@@ -165,54 +209,32 @@ async function callOpenAIProxy(req: OpenAIProxyRequest): Promise<{ text: string 
 }
 
 /**
- * Pass 1 — live web lookup (gpt-5-search-api). Two flavours:
- *   'restaurant' — a named restaurant's dish (feature foodRestaurantLookup)
- *   'food'       — a generic/branded food that USDA + Open Food Facts could
- *                  not match (feature foodWebLookup)
+ * Pass 1 — live web lookup. Runs server-side in the `foodWebLookup` Cloud
+ * Function (gpt-5-search-api), which also owns the prompts and a shared
+ * cache, so a dish one user already looked up comes back instantly and free.
+ *   'restaurant' — a named place's dish (tokenUsage feature foodRestaurantLookup)
+ *   'food'       — a food USDA + Open Food Facts could not match (foodWebLookup)
  * Returns a short plain-text digest to inject into the vision call, or ''
  * when nothing useful comes back. Never throws: a failed lookup degrades to
- * an ordinary estimate rather than breaking the scan — so check tokenUsage
- * for the feature name to confirm it actually ran.
+ * an ordinary estimate rather than breaking the scan, but failures are
+ * logged loudly because they otherwise look identical to "nothing found".
  */
 async function lookupFoodOnWeb(query: string, kind: 'restaurant' | 'food'): Promise<string> {
+  if (!functions) return '';
   const q = sanitize(query, 300);
-  const prompt = kind === 'restaurant'
-    ? `Find published nutrition information for this restaurant order: "${q}".
-
-Search the restaurant's own site, nutrition PDFs, and reputable nutrition databases. Report ONLY what you actually find, in at most 6 short lines:
-- Restaurant name and whether you found its real menu
-- The dish, with calories and protein/carbs/fat if published
-- Typical portion size or weight if stated
-- If you could NOT find real data, say exactly: NO DATA FOUND
-
-Do not guess numbers. Do not pad with general nutrition advice.`
-    : `Find published nutrition facts for this food: "${q}".
-
-The USDA and Open Food Facts databases had no match, so search the web: the brand's or manufacturer's own site first, then retailer listings (Target, Walmart, Amazon, Instacart), then reputable nutrition sites (nutritionix, fatsecret, eatthismuch). Report ONLY what you actually find, in at most 6 short lines:
-- The exact product or dish you matched, with brand if any, and the site it came from
-- Serving size (with grams if stated)
-- Calories, protein, carbs, fat, and fiber per serving
-- If you could NOT find real data for this specific food, say exactly: NO DATA FOUND
-
-Do not guess numbers. Do not substitute a different product. Do not pad with general nutrition advice.`;
   try {
-    const res = await callOpenAIProxy({
-      feature: kind === 'restaurant' ? 'foodRestaurantLookup' : 'foodWebLookup',
-      model: 'gpt-5-search-api',
-      webSearch: true,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = (res.text || '').trim();
-    if (!text || /NO DATA FOUND/i.test(text)) {
-      console.info(`[lookupFoodOnWeb:${kind}] search ran, no usable data for`, q);
+    const fn = httpsCallable<{ query: string; kind: string }, { text: string; found: boolean; cached: boolean }>(
+      functions,
+      "foodWebLookup",
+    );
+    const { data } = await fn({ query: q, kind });
+    if (!data?.found || !data.text) {
+      console.info(`[lookupFoodOnWeb:${kind}] search ran, no usable data${data?.cached ? ' (cached)' : ''} for`, q);
       return '';
     }
-    return text.slice(0, 1200);
+    if (data.cached) console.info(`[lookupFoodOnWeb:${kind}] cache hit for`, q);
+    return data.text.slice(0, 1500);
   } catch (err) {
-    // Swallowed on purpose (a failed lookup must not break the scan), but
-    // logged loudly: a broken search model otherwise looks identical to
-    // "the web had nothing". tokenUsage is the other tell — no doc means the
-    // call never completed.
     console.error(`[lookupFoodOnWeb:${kind}] FAILED — falling back to estimate`, err);
     return '';
   }
@@ -636,8 +658,9 @@ export interface FoodAnalysisItem {
   ingredients?: FoodIngredient[];      // meal photos only
   servingSize?: string;                // label photos: e.g. "1 cup (245g)"
   servingsConsumed?: number;           // label photos: default 1
-  source?: "label" | "restaurant_db" | "nutrition_db" | "visual_estimate" | "text_only";
+  source?: "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only";
   confidence?: "high" | "medium" | "low";
+  portionNote?: string;                // what amount the numbers assume
 }
 
 export interface FoodAnalysisResult {
@@ -997,6 +1020,7 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this shape:
       "source": "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only",
       "confidence": "high" | "medium" | "low",
       "servingSize": "string — only for nutrition labels, e.g. '1 cup (245g)'",
+      "portionNote": "string — the amount these numbers assume, in plain words, e.g. '6 oz grilled chicken + 1 cup rice' or '1 bar (60 g)'. Always fill this in.",
       "servingsConsumed": number,
       "ingredients": [
         {
@@ -1179,6 +1203,9 @@ const normalizeItem = (raw: any): FoodAnalysisItem => {
     ingredients: ingredients && ingredients.length > 0 ? ingredients : undefined,
     servingSize: typeof raw?.servingSize === "string" ? raw.servingSize : undefined,
     servingsConsumed: toNumberOpt(raw?.servingsConsumed),
+    portionNote: typeof raw?.portionNote === "string" && raw.portionNote.trim()
+      ? raw.portionNote.trim().slice(0, 140)
+      : undefined,
     source: validSources.includes(raw?.source) ? raw.source : undefined,
     confidence: validConfidence.includes(raw?.confidence) ? raw.confidence : undefined,
   };
@@ -1193,8 +1220,10 @@ export const analyzeFoodEntry = async (
   const parts: any[] = [];
   const hasImages = Array.isArray(images) && images.length > 0;
 
-  // Tier-3 lookup: USDA + Open Food Facts. Skip when:
-  //  • the user attached a photo (Gemini handles vision regardless)
+  // Tier-3 lookup: USDA + Open Food Facts. Runs on the typed text, including
+  // when a photo is attached ("quest bar" + a photo of it) — a short typed
+  // name is exactly what these databases match well. Skip when:
+  //  • a photo is attached and the text is long (a meal narrative, not a name)
   //  • the text mentions a known restaurant (our DB is more specific)
   //  • the query is empty or unusually long (likely a complex meal narrative,
   //    not a single food lookup — let Gemini handle it)
@@ -1204,7 +1233,7 @@ export const analyzeFoodEntry = async (
   const textTrimmed = (textDescription || "").trim();
   const restaurantMatched = detectRestaurantsInText(textTrimmed);
   const shouldQueryNutritionDb =
-    !hasImages &&
+    (!hasImages || textTrimmed.length <= 60) &&
     restaurantMatched.length === 0 &&
     textTrimmed.length > 0 &&
     textTrimmed.length < 120;
@@ -1286,6 +1315,18 @@ export const analyzeFoodEntry = async (
     }
   });
 
+  if (hasImages && nutritionMatches.length > 0) {
+    content.push({
+      type: 'text',
+      text: `
+
+A photo is attached AND we matched the typed name in USDA / Open Food Facts.
+If the photo shows a readable nutrition label, the label wins over the
+database. Otherwise use the database values for the item the user named and
+estimate any other foods visible on the plate separately.`,
+    });
+  }
+
   if (webLookup && webLookupKind === 'food') {
     content.push({
       type: 'text',
@@ -1343,7 +1384,9 @@ ${webLookup}`,
     // has length > 0), so we re-attribute any item that came through with a
     // weak source label. We never override "restaurant_db" (that's our DB)
     // or "label" (that's an image OCR match).
-    if (nutritionMatches.length > 0) {
+    // Text-only: with a photo, the plate may hold several foods and only
+    // some of them relate to the typed name, so the model's own labels stand.
+    if (nutritionMatches.length > 0 && !hasImages) {
       items = items.map(item => {
         if (!item.source || item.source === "text_only" || item.source === "visual_estimate") {
           // Inherit the best confidence from the injected matches.

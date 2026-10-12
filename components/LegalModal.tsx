@@ -20,7 +20,7 @@ const PUBLISHER_DBA = 'Ding! Fitness';
 const PUBLISHER_FULL = `${PUBLISHER_LEGAL_NAME}, doing business as ${PUBLISHER_DBA}`;
 const CONTACT_EMAIL = 'support@dings.fitness';
 const GOVERNING_STATE = 'Florida';
-const EFFECTIVE_DATE = 'September 18, 2026';
+const EFFECTIVE_DATE = 'October 12, 2026';
 
 const sections: { id: Tab; label: string }[] = [
   { id: 'privacy', label: 'Privacy Policy' },
@@ -194,6 +194,11 @@ function PrivacyPolicy() {
         and never receives your email address, password, or Apple Health data. OpenAI may retain API inputs for a limited period as
         described in its published API data-usage policies, and does not use API data to train its
         models by default.
+      </P>
+      <P>
+        <strong className="text-white">USDA FoodData Central and Open Food Facts</strong> — public
+        nutrition databases. When you scan a barcode or search for a food, our servers send only the
+        barcode number or food name to these services. Nothing that identifies you is sent.
       </P>
       <P>
         <strong className="text-white">Google Gemini API (Google LLC)</strong> — processes the text

@@ -18,7 +18,7 @@
  */
 
 import { onCall, onRequest, HttpsError, CallableRequest } from "firebase-functions/v2/https";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { defineSecret } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { initializeApp } from "firebase-admin/app";
@@ -996,6 +996,378 @@ async function fetchFromOpenFoodFacts(query: string, limit: number): Promise<Nut
       };
     });
 }
+
+// ============================================================================
+//  lookupBarcode
+// ============================================================================
+/**
+ * Resolve a scanned UPC/EAN barcode to label nutrition. No AI involved:
+ *
+ *   1. Open Food Facts product endpoint (free, best barcode coverage)
+ *   2. USDA FoodData Central branded foods, matched on gtinUpc
+ *
+ * Results (including misses) are cached in `barcodeCache/{code}` so a
+ * product only hits the upstream APIs once for every user. Hits stay for
+ * 180 days; misses for 7 days so newly added products show up.
+ * The collection is server-only (default-deny in firestore.rules).
+ */
+interface BarcodeMacros {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+}
+
+interface BarcodeProduct {
+  barcode: string;
+  name: string;
+  brand?: string;
+  servingSize?: string;
+  perServing: BarcodeMacros | null;
+  per100g: BarcodeMacros | null;
+  source: "openfoodfacts" | "usda";
+  sourceUrl?: string;
+}
+
+interface LookupBarcodeResponse {
+  found: boolean;
+  cached: boolean;
+  product?: BarcodeProduct;
+}
+
+const BARCODE_HIT_TTL_MS = 180 * 24 * 60 * 60 * 1000;
+const BARCODE_MISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export const lookupBarcode = onCall(
+  {
+    cors: true,
+    secrets: [USDA_API_KEY],
+    timeoutSeconds: 20,
+    memory: "256MiB",
+  },
+  async (req: CallableRequest<{ barcode?: string }>): Promise<LookupBarcodeResponse> => {
+    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+    const uid = req.auth.uid;
+
+    const code = String(req.data?.barcode ?? "").replace(/\D/g, "");
+    if (code.length < 6 || code.length > 14) {
+      throw new HttpsError("invalid-argument", "That doesn't look like a product barcode.");
+    }
+
+    const db = getFirestore();
+    const cacheRef = db.collection("barcodeCache").doc(code);
+    const cached = await cacheRef.get();
+    if (cached.exists) {
+      const c = cached.data() as { found: boolean; product?: BarcodeProduct; fetchedAt?: number };
+      const age = Date.now() - Number(c.fetchedAt ?? 0);
+      if ((c.found && age < BARCODE_HIT_TTL_MS) || (!c.found && age < BARCODE_MISS_TTL_MS)) {
+        cacheRef.update({ hits: FieldValue.increment(1) }).catch(() => undefined);
+        return { found: c.found, cached: true, product: c.product };
+      }
+    }
+
+    // Cache miss: these are free APIs, but still count it against the user's
+    // daily quota so a client can't hammer them through us.
+    await consumeQuota(uid);
+
+    let product: BarcodeProduct | null = null;
+    try {
+      product = await fetchBarcodeFromOpenFoodFacts(code);
+    } catch (err) {
+      console.error("[lookupBarcode] OFF error", code, err instanceof Error ? err.message : err);
+    }
+
+    if (!product) {
+      let usdaKey = "";
+      try { usdaKey = USDA_API_KEY.value(); } catch { /* not configured */ }
+      if (usdaKey) {
+        try {
+          product = await fetchBarcodeFromUsda(code, usdaKey);
+        } catch (err) {
+          console.error("[lookupBarcode] USDA error", code, err instanceof Error ? err.message : err);
+        }
+      }
+    }
+
+    await cacheRef.set({
+      found: !!product,
+      ...(product ? { product } : {}),
+      fetchedAt: Date.now(),
+      hits: 0,
+    });
+
+    return product ? { found: true, cached: false, product } : { found: false, cached: false };
+  },
+);
+
+async function fetchBarcodeFromOpenFoodFacts(code: string): Promise<BarcodeProduct | null> {
+  const url =
+    `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json` +
+    `?fields=code,product_name,product_name_en,brands,serving_size,serving_quantity,nutriments`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "User-Agent": "DingFitness/1.0 (https://dings.fitness; support@dings.fitness)" },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`OFF HTTP ${res.status}`);
+  const data = (await res.json()) as { status?: number; product?: any };
+  const p = data.product;
+  if (data.status !== 1 || !p?.nutriments) return null;
+
+  const n = p.nutriments;
+  const kcal = (suffix: "_100g" | "_serving"): number | undefined => {
+    const direct = n[`energy-kcal${suffix}`];
+    if (direct !== undefined && direct !== "") return Number(direct);
+    const kj = n[`energy${suffix}`];
+    return kj !== undefined && kj !== "" ? Number(kj) / 4.184 : undefined;
+  };
+  const block = (suffix: "_100g" | "_serving"): BarcodeMacros | null => {
+    const cal = kcal(suffix);
+    if (cal === undefined || Number.isNaN(cal)) return null;
+    const fiber = n[`fiber${suffix}`];
+    return {
+      calories: Math.round(cal),
+      protein: round1(Number(n[`proteins${suffix}`]) || 0),
+      carbs: round1(Number(n[`carbohydrates${suffix}`]) || 0),
+      fat: round1(Number(n[`fat${suffix}`]) || 0),
+      fiber: fiber !== undefined && fiber !== "" ? round1(Number(fiber)) : undefined,
+    };
+  };
+
+  const per100g = block("_100g");
+  let perServing = block("_serving");
+  // Many OFF entries have per-100g data and a serving weight but no
+  // per-serving block. Derive it rather than making the user do the math.
+  const servingGrams = Number(p.serving_quantity);
+  if (!perServing && per100g && servingGrams > 0) {
+    const f = servingGrams / 100;
+    perServing = {
+      calories: Math.round(per100g.calories * f),
+      protein: round1(per100g.protein * f),
+      carbs: round1(per100g.carbs * f),
+      fat: round1(per100g.fat * f),
+      fiber: per100g.fiber !== undefined ? round1(per100g.fiber * f) : undefined,
+    };
+  }
+  if (!perServing && !per100g) return null;
+
+  return {
+    barcode: code,
+    name: String(p.product_name || p.product_name_en || "Unknown product").trim(),
+    brand: p.brands ? String(p.brands).split(",")[0].trim() : undefined,
+    servingSize: p.serving_size ? String(p.serving_size) : undefined,
+    perServing,
+    per100g,
+    source: "openfoodfacts",
+    sourceUrl: `https://world.openfoodfacts.org/product/${code}`,
+  };
+}
+
+async function fetchBarcodeFromUsda(code: string, apiKey: string): Promise<BarcodeProduct | null> {
+  const url =
+    `https://api.nal.usda.gov/fdc/v1/foods/search` +
+    `?api_key=${encodeURIComponent(apiKey)}` +
+    `&query=${encodeURIComponent(code)}` +
+    `&pageSize=10`;
+  const res = await fetch(url, { method: "GET" });
+  if (!res.ok) throw new Error(`USDA HTTP ${res.status}`);
+  const data = (await res.json()) as { foods?: any[] };
+  // USDA stores GTINs with varying leading zeros (UPC-A vs EAN-13 vs GTIN-14),
+  // so compare with leading zeros stripped.
+  const bare = code.replace(/^0+/, "");
+  const f = (data.foods ?? []).find(x => String(x?.gtinUpc ?? "").replace(/^0+/, "") === bare);
+  if (!f) return null;
+
+  const nutrients: Array<{ nutrientId: number; value: number }> = f.foodNutrients ?? [];
+  const get = (id: number) => Number(nutrients.find(x => x.nutrientId === id)?.value) || 0;
+  const per100g: BarcodeMacros = {
+    calories: Math.round(get(USDA_NUTRIENT_IDS.energy)),
+    protein: round1(get(USDA_NUTRIENT_IDS.protein)),
+    carbs: round1(get(USDA_NUTRIENT_IDS.carbs)),
+    fat: round1(get(USDA_NUTRIENT_IDS.fat)),
+    fiber: get(USDA_NUTRIENT_IDS.fiber) > 0 ? round1(get(USDA_NUTRIENT_IDS.fiber)) : undefined,
+  };
+
+  // Branded search results are per 100 g/ml; scale to the label serving when
+  // the serving is expressed in grams or millilitres.
+  let perServing: BarcodeMacros | null = null;
+  const size = Number(f.servingSize);
+  const unit = String(f.servingSizeUnit ?? "").toLowerCase();
+  if (size > 0 && (unit === "g" || unit === "ml" || unit === "grm" || unit === "mlt")) {
+    const k = size / 100;
+    perServing = {
+      calories: Math.round(per100g.calories * k),
+      protein: round1(per100g.protein * k),
+      carbs: round1(per100g.carbs * k),
+      fat: round1(per100g.fat * k),
+      fiber: per100g.fiber !== undefined ? round1(per100g.fiber * k) : undefined,
+    };
+  }
+  const household = f.householdServingFullText ? `${f.householdServingFullText} ` : "";
+  return {
+    barcode: code,
+    name: String(f.description ?? "Unknown product"),
+    brand: f.brandName || f.brandOwner || undefined,
+    servingSize: size > 0 ? `${household}(${size} ${unit === "grm" ? "g" : unit === "mlt" ? "ml" : unit})`.trim() : undefined,
+    perServing,
+    per100g,
+    source: "usda",
+    sourceUrl: f.fdcId ? `https://fdc.nal.usda.gov/fdc-app.html#/food-details/${f.fdcId}/nutrients` : undefined,
+  };
+}
+
+// ============================================================================
+//  foodWebLookup
+// ============================================================================
+/**
+ * Pass 1 of the food scan: a live web search (gpt-5-search-api) for a named
+ * restaurant's dish ('restaurant') or a food USDA/OFF couldn't match
+ * ('food'). Returns a short plain-text digest the client injects into the
+ * vision call.
+ *
+ * Results are cached in `foodLookupCache/{hash}`, keyed by kind + a
+ * normalized query (lowercased, punctuation and filler words dropped, words
+ * sorted), so "Chipotle chicken bowl" and "chicken bowl from chipotle" share
+ * one entry and every user after the first gets it instantly and free.
+ * Found: 90 days. Not found: 3 days. Cache hits are NOT logged to
+ * tokenUsage (no tokens were spent) — the response carries `cached: true`.
+ */
+const LOOKUP_HIT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const LOOKUP_MISS_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const LOOKUP_STOPWORDS = new Set([
+  "a", "an", "the", "from", "at", "of", "with", "and", "i", "got", "had", "ate",
+  "my", "some", "for", "to", "in", "on", "order", "ordered",
+]);
+
+function normalizeLookupQuery(q: string): string {
+  return q
+    .toLowerCase()
+    .replace(/['’]s\b/g, "s")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter(w => w && !LOOKUP_STOPWORDS.has(w))
+    .sort()
+    .join(" ");
+}
+
+function buildLookupPrompt(q: string, kind: "restaurant" | "food"): string {
+  return kind === "restaurant"
+    ? `Find published nutrition information for this restaurant order: "${q}".
+
+Search the restaurant's own site and nutrition PDFs first, then reputable nutrition databases that list restaurant items (Nutritionix, FatSecret, MyFitnessPal, CalorieKing). Report ONLY what you actually find, in at most 8 short lines:
+- Restaurant name and the site the numbers came from
+- Each dish or side you matched, with calories and protein/carbs/fat if published
+- Typical portion size or weight if stated
+- If you could NOT find real data for this order, say exactly: NO DATA FOUND
+
+Do not guess numbers. Do not pad with general nutrition advice.`
+    : `Find published nutrition facts for this food: "${q}".
+
+The USDA and Open Food Facts databases had no match, so search the web: the brand's or manufacturer's own site first, then retailer listings (Target, Walmart, Amazon, Instacart), then reputable nutrition sites (Nutritionix, FatSecret, CalorieKing). Report ONLY what you actually find, in at most 6 short lines:
+- The exact product or dish you matched, with brand if any, and the site it came from
+- Serving size (with grams if stated)
+- Calories, protein, carbs, fat, and fiber per serving
+- If you could NOT find real data for this specific food, say exactly: NO DATA FOUND
+
+Do not guess numbers. Do not substitute a different product. Do not pad with general nutrition advice.`;
+}
+
+export const foodWebLookup = onCall(
+  {
+    cors: true,
+    secrets: [OPENAI_API_KEY],
+    timeoutSeconds: 90,
+    memory: "256MiB",
+  },
+  async (req: CallableRequest<{ query?: string; kind?: string }>): Promise<{ text: string; found: boolean; cached: boolean }> => {
+    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+    const uid = req.auth.uid;
+
+    const query = String(req.data?.query ?? "").trim().slice(0, 300);
+    const kind: "restaurant" | "food" = req.data?.kind === "restaurant" ? "restaurant" : "food";
+    if (!query) throw new HttpsError("invalid-argument", "Missing `query`.");
+
+    const normalized = normalizeLookupQuery(query);
+    const key = createHash("sha256").update(`${kind}:${normalized}`).digest("hex").slice(0, 40);
+    const db = getFirestore();
+    const cacheRef = db.collection("foodLookupCache").doc(key);
+
+    const cached = await cacheRef.get();
+    if (cached.exists) {
+      const c = cached.data() as { text?: string; found?: boolean; fetchedAt?: number };
+      const age = Date.now() - Number(c.fetchedAt ?? 0);
+      if ((c.found && age < LOOKUP_HIT_TTL_MS) || (!c.found && age < LOOKUP_MISS_TTL_MS)) {
+        cacheRef.update({ hits: FieldValue.increment(1) }).catch(() => undefined);
+        return { text: c.found ? String(c.text ?? "") : "", found: !!c.found, cached: true };
+      }
+    }
+
+    try {
+      await consumeQuota(uid);
+    } catch (err) {
+      bumpOpsCounter("quotaExhaustedHits").catch(() => undefined);
+      throw err;
+    }
+
+    const model = "gpt-5-search-api";
+    const feature = kind === "restaurant" ? "foodRestaurantLookup" : "foodWebLookup";
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
+    const startTime = Date.now();
+    let result;
+    try {
+      result = await client.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: buildLookupPrompt(query, kind) }],
+        web_search_options: {},
+      } as any);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "OpenAI call failed";
+      // Logged with the real upstream message: this is the line to look for
+      // in Functions logs when lookups "find nothing" suspiciously often.
+      console.error("[foodWebLookup] upstream error", uid, feature, msg);
+      bumpOpsCounter("upstreamErrors").catch(() => undefined);
+      throw new HttpsError("internal", "Web lookup failed.");
+    }
+
+    try {
+      const usage = (result as any).usage ?? {};
+      const promptTokens = Number(usage.prompt_tokens ?? 0);
+      const candidatesTokens = Number(usage.completion_tokens ?? 0);
+      await logTokenUsage({
+        uid,
+        userEmail: req.auth.token?.email ?? null,
+        feature,
+        model,
+        promptTokens,
+        candidatesTokens,
+        totalTokens: Number(usage.total_tokens ?? promptTokens + candidatesTokens),
+        costUsd: estimateCostUsd(model, promptTokens, candidatesTokens),
+        durationMs: Date.now() - startTime,
+      });
+    } catch (err) {
+      console.error("[foodWebLookup] usage logging failed (non-fatal)", uid, err);
+    }
+
+    const raw = String((result as any).choices?.[0]?.message?.content ?? "").trim();
+    const found = !!raw && !/NO DATA FOUND/i.test(raw);
+    const text = found ? raw.slice(0, 1500) : "";
+
+    await cacheRef.set({
+      kind,
+      query: query.slice(0, 300),
+      normalized,
+      found,
+      text,
+      fetchedAt: Date.now(),
+      hits: 0,
+    }).catch(err => console.error("[foodWebLookup] cache write failed (non-fatal)", err));
+
+    return { text, found, cached: false };
+  },
+);
 
 // ═══════════════════════ Fuel Coach GPT API ═══════════════════════
 //
