@@ -46,11 +46,16 @@ const ALLOWED_MODELS = new Set([
 const DEFAULT_MODEL = "gemini-2.5-flash";
 
 // ----- OpenAI (food scan only; see callOpenAI below) -----
-// Vision + strict structured output is required for photo analysis, which
-// rules out GPT-6 Astra (no vision). Terra is the accuracy/cost balance;
-// Sol is allowlisted if food scans need more. gpt-5-search-api is the
-// only one of these that can do a live web lookup, and it cannot be
-// combined with vision, hence the two-pass design on the client.
+// Vision is required for photo analysis, which rules out GPT-6 Astra (no
+// vision). Terra is the accuracy/cost balance; Sol is allowlisted if food
+// scans need more.
+//
+// Oct 2026: the scan now runs on the RESPONSES API (`api: "responses"`),
+// where gpt-5.6-terra takes the photo AND has the hosted web_search tool in
+// the same call — the way ChatGPT itself answers "what is this?". The old
+// claim that search and vision can't be combined is only true of Chat
+// Completions (search there needs gpt-5-search-api, which has no vision).
+// gpt-5-search-api stays allowlisted for the legacy two-pass fallback.
 const ALLOWED_OPENAI_MODELS = new Set([
   "gpt-5.6-terra",     // default for vision + macros
   "gpt-5.6-sol",       // stronger, pricier
@@ -72,6 +77,10 @@ const PRICING: Record<string, { input: number; output: number }> = {
   "gpt-5-search-api": { input: 2.00, output: 12.00 },
 };
 const FALLBACK_PRICING = { input: 0.075, output: 0.30 };
+// Hosted web_search tool calls are billed per call on top of tokens.
+// ESTIMATE ($10 / 1k calls) — check https://openai.com/api/pricing and
+// update. Only used for the cost figure in tokenUsage.
+const WEB_SEARCH_CALL_USD = 0.01;
 
 const estimateCostUsd = (
   model: string,
@@ -266,6 +275,10 @@ interface TokenUsageInput {
   totalTokens: number;
   costUsd: number;
   durationMs: number;
+  /** Responses API only: how many hosted web searches the model ran. */
+  webSearchCalls?: number;
+  /** Which OpenAI API served the call ("chat" | "responses"). */
+  api?: string;
 }
 
 async function logTokenUsage(input: TokenUsageInput): Promise<void> {
@@ -574,27 +587,73 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
  * it: nine other features depend on that path and there is no reason to put
  * them at risk. Both share the same auth, quota bucket and usage logging.
  *
- * Supports two call shapes the client needs:
- *   1. vision + strict JSON  (gpt-5.6-terra) - reads the plate
- *   2. text-only web search  (gpt-5-search-api + webSearch) - looks up a
- *      named restaurant's dish first. These cannot be combined in one call,
- *      which is why the client runs them as two passes.
+ * Two APIs:
+ *   api: "responses" (default for the food scan since Oct 2026)
+ *      gpt-5.6-terra sees the photo, reasons, and can call the hosted
+ *      web_search tool in ONE call — the ChatGPT-style flow. Messages are
+ *      sent in Chat Completions shape and converted here.
+ *   api: "chat" (legacy two-pass fallback)
+ *      1. vision + JSON (gpt-5.6-terra) - reads the plate
+ *      2. text-only search (gpt-5-search-api + webSearch) - pass 1
  */
 interface OpenAIRequest {
   model?: string;
   messages: unknown;
   responseFormat?: unknown;
-  /** Enables web search. Only valid on a search-capable model. */
+  /**
+   * chat: enables web_search_options (search models only).
+   * responses: offers the hosted web_search tool; the model decides
+   * whether to search.
+   */
   webSearch?: boolean;
   temperature?: number;
   feature?: string;
+  api?: "chat" | "responses";
+  reasoningEffort?: "low" | "medium" | "high";
+}
+
+/** Chat Completions message shape -> Responses API `input` items. */
+function toResponsesInput(messages: unknown[]): unknown[] {
+  return messages.map((m: any) => {
+    const role = m?.role === "system" ? "developer" : (m?.role || "user");
+    const parts = typeof m?.content === "string"
+      ? [{ type: "text", text: m.content }]
+      : Array.isArray(m?.content) ? m.content : [];
+    const content = parts.map((p: any) => {
+      if (p?.type === "image_url") {
+        const url = typeof p.image_url === "string" ? p.image_url : p.image_url?.url;
+        // "high": labels and small portion cues need full resolution.
+        return { type: "input_image", image_url: url, detail: p.image_url?.detail || "high" };
+      }
+      return { type: "input_text", text: String(p?.text ?? "") };
+    });
+    return { role, content };
+  });
+}
+
+/** Pull url citations the model attached to its answer (deduped). */
+function extractCitations(response: any): { url: string; title?: string }[] {
+  const out: { url: string; title?: string }[] = [];
+  const seen = new Set<string>();
+  for (const item of response?.output ?? []) {
+    if (item?.type !== "message") continue;
+    for (const part of item.content ?? []) {
+      for (const a of part?.annotations ?? []) {
+        if (a?.type === "url_citation" && a.url && !seen.has(a.url)) {
+          seen.add(a.url);
+          out.push({ url: String(a.url), title: a.title ? String(a.title) : undefined });
+        }
+      }
+    }
+  }
+  return out.slice(0, 8);
 }
 
 export const callOpenAI = onCall(
   {
     cors: true,
     secrets: [OPENAI_API_KEY],
-    timeoutSeconds: 120,   // vision + search can be slower than text
+    timeoutSeconds: 180,   // reasoning + web search can take a while
     memory: "512MiB",
   },
   async (req: CallableRequest<OpenAIRequest>) => {
@@ -632,6 +691,63 @@ export const callOpenAI = onCall(
 
     const client = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
     const startTime = Date.now();
+
+    // ---- Responses API: vision + reasoning + optional web search, one call
+    if (data.api === "responses") {
+      const effort = ["low", "medium", "high"].includes(String(data.reasoningEffort))
+        ? data.reasoningEffort
+        : "medium";
+      let response: any;
+      try {
+        response = await (client as any).responses.create({
+          model,
+          input: toResponsesInput(data.messages as unknown[]),
+          reasoning: { effort },
+          ...(data.webSearch ? { tools: [{ type: "web_search" }], tool_choice: "auto" } : {}),
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "OpenAI call failed";
+        console.error("[callOpenAI:responses] upstream error", uid, feature, msg);
+        bumpOpsCounter("upstreamErrors").catch(() => undefined);
+        // The client falls back to the legacy two-pass scan on this error;
+        // the upstream message is passed along so the fallback is diagnosable
+        // from the browser console.
+        throw new HttpsError("internal", "AI service error. Try again.", { upstream: msg.slice(0, 300) });
+      }
+      const durationMs = Date.now() - startTime;
+      const webSearchCalls = (response?.output ?? []).filter((o: any) => o?.type === "web_search_call").length;
+      const sources = extractCitations(response);
+
+      try {
+        const usage = response?.usage ?? {};
+        const promptTokens = Number(usage.input_tokens ?? 0);
+        const candidatesTokens = Number(usage.output_tokens ?? 0);
+        await logTokenUsage({
+          uid,
+          userEmail: req.auth.token?.email ?? null,
+          feature,
+          model,
+          promptTokens,
+          candidatesTokens,
+          totalTokens: Number(usage.total_tokens ?? promptTokens + candidatesTokens),
+          costUsd: estimateCostUsd(model, promptTokens, candidatesTokens) + webSearchCalls * WEB_SEARCH_CALL_USD,
+          durationMs,
+          webSearchCalls,
+          api: "responses",
+        });
+      } catch (err) {
+        console.error("[callOpenAI] usage logging failed (non-fatal)", uid, err);
+      }
+
+      const text = typeof response?.output_text === "string"
+        ? response.output_text
+        : (response?.output ?? [])
+            .filter((o: any) => o?.type === "message")
+            .flatMap((o: any) => (o.content ?? []).map((c: any) => c?.text ?? ""))
+            .join("");
+      return { text, sources, webSearchCalls };
+    }
+
     let result;
     try {
       result = await client.chat.completions.create({
@@ -779,6 +895,111 @@ interface NutritionMatch {
   servingSize?: string;
   sourceUrl?: string;
   confidence: "high" | "medium" | "low";
+  /** 0..1 share of the query's food words this match covers. */
+  relevance?: number;
+}
+
+// ----- Relevance gate (Oct 2026) -----
+// USDA and Open Food Facts are keyword engines: they return SOMETHING for
+// almost any text — including "what is this". Those hits used to be handed
+// to the model as "AUTHORITATIVE — USE THESE VALUES", which is where many
+// nonsense scans came from (a teriyaki *sauce* standing in for a teriyaki
+// *bowl*, a random product for a question). Now a match is only returned
+// when it actually covers the food words the user typed and isn't a
+// different FORM of the food (sauce, seasoning, powder, bar...).
+const MATCH_FILLER = new Set([
+  "what", "whats", "is", "this", "that", "it", "its", "the", "a", "an", "of", "with", "and", "or",
+  "how", "many", "much", "calorie", "calories", "cal", "cals", "kcal", "macro", "macros",
+  "nutrition", "nutritional", "info", "in", "on", "my", "i", "ate", "had", "have", "got", "for", "to",
+  "some", "please", "okay", "ok", "so", "can", "you", "tell", "me", "about", "does", "do", "are",
+  "these", "those", "here", "there", "today", "tonight", "lunch", "dinner", "breakfast", "snack",
+  "from", "at", "be", "would", "should", "estimate", "guess", "food", "meal", "picture", "photo", "pic",
+  "g", "gram", "grams", "oz", "ounce", "ounces", "lb", "lbs", "pound", "pounds", "ml", "cup", "cups",
+  "tbsp", "tsp", "tablespoon", "tablespoons", "teaspoon", "teaspoons", "slice", "slices", "piece",
+  "pieces", "serving", "servings", "x", "half", "large", "medium", "small", "regular", "about",
+]);
+const FORM_WORDS = new Set([
+  "sauce", "seasoning", "mix", "powder", "dressing", "marinade", "flavored", "flavor", "chip",
+  "bar", "drink", "beverage", "candy", "spread", "broth", "bouillon", "baby", "infant", "formula",
+  "supplement", "extract", "syrup", "dip", "kit", "snack", "cracker", "cereal", "juice", "oil",
+  "gravy", "rub", "glaze", "topping", "dehydrated", "dried", "concentrate", "substitute",
+]);
+
+function stem(w: string): string {
+  if (w.length > 4 && w.endsWith("ies")) return w.slice(0, -3) + "y";
+  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
+  return w;
+}
+
+function rawWords(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/['’]s\b/g, "")
+    .replace(/[^a-z ]+/g, " ")
+    .split(/\s+/)
+    .filter(w => w.length > 1);
+}
+const wordsOf = (s: string): string[] => rawWords(s).map(stem);
+const isFiller = (w: string): boolean => MATCH_FILLER.has(w) || MATCH_FILLER.has(stem(w));
+
+/** The food words in a query: no filler, quantities, units or questions. */
+function foodTokens(query: string): string[] {
+  return Array.from(new Set(rawWords(query).filter(w => !isFiller(w)).map(stem)));
+}
+
+/**
+ * 0..1 share of the query's food words a candidate covers; 0 when the
+ * candidate is a different form of the food than what was asked for.
+ */
+function relevanceScore(qTokens: string[], name: string, brand?: string): number {
+  if (qTokens.length === 0) return 0;
+  const nameWords = new Set(wordsOf(name));
+  for (const w of nameWords) {
+    if (FORM_WORDS.has(w) && !qTokens.includes(w)) return 0;
+  }
+  const all = new Set([...nameWords, ...wordsOf(brand || "")]);
+  const covered = qTokens.filter(w => all.has(w)).length;
+  return covered / qTokens.length;
+}
+const MIN_RELEVANCE = 0.6;
+
+/** Did the user name this product's brand? */
+function brandMentioned(qTokens: string[], brand?: string): boolean {
+  const b = wordsOf(brand || "").filter(w => w.length > 2);
+  return b.length > 0 && b.some(w => qTokens.includes(w));
+}
+
+/** Query text for the upstream engines: the food words, unstemmed. */
+function upstreamQuery(query: string): string {
+  return rawWords(query).filter(w => !isFiller(w)).join(" ");
+}
+
+/**
+ * Keep only relevant matches, re-rate confidence honestly, rank best first.
+ * Branded products the user didn't name are capped at "low": one brand's
+ * granola is not "granola".
+ */
+function gateMatches(
+  qTokens: string[],
+  raw: (NutritionMatch & { usdaType?: string })[],
+): NutritionMatch[] {
+  const typeRank = (m: NutritionMatch & { usdaType?: string }) =>
+    m.source === "usda"
+      ? (m.usdaType === "Foundation" || m.usdaType === "SR Legacy" ? 3 : m.usdaType === "Survey (FNDDS)" ? 2 : 1)
+      : 0;
+  return raw
+    .map(m => ({ m, rel: relevanceScore(qTokens, m.name, m.brand) }))
+    .filter(x => x.rel >= MIN_RELEVANCE)
+    .map(x => {
+      const branded = x.m.source === "openfoodfacts" || x.m.usdaType === "Branded";
+      const confidence: NutritionMatch["confidence"] =
+        branded && !brandMentioned(qTokens, x.m.brand) ? "low" : x.m.confidence;
+      const { usdaType: _drop, ...rest } = x.m;
+      void _drop;
+      return { m: { ...rest, confidence, relevance: Math.round(x.rel * 100) / 100 }, rel: x.rel, tr: typeRank(x.m) };
+    })
+    .sort((a, b) => b.rel - a.rel || b.tr - a.tr)
+    .map(x => x.m);
 }
 
 interface SearchNutritionRequest {
@@ -812,13 +1033,29 @@ export const searchNutrition = onCall(
     }
     const limit = Math.min(Math.max(Number(req.data?.limit ?? 3), 1), 5);
 
+    // A question or filler ("what is this?", "how many calories") has no
+    // food words to look up. Answer empty instead of letting a keyword
+    // engine return something random.
+    const qTokens = foodTokens(query);
+    if (qTokens.length === 0) {
+      return {
+        matches: [],
+        sourcesUsed: [],
+        sourcesSkipped: [{ source: "all", reason: "no food words in query" }],
+      };
+    }
+
     // Light per-user quota: shares the same bucket as Gemini calls so a
     // misbehaving client can't bypass quotas by spamming this endpoint.
     await consumeQuota(uid);
 
     const sourcesUsed: ("usda" | "openfoodfacts")[] = [];
     const sourcesSkipped: { source: string; reason: string }[] = [];
-    const matches: NutritionMatch[] = [];
+    const matches: (NutritionMatch & { usdaType?: string })[] = [];
+    // Pull a wider candidate set than we return; the relevance gate below
+    // throws most of it away.
+    const searchText = upstreamQuery(query) || query;
+    const CANDIDATES = 10;
 
     // --- 1. USDA (when key is configured) -----------------------------------
     let usdaKey = "";
@@ -830,7 +1067,7 @@ export const searchNutrition = onCall(
 
     if (usdaKey) {
       try {
-        const usdaMatches = await fetchFromUsda(query, usdaKey, limit);
+        const usdaMatches = await fetchFromUsda(searchText, usdaKey, CANDIDATES);
         matches.push(...usdaMatches);
         sourcesUsed.push("usda");
       } catch (err) {
@@ -844,7 +1081,7 @@ export const searchNutrition = onCall(
 
     // --- 2. Open Food Facts (always tried) ----------------------------------
     try {
-      const offMatches = await fetchFromOpenFoodFacts(query, limit);
+      const offMatches = await fetchFromOpenFoodFacts(searchText, CANDIDATES);
       matches.push(...offMatches);
       sourcesUsed.push("openfoodfacts");
     } catch (err) {
@@ -853,9 +1090,9 @@ export const searchNutrition = onCall(
       sourcesSkipped.push({ source: "openfoodfacts", reason: msg });
     }
 
-    // Trim to overall limit, USDA first (already prepended), then OFF.
+    // Relevant matches only, best first (whole-food USDA entries win ties).
     return {
-      matches: matches.slice(0, limit),
+      matches: gateMatches(qTokens, matches).slice(0, limit),
       sourcesUsed,
       sourcesSkipped,
     };
@@ -907,7 +1144,7 @@ async function fetchFromUsda(query: string, apiKey: string, limit: number): Prom
   const data = (await res.json()) as { foods?: any[] };
   const foods = Array.isArray(data.foods) ? data.foods : [];
 
-  return foods.slice(0, limit).map((f: any): NutritionMatch => {
+  return foods.slice(0, limit).map((f: any): NutritionMatch & { usdaType?: string } => {
     const nutrients: Array<{ nutrientId: number; value: number }> = f.foodNutrients ?? [];
     const get = (id: number) => {
       const n = nutrients.find(x => x.nutrientId === id);
@@ -943,6 +1180,7 @@ async function fetchFromUsda(query: string, apiKey: string, limit: number): Prom
       servingSize,
       sourceUrl: f.fdcId ? `https://fdc.nal.usda.gov/fdc-app.html#/food-details/${f.fdcId}/nutrients` : undefined,
       confidence,
+      usdaType: typeof f.dataType === "string" ? f.dataType : undefined,
     };
   });
 }
@@ -953,9 +1191,9 @@ async function fetchFromOpenFoodFacts(query: string, limit: number): Promise<Nut
     `https://world.openfoodfacts.org/cgi/search.pl` +
     `?search_terms=${encodeURIComponent(query)}` +
     `&search_simple=1&action=process&json=1` +
-    `&page_size=${limit}` +
-    // Sort by completeness so we get well-filled-in products first.
-    `&sort_by=completeness`;
+    // Default (relevance/popularity) order. sort_by=completeness used to put
+    // the best-documented product first whether or not it matched the query.
+    `&page_size=${limit}`;
 
   const res = await fetch(url, {
     method: "GET",

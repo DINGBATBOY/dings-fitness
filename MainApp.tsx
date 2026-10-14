@@ -133,7 +133,10 @@ interface ScannedItem {
 }
 
 // Image Resize Utility to prevent crashes
-const resizeImage = (file: File, maxWidth = 1024, quality = 0.7): Promise<string> => {
+// 1536 px / 0.85: the food scan reads labels and judges portions from small
+// details (fork size, plate rim, printed text), which 1024 px at 0.7 blurred.
+// ~0.4-0.8 MB per photo, well under the 9 MB callable cap.
+const resizeImage = (file: File, maxWidth = 1536, quality = 0.85): Promise<string> => {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -1692,7 +1695,20 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
            setFoodForm({ name: '', calories: '', protein: '', carbs: '', fat: '' });
       }
 
-      if (result.tip) setAnalysisTip(result.tip);
+      // Lead with what the model decided the food IS, so a wrong
+      // identification is obvious at a glance, then how it got the numbers
+      // and which sites it read.
+      const sourceSites = Array.from(new Set(
+          (result.webSources ?? []).map(src => {
+              try { return new URL(src.url).hostname.replace(/^www\./, ''); } catch { return ''; }
+          }).filter(Boolean),
+      )).slice(0, 3);
+      const tipParts = [
+          result.identifiedAs ? `Looks like: ${result.identifiedAs}.` : '',
+          result.tip || '',
+          sourceSites.length ? `Sources: ${sourceSites.join(', ')}.` : '',
+      ].filter(Boolean);
+      if (tipParts.length) setAnalysisTip(tipParts.join(' '));
       setAnalysisNutritionSources((result as any).nutritionSourcesUsed ?? []);
       setAnalysisNutritionMatchCount((result as any).nutritionMatchCount ?? 0);
       setAnalysisNutritionSkipped((result as any).nutritionSourcesSkipped ?? []);
@@ -1767,7 +1783,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               // Only auto-add when the AI attributed the macros to a restaurant
               // database or nutrition database (real source). Skip pure
               // text/visual estimates so guesses don't pollute the menu.
-              if (sourceItem !== 'restaurant_db' && sourceItem !== 'nutrition_db') continue;
+              if (sourceItem !== 'restaurant_db' && sourceItem !== 'nutrition_db' && sourceItem !== 'web_lookup') continue;
               const itemName = scanned.name || newItems[i].name;
               if (!itemName) continue;
               // Fuzzy match against everything we already know for this restaurant.

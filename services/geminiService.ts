@@ -83,6 +83,8 @@ export interface NutritionMatch {
   servingSize?: string;
   sourceUrl?: string;
   confidence: "high" | "medium" | "low";
+  /** 0..1 share of the query's food words this match covers (server-side gate). */
+  relevance?: number;
 }
 
 export interface SearchNutritionResponse {
@@ -185,26 +187,46 @@ type OpenAIProxyRequest = {
   webSearch?: boolean;
   temperature?: number;
   feature?: string;
+  /** "responses" = vision + reasoning + hosted web_search in one call. */
+  api?: "chat" | "responses";
+  reasoningEffort?: "low" | "medium" | "high";
 };
 
-async function callOpenAIProxy(req: OpenAIProxyRequest): Promise<{ text: string }> {
+type OpenAIProxyResponse = {
+  text: string;
+  /** Responses API only: pages the model cited. */
+  sources?: { url: string; title?: string }[];
+  /** Responses API only: how many web searches the model ran. */
+  webSearchCalls?: number;
+};
+
+/** Error from callOpenAIProxy, keeping the Functions error code. */
+class AIProxyError extends Error {
+  constructor(message: string, public code?: string, public upstream?: string) {
+    super(message);
+  }
+}
+
+async function callOpenAIProxy(req: OpenAIProxyRequest): Promise<OpenAIProxyResponse> {
   if (!functions) {
     throw new Error("Firebase not configured. AI features unavailable.");
   }
-  const fn = httpsCallable<OpenAIProxyRequest, { text: string }>(functions, "callOpenAI");
+  // Reasoning + web search can run past the SDK's 70 s default.
+  const fn = httpsCallable<OpenAIProxyRequest, OpenAIProxyResponse>(functions, "callOpenAI", { timeout: 170_000 });
   try {
     const res = await fn(req);
     return res.data;
   } catch (err: any) {
     const code = err?.code as string | undefined;
     const message = err?.message as string | undefined;
+    const upstream = typeof err?.details?.upstream === "string" ? err.details.upstream : undefined;
     if (code === "functions/unauthenticated") {
-      throw new Error("Please sign in again to use AI features.");
+      throw new AIProxyError("Please sign in again to use AI features.", code);
     }
     if (code === "functions/resource-exhausted") {
-      throw new Error(message || "Daily AI limit reached. Try again tomorrow.");
+      throw new AIProxyError(message || "Daily AI limit reached. Try again tomorrow.", code);
     }
-    throw new Error(message || "AI service unavailable. Please try again.");
+    throw new AIProxyError(message || "AI service unavailable. Please try again.", code, upstream);
   }
 }
 
@@ -677,6 +699,12 @@ export interface FoodAnalysisResult {
   nutritionMatchCount?: number;
   /** Sources that were skipped (e.g. USDA_API_KEY not set) with reasons. */
   nutritionSourcesSkipped?: { source: string; reason: string }[];
+  /** What the model decided the food is, in plain words. */
+  identifiedAs?: string;
+  /** Pages the model cited from its own web search (one-call scan only). */
+  webSources?: { url: string; title?: string }[];
+  /** Which pipeline produced this result. */
+  pipeline?: "search" | "legacy";
 }
 
 // Strip a leading data: URL prefix when present.
@@ -697,6 +725,46 @@ const toNumberOpt = (v: unknown): number | undefined => {
   if (v === undefined || v === null || v === "") return undefined;
   const n = toNumber(v);
   return Number.isFinite(n) ? n : undefined;
+};
+
+// ---------------------------------------------------------------------------
+// Does the typed text actually name a food? "what is this", "how many
+// calories?", "macros pls" don't — and running a USDA / Open Food Facts
+// keyword search on them returns random products, which the scan used to
+// treat as authoritative. Mirrors foodTokens() in functions/src/index.ts.
+// ---------------------------------------------------------------------------
+const FOOD_QUERY_FILLER = new Set([
+  "what", "whats", "is", "this", "that", "it", "its", "the", "a", "an", "of", "with", "and", "or",
+  "how", "many", "much", "calorie", "calories", "cal", "cals", "kcal", "macro", "macros",
+  "nutrition", "nutritional", "info", "in", "on", "my", "i", "ate", "had", "have", "got", "for", "to",
+  "some", "please", "pls", "plz", "okay", "ok", "so", "can", "you", "tell", "me", "about", "does",
+  "do", "are", "these", "those", "here", "there", "today", "tonight", "lunch", "dinner", "breakfast",
+  "snack", "be", "would", "should", "estimate", "guess", "food", "meal", "picture", "photo", "pic",
+  "thing", "stuff", "idk", "hmm", "um", "yo", "hey", "just", "like", "rn", "now",
+]);
+
+/** The food words in the user's text, or "" when it's only a question / filler. */
+export const extractFoodQuery = (text: string): string =>
+  (text || "")
+    .toLowerCase()
+    .replace(/['’]s\b/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter(w => w && !FOOD_QUERY_FILLER.has(w) && !FOOD_QUERY_FILLER.has(w.replace(/s$/, "")))
+    .join(" ")
+    .trim();
+
+/** Parse a JSON object out of model text that may carry fences or stray prose. */
+const parseModelJson = (text: string): any => {
+  const cleaned = (text || "").replace(/```(?:json)?\n?|\n?```/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error("No JSON object in model output");
+  }
 };
 
 // Format a matched restaurant's menu (and components, if defined) as an
@@ -902,15 +970,18 @@ export const detectIndieRestaurantIntent = (text: string): boolean => {
   return false;
 };
 
-// Format Open Food Facts / USDA matches as authoritative reference data.
-// Injected when no restaurant chain is detected — gives the AI verified
-// macros for whole foods and branded packaged products before it falls back
-// to estimation.
+// Format Open Food Facts / USDA matches as REFERENCE CANDIDATES.
+//
+// Oct 2026: these used to be injected as "AUTHORITATIVE — USE THESE VALUES",
+// and the model obeyed even when the top keyword hit was a different food
+// (teriyaki sauce for a teriyaki bowl, a random product for "what is this").
+// The server now drops irrelevant hits (functions/src/index.ts relevance
+// gate); the prompt still makes the model confirm it's the same food before
+// using one.
 //
 // `softenSearchBlock`: when true, tells the model that web-lookup results for
 // a named restaurant outrank USDA generics for that restaurant's items. Set
-// when indie restaurant intent is detected upstream (the same condition that
-// triggers the pass-1 web lookup in analyzeFoodEntry).
+// when indie restaurant intent is detected upstream (legacy two-pass path).
 const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = false): string => {
   if (matches.length === 0) return '';
   const lines = matches.map(m => {
@@ -922,34 +993,87 @@ const formatNutritionContext = (matches: NutritionMatch[], softenSearchBlock = f
 
   const searchPolicy = softenSearchBlock
     ? `For RESTAURANT-NAMED items in the user's query, prefer the WEB LOOKUP
-RESULTS section below if one is present (per the Independent Restaurant block
-above) — USDA generics are wrong for a named restaurant's preparation. For
-generic ingredients or sides not tied to the restaurant ("french fries",
-"ketchup"), use USDA.`
-    : `These values are authoritative for the foods they cover — use them
-rather than estimating.`;
+RESULTS section below if one is present — USDA generics are wrong for a named
+restaurant's preparation. For generic sides not tied to the restaurant
+("french fries", "ketchup"), a matching candidate here is fine.`
+    : '';
 
   return `
 
-AUTHORITATIVE NUTRITION DATABASE MATCHES — USE THESE VALUES:
-We queried USDA FoodData Central and Open Food Facts for the user's text.
-Below are the top matches. Values are PER 100 GRAMS unless a different
-serving size is specified. If the user query includes a quantity (e.g. "6 oz
-chicken breast", "1 cup oatmeal", "2 slices bread"), scale these per-100g
-values to the user's portion in grams and SHOW THE MATH in the tip — e.g.
-"USDA chicken breast (raw) is 165 cal per 100g; 6 oz = 170g → 280 cal."
-Prefer USDA entries over Open Food Facts when both are present (higher data
-quality). ${searchPolicy}
+NUTRITION DATABASE CANDIDATES (keyword search — verify before using):
+We searched USDA FoodData Central and Open Food Facts for the food words the
+user typed. These are candidates, NOT answers. Use one ONLY if it is clearly
+the same food in the same form as what the user ate — same dish, raw vs
+cooked, plain vs sauced or fried, and the same brand for packaged food. If
+none of them fit (or the photo shows something else), IGNORE this section and
+work out the macros yourself. Never force a poor match.
 
-MANDATORY SOURCE LABELING: For ANY item whose macros came from this
-nutrition database section (whether directly or scaled), you MUST set
-"source": "nutrition_db" in the JSON output. Do NOT use "text_only" or
-"visual_estimate" for these items — that's incorrect attribution. Set
-"confidence" to the listed confidence level (high/medium/low).
+When one does fit: values are PER 100 GRAMS. Scale to the user's portion in
+grams and show the math in "tip" (e.g. "USDA chicken breast, roasted: 165 cal
+per 100g; 6 oz = 170g -> 280 cal"), and set "source": "nutrition_db" for that
+item. "low conf" entries are a brand the user did not name — only use those
+for that exact product. ${searchPolicy}
 
 ${lines}
 `;
 };
+
+// Shared output schema — both scan pipelines return this shape.
+const FOOD_OUTPUT_SCHEMA = `
+OUTPUT FORMAT:
+Return ONLY a valid JSON object (no markdown, no code fences) with this shape:
+{
+  "identifiedAs": "string — what you believe the food is, in plain words (e.g. 'Chicken shawarma plate with rice, garlic sauce and salad'). If unsure, your best guess and the runner-up.",
+  "detectedType": "label" | "meal" | "mixed" | "text-only",
+  "items": [
+    {
+      "name": "string — short, human-readable label",
+      "calories": number,
+      "protein": number,
+      "carbs": number,
+      "fat": number,
+      "fiber": number,
+      "source": "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only",
+      "confidence": "high" | "medium" | "low",
+      "servingSize": "string — only for nutrition labels, e.g. '1 cup (245g)'",
+      "portionNote": "string — the amount these numbers assume, in plain words, e.g. '6 oz grilled chicken + 1 cup rice' or '1 bar (60 g)'. Always fill this in.",
+      "servingsConsumed": number,
+      "ingredients": [
+        {
+          "name": "string — single ingredient",
+          "grams": number,
+          "calories": number,
+          "protein": number,
+          "carbs": number,
+          "fat": number,
+          "fiber": number,
+          "emoji": "string — one emoji that visually represents the ingredient"
+        }
+      ]
+    }
+  ],
+  "tip": "string — one short sentence explaining how this estimate was produced"
+}
+
+Rules for the schema:
+- "servingSize" and "servingsConsumed" appear ONLY when the item came from a nutrition label.
+- "ingredients" appears ONLY for prepared meals/dishes (not for nutrition labels and not for simple single-ingredient items like "an apple").
+- When you include ingredients, the item-level macros MUST equal the sum of ingredient macros (within ±5%).
+- All numeric fields are numbers, not strings. No units inside numbers.
+`;
+
+const FOOD_LABEL_RULES = `
+NUTRITION LABEL MODE — STRICT EXTRACTION:
+- Treat each provided image as a nutrition label / Nutrition Facts panel.
+- READ AND EXTRACT the printed values exactly as shown. DO NOT estimate or interpolate.
+- If a value (e.g. fiber) is not printed, OMIT that field rather than guessing.
+- Identify the "Serving size" line from the label and put it in "servingSize".
+- Assume "servingsConsumed" is 1 unless the user's text says otherwise (e.g. "ate the whole bag = 3 servings" → servingsConsumed: 3).
+- If the user says they ate multiple servings, scale calories/macros by servingsConsumed.
+- Set "source": "label" and "confidence": "high" when the label is clearly readable; "medium" if partially obscured; "low" if mostly unreadable.
+- DO NOT include an "ingredients" array for nutrition labels.
+`;
+
 
 // Build the prompt based on the imageType hint.
 // `nutritionMatches` are injected when the caller has already queried
@@ -1003,60 +1127,8 @@ with that restaurant:
 4. In "tip", state the restaurant and where the numbers came from.
 ` : '';
 
-  // Shared output schema description — same shape regardless of mode.
-  const outputSchema = `
-OUTPUT FORMAT:
-Return ONLY a valid JSON object (no markdown, no code fences) with this shape:
-{
-  "detectedType": "label" | "meal" | "mixed" | "text-only",
-  "items": [
-    {
-      "name": "string — short, human-readable label",
-      "calories": number,
-      "protein": number,
-      "carbs": number,
-      "fat": number,
-      "fiber": number,
-      "source": "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only",
-      "confidence": "high" | "medium" | "low",
-      "servingSize": "string — only for nutrition labels, e.g. '1 cup (245g)'",
-      "portionNote": "string — the amount these numbers assume, in plain words, e.g. '6 oz grilled chicken + 1 cup rice' or '1 bar (60 g)'. Always fill this in.",
-      "servingsConsumed": number,
-      "ingredients": [
-        {
-          "name": "string — single ingredient",
-          "grams": number,
-          "calories": number,
-          "protein": number,
-          "carbs": number,
-          "fat": number,
-          "fiber": number,
-          "emoji": "string — one emoji that visually represents the ingredient"
-        }
-      ]
-    }
-  ],
-  "tip": "string — one short sentence explaining how this estimate was produced"
-}
-
-Rules for the schema:
-- "servingSize" and "servingsConsumed" appear ONLY when the item came from a nutrition label.
-- "ingredients" appears ONLY for prepared meals/dishes (not for nutrition labels and not for simple single-ingredient items like "an apple").
-- When you include ingredients, the item-level macros MUST equal the sum of ingredient macros (within ±5%).
-- All numeric fields are numbers, not strings. No units inside numbers.
-`;
-
-  const labelInstructions = `
-NUTRITION LABEL MODE — STRICT EXTRACTION:
-- Treat each provided image as a nutrition label / Nutrition Facts panel.
-- READ AND EXTRACT the printed values exactly as shown. DO NOT estimate or interpolate.
-- If a value (e.g. fiber) is not printed, OMIT that field rather than guessing.
-- Identify the "Serving size" line from the label and put it in "servingSize".
-- Assume "servingsConsumed" is 1 unless the user's text says otherwise (e.g. "ate the whole bag = 3 servings" → servingsConsumed: 3).
-- If the user says they ate multiple servings, scale calories/macros by servingsConsumed.
-- Set "source": "label" and "confidence": "high" when the label is clearly readable; "medium" if partially obscured; "low" if mostly unreadable.
-- DO NOT include an "ingredients" array for nutrition labels.
-`;
+  const outputSchema = FOOD_OUTPUT_SCHEMA;
+  const labelInstructions = FOOD_LABEL_RULES;
 
   const mealInstructions = `
 MEAL PHOTO MODE — ONE ITEM PER DISTINCT FOOD, THEN INGREDIENTS INSIDE:
@@ -1211,44 +1283,68 @@ const normalizeItem = (raw: any): FoodAnalysisItem => {
   };
 };
 
-export const analyzeFoodEntry = async (
+// USDA / Open Food Facts lookup shared by both scan pipelines.
+interface NutritionLookup {
+  matches: NutritionMatch[];
+  sourcesUsed: ("usda" | "openfoodfacts")[];
+  sourcesSkipped: { source: string; reason: string }[];
+  /** True when we actually ran the search (the text named a food). */
+  queried: boolean;
+}
+
+// Tier-3 lookup: USDA + Open Food Facts, on the FOOD WORDS of the typed text
+// only. Skipped when:
+//  • the text is a question or filler with no food words ("what is this?")
+//  • a photo is attached and the text is long (a meal narrative, not a name)
+//  • the text mentions a known chain (our curated menu is more specific)
+//  • the text is unusually long
+const lookupNutritionForText = async (
+  textDescription: string,
+  hasImages: boolean,
+): Promise<NutritionLookup> => {
+  const textTrimmed = (textDescription || "").trim();
+  const foodQuery = extractFoodQuery(textTrimmed);
+  const shouldQuery =
+    foodQuery.length > 0 &&
+    (!hasImages || textTrimmed.length <= 60) &&
+    detectRestaurantsInText(textTrimmed).length === 0 &&
+    textTrimmed.length < 120;
+  const empty: NutritionLookup = { matches: [], sourcesUsed: [], sourcesSkipped: [], queried: false };
+  if (!shouldQuery) return empty;
+  try {
+    const nutrition = await searchNutrition(foodQuery, 3);
+    return {
+      matches: nutrition.matches || [],
+      sourcesUsed: nutrition.sourcesUsed || [],
+      sourcesSkipped: nutrition.sourcesSkipped || [],
+      queried: true,
+    };
+  } catch (err) {
+    // Non-fatal — proceed without nutrition context.
+    console.warn("[analyzeFoodEntry] searchNutrition failed (non-fatal)", err);
+    return { ...empty, queried: true };
+  }
+};
+
+// LEGACY two-pass scan (Sept 2026): optional gpt-5-search-api lookup on the
+// typed text, then a Chat Completions vision call. Kept as the automatic
+// fallback when the one-call Responses scan fails.
+const analyzeFoodEntryLegacy = async (
   images: string[],
   textDescription: string,
-  imageType: FoodImageType = "auto",
-  customMenuItems?: Record<string, MenuItem[]>,
+  imageType: FoodImageType,
+  customMenuItems: Record<string, MenuItem[]> | undefined,
+  lookup: NutritionLookup,
 ): Promise<FoodAnalysisResult> => {
   const parts: any[] = [];
   const hasImages = Array.isArray(images) && images.length > 0;
 
-  // Tier-3 lookup: USDA + Open Food Facts. Runs on the typed text, including
-  // when a photo is attached ("quest bar" + a photo of it) — a short typed
-  // name is exactly what these databases match well. Skip when:
-  //  • a photo is attached and the text is long (a meal narrative, not a name)
-  //  • the text mentions a known restaurant (our DB is more specific)
-  //  • the query is empty or unusually long (likely a complex meal narrative,
-  //    not a single food lookup — let Gemini handle it)
-  let nutritionMatches: NutritionMatch[] = [];
-  let nutritionSourcesUsed: ("usda" | "openfoodfacts")[] = [];
-  let nutritionSourcesSkipped: { source: string; reason: string }[] = [];
+  const nutritionMatches = lookup.matches;
+  const nutritionSourcesUsed = lookup.sourcesUsed;
+  const nutritionSourcesSkipped = lookup.sourcesSkipped;
+  const shouldQueryNutritionDb = lookup.queried;
   const textTrimmed = (textDescription || "").trim();
   const restaurantMatched = detectRestaurantsInText(textTrimmed);
-  const shouldQueryNutritionDb =
-    (!hasImages || textTrimmed.length <= 60) &&
-    restaurantMatched.length === 0 &&
-    textTrimmed.length > 0 &&
-    textTrimmed.length < 120;
-
-  if (shouldQueryNutritionDb) {
-    try {
-      const nutrition = await searchNutrition(textTrimmed, 3);
-      nutritionMatches = nutrition.matches || [];
-      nutritionSourcesUsed = nutrition.sourcesUsed || [];
-      nutritionSourcesSkipped = nutrition.sourcesSkipped || [];
-    } catch (err) {
-      // Non-fatal — proceed without nutrition context.
-      console.warn("[analyzeFoodEntry] searchNutrition failed (non-fatal)", err);
-    }
-  }
 
   parts.push({ text: buildFoodAnalysisPrompt(imageType, hasImages, textDescription, nutritionMatches, customMenuItems) });
 
@@ -1320,10 +1416,10 @@ export const analyzeFoodEntry = async (
       type: 'text',
       text: `
 
-A photo is attached AND we matched the typed name in USDA / Open Food Facts.
-If the photo shows a readable nutrition label, the label wins over the
-database. Otherwise use the database values for the item the user named and
-estimate any other foods visible on the plate separately.`,
+A photo is attached. Identify the food from the PHOTO first. A readable
+nutrition label in the photo beats the database candidates. Use a candidate
+only if it is the same food the photo shows; estimate everything else on
+the plate separately.`,
     });
   }
 
@@ -1377,31 +1473,10 @@ ${webLookup}`,
       ? parsed.items.map(normalizeItem).filter((i: FoodAnalysisItem) => i.name)
       : [];
 
-    // CLIENT-SIDE SOURCE OVERRIDE.
-    // Gemini sometimes ignores our prompt instruction and labels items as
-    // "text_only" even when we injected USDA/OFF matches. We know
-    // authoritatively whether we queried the nutrition DB (nutritionMatches
-    // has length > 0), so we re-attribute any item that came through with a
-    // weak source label. We never override "restaurant_db" (that's our DB)
-    // or "label" (that's an image OCR match).
-    // Text-only: with a photo, the plate may hold several foods and only
-    // some of them relate to the typed name, so the model's own labels stand.
-    if (nutritionMatches.length > 0 && !hasImages) {
-      items = items.map(item => {
-        if (!item.source || item.source === "text_only" || item.source === "visual_estimate") {
-          // Inherit the best confidence from the injected matches.
-          const bestConf = nutritionMatches.reduce<("high" | "medium" | "low")>(
-            (best, m) => {
-              const rank = { high: 3, medium: 2, low: 1 } as const;
-              return rank[m.confidence] > rank[best] ? m.confidence : best;
-            },
-            "low",
-          );
-          return { ...item, source: "nutrition_db", confidence: item.confidence ?? bestConf };
-        }
-        return item;
-      });
-    }
+    // (Oct 2026) The old client-side override that relabelled every item as
+    // "nutrition_db" whenever the database returned anything is gone: it
+    // stamped database credibility on answers the model had rightly worked
+    // out itself because the candidates didn't fit. The model's label stands.
 
     const validTypes = ["label", "meal", "mixed", "text-only"];
     const detectedType = validTypes.includes(parsed?.detectedType)
@@ -1415,10 +1490,198 @@ ${webLookup}`,
       nutritionSourcesUsed,
       nutritionMatchCount: nutritionMatches.length,
       nutritionSourcesSkipped,
+      identifiedAs: typeof parsed?.identifiedAs === "string" ? parsed.identifiedAs.trim().slice(0, 200) : undefined,
+      pipeline: "legacy",
     };
   } catch (e) {
     console.error("Failed to parse AI food-analysis response", e);
-    return { items: [], tip: "Could not analyze food. Please try again." };
+    return { items: [], tip: "Could not analyze food. Please try again.", pipeline: "legacy" };
+  }
+};
+
+// ============================================================================
+//  ONE-CALL SCAN (Oct 2026) — the ChatGPT-style pipeline
+// ============================================================================
+// Why: asking ChatGPT "what is this?" gave better answers than the app,
+// because ChatGPT looks at the photo, thinks, and searches the web if it
+// needs to — all in one go. The legacy scan instead searched databases and
+// the web for the WORDS the user typed (often a question), then handed the
+// vision model whatever came back labelled "authoritative".
+//
+// Now: gpt-5.6-terra on the Responses API gets the photo, the user's note,
+// any curated chain data and relevance-checked database candidates, plus
+// the hosted web_search tool. It identifies the food first, searches when a
+// named restaurant / brand / unfamiliar dish calls for it, then returns the
+// same JSON shape as before. Any failure falls back to the legacy scan.
+
+// Curated chain data for the one-call scan. Same matching as the legacy
+// formatter, shorter instructions (the model can search for anything the
+// curated list doesn't cover).
+const formatRestaurantReference = (
+  restaurants: Restaurant[],
+  userText: string,
+  customMenuItems?: Record<string, MenuItem[]>,
+): string => {
+  if (restaurants.length === 0) return '';
+  const blocks = restaurants.map(r => {
+    const matchedItems = findMenuItemMatches(userText, getEffectiveMenuItems(r, customMenuItems));
+    const lines: string[] = matchedItems.map(i => {
+      const fiber = i.fiber !== undefined ? `, fiber ${i.fiber}g` : '';
+      const serving = i.servingSize ? ` [${i.servingSize}]` : '';
+      return `  - ${i.name}${serving}: ${i.calories} cal, P ${i.protein}g, C ${i.carbs}g, F ${i.fat}g${fiber}`;
+    });
+    if (r.components && r.components.length > 0) {
+      lines.push('  Build-your-own components (per standard portion):');
+      for (const c of r.components) {
+        const notes = c.notes ? ` — ${c.notes}` : '';
+        lines.push(`    • [${c.category}] ${c.name} [${c.servingSize}]: ${c.calories} cal, P ${c.protein}g, C ${c.carbs}g, F ${c.fat}g${notes}`);
+      }
+    }
+    const src = r.nutritionSourceUrl || r.officialUrl || '';
+    if (lines.length === 0) {
+      return `${r.shortName}: the user's item is not in our verified list. Search ${r.shortName}'s published nutrition${src ? ` (${src})` : ''} for it.`;
+    }
+    return `${r.shortName}${src ? ` (official nutrition: ${src})` : ''}:\n${lines.join('\n')}`;
+  }).join('\n\n');
+
+  return `
+
+VERIFIED MENU DATA (checked against the restaurants' published nutrition):
+Use these exact numbers when the user's item IS one of the listed items, and
+set "source": "restaurant_db", "confidence": "high". Do not substitute a
+similar-but-different item (a flatbread is not the wrap; a large is not the
+small) — search for the real item instead. For build-your-own orders, add
+or subtract components for "double / extra / no / light / add" and show the
+math in "tip" (e.g. "Chicken bowl 595 + extra chicken 180 = 775 cal").
+
+${blocks}
+`;
+};
+
+const SEARCH_SCAN_INSTRUCTIONS = `You are an expert nutritionist helping someone log what they ate in a fitness app. They show you a photo and/or a short note — often casual, sometimes just "what is this?". Answer the way you would if they asked you directly in a chat: work out what the food really is, then give realistic macros for the amount they ate.
+
+1. IDENTIFY FIRST
+- Study the photo before anything else: the dish and cuisine, how it was cooked (fried, grilled, sauced, breaded), every visible component, and any packaging, logo, cup, wrapper, receipt or menu that names a brand or restaurant.
+- The note may be a question rather than a food name — identify from the photo either way. If the user names the food, brand or place, trust that over your visual guess.
+- If two identities are plausible, go with the more likely one and mention the runner-up in "identifiedAs".
+
+2. LOOK IT UP WHEN IT MATTERS
+- You can search the web. Search when the food is from a named restaurant or chain, when it is a branded or packaged product, or when it is a dish you are not confident about. Prefer the restaurant's or brand's own nutrition page, then Nutritionix, MyFitnessPal, FatSecret or CalorieKing.
+- Don't search for plain whole foods you already know well (an apple, white rice, a grilled chicken breast).
+- Never claim a source you did not actually read. When you used one, name the site in "tip".
+
+3. PORTION
+- Estimate the amount from visual cues: plate size (a dinner plate is ~10-11 in), bowl, utensils or a hand for scale, cup and container sizes. For restaurant food, use the restaurant's standard serving unless the photo clearly shows more or less. A quantity the user states always wins.
+- Write the amount you assumed in "portionNote".
+
+4. MACROS
+- A readable Nutrition Facts label in a photo beats everything: copy its values exactly ("source": "label", include "servingSize"; "servingsConsumed" is 1 unless the user says otherwise, and scale the macros by it).
+- Otherwise use published data (from your search or the reference sections below) when it is the same item; if not, build the total from standard nutrition values for each component.
+- Count what is easy to miss: cooking oil and butter, sauces, dressings, cheese, glazes, sugary drinks. Restaurant cooking is usually richer than home cooking.
+- Check before answering: calories should be within ~10% of 4×protein + 4×carbs + 9×fat.
+
+5. ITEMS
+- One item per distinct food (entree, each side, each drink, each sauce cup). A single composed dish (a burrito, a bowl of pasta) is ONE item with its components in "ingredients"; skip "ingredients" for simple foods (a drink, a bar, a piece of fruit).
+- "source" per item: "label" (read from a label), "restaurant_db" (from the VERIFIED MENU DATA section), "web_lookup" (from your web search), "nutrition_db" (from the database candidates), "visual_estimate" (photo + your own knowledge), "text_only" (no photo, your own knowledge).
+- "confidence": "high" for a label or published data for the exact item; "medium" for a solid identification with an estimated portion; "low" when the food or portion is genuinely unclear.
+
+Reply with ONLY the JSON object described below — no prose before or after it, no markdown.
+`;
+
+const analyzeFoodEntryWithSearch = async (
+  images: string[],
+  textDescription: string,
+  customMenuItems: Record<string, MenuItem[]> | undefined,
+  lookup: NutritionLookup,
+): Promise<FoodAnalysisResult> => {
+  const hasImages = Array.isArray(images) && images.length > 0;
+  const text = sanitize(textDescription || '', 1000);
+  const chains = detectRestaurantsInText(text);
+  const namedPlace = chains.length === 0 && detectIndieRestaurantIntent(text);
+
+  const noteLine = text
+    ? `The user's note: "${text}"`
+    : `The user didn't add a note${hasImages ? ' — identify the food from the photo.' : '.'}`;
+  const placeHint = namedPlace
+    ? `\n\nThe note seems to name a specific restaurant or place. Search for that place's menu and nutrition for this item before estimating.`
+    : '';
+
+  const userText =
+    `${noteLine}${hasImages ? `\n${images.length} photo${images.length > 1 ? 's' : ''} attached.` : ''}` +
+    placeHint +
+    formatRestaurantReference(chains, text, customMenuItems) +
+    formatNutritionContext(lookup.matches) +
+    `\n${FOOD_OUTPUT_SCHEMA}`;
+
+  const content: any[] = [{ type: 'text', text: userText }];
+  if (hasImages) {
+    images.forEach(img => {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:image/jpeg;base64,${extractBase64(img)}`, detail: 'high' },
+      });
+    });
+  }
+
+  const response = await callOpenAIProxy({
+    feature: 'analyzeFoodEntry',
+    api: 'responses',
+    webSearch: true,
+    reasoningEffort: 'medium',
+    messages: [
+      { role: 'system', content: SEARCH_SCAN_INSTRUCTIONS },
+      { role: 'user', content },
+    ],
+  });
+
+  if (!response?.text) throw new Error('Empty response from the one-call scan');
+  const parsed = parseModelJson(response.text);
+  if (!Array.isArray(parsed?.items)) throw new Error('One-call scan returned no items array');
+
+  const items: FoodAnalysisItem[] = parsed.items.map(normalizeItem).filter((i: FoodAnalysisItem) => i.name);
+  const validTypes = ["label", "meal", "mixed", "text-only"];
+  const sources = Array.isArray(response.sources) ? response.sources : [];
+  if (response.webSearchCalls) {
+    console.info(`[analyzeFoodEntry] one-call scan ran ${response.webSearchCalls} web search(es)`, sources.map(s => s.url));
+  }
+
+  return {
+    items,
+    tip: typeof parsed?.tip === "string" ? parsed.tip : "",
+    detectedType: validTypes.includes(parsed?.detectedType) ? parsed.detectedType : undefined,
+    nutritionSourcesUsed: lookup.sourcesUsed,
+    nutritionMatchCount: lookup.matches.length,
+    nutritionSourcesSkipped: lookup.sourcesSkipped,
+    identifiedAs: typeof parsed?.identifiedAs === "string" ? parsed.identifiedAs.trim().slice(0, 200) : undefined,
+    webSources: sources,
+    pipeline: "search",
+  };
+};
+
+/**
+ * Food scan entry point. One-call ChatGPT-style scan first; the legacy
+ * two-pass scan if it fails for any reason other than quota or auth.
+ */
+export const analyzeFoodEntry = async (
+  images: string[],
+  textDescription: string,
+  imageType: FoodImageType = "auto",
+  customMenuItems?: Record<string, MenuItem[]>,
+): Promise<FoodAnalysisResult> => {
+  const hasImages = Array.isArray(images) && images.length > 0;
+  const lookup = await lookupNutritionForText(textDescription, hasImages);
+  try {
+    return await analyzeFoodEntryWithSearch(images, textDescription, customMenuItems, lookup);
+  } catch (err: any) {
+    if (err instanceof AIProxyError &&
+        (err.code === "functions/resource-exhausted" || err.code === "functions/unauthenticated")) {
+      throw err;
+    }
+    console.warn(
+      "[analyzeFoodEntry] one-call scan FAILED — falling back to the legacy two-pass scan",
+      err?.upstream || err?.message || err,
+    );
+    return analyzeFoodEntryLegacy(images, textDescription, imageType, customMenuItems, lookup);
   }
 };
 

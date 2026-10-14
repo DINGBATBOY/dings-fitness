@@ -16,9 +16,10 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
   fix) was committed Sept 20; check https://dings.fitness/version.json for
   what's actually live.
 - **Unpushed / undeployed at time of writing:** `f461d9c` (barcode scanning,
-  shared lookup cache, portion buttons) plus this handoff update. Needs
-  `npm install` (new dependency), `firebase deploy --only functions` (two new
-  functions) **and** `.\deploy.ps1`, then a Codemagic build. See Open items.
+  shared lookup cache, portion buttons) and the **one-call food scan**
+  (Oct 13, see "Food scan accuracy overhaul" below). Needs `npm install`
+  (new dependency), `firebase deploy --only functions` **and**
+  `.\deploy.ps1`, then a Codemagic build. See Open items.
 - **Backend**: Firebase Cloud Functions. **Two AI providers on purpose** —
   see the next section.
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
@@ -37,8 +38,9 @@ Sept 18 (`tokenUsage` showed `gpt-5.6-terra`).
 | Path | Cloud Function | Model | tokenUsage feature |
 |---|---|---|---|
 | Gemini | `callGemini` | `gemini-2.5-flash` | the other 9 |
-| OpenAI | `callOpenAI` | `gpt-5.6-terra` | `analyzeFoodEntry` (pass 2: vision + JSON) |
-| OpenAI | `foodWebLookup` | `gpt-5-search-api` | `foodRestaurantLookup` / `foodWebLookup` (pass 1) |
+| OpenAI | `callOpenAI` (`api: "responses"`) | `gpt-5.6-terra` + hosted `web_search` | `analyzeFoodEntry` — the scan (`api: "responses"`, `webSearchCalls` on the doc) |
+| OpenAI | `callOpenAI` (chat) | `gpt-5.6-terra` | `analyzeFoodEntry` — legacy fallback, pass 2 (doc has no `api` field) |
+| OpenAI | `foodWebLookup` | `gpt-5-search-api` | `foodRestaurantLookup` / `foodWebLookup` — legacy fallback, pass 1 |
 | none | `lookupBarcode` | — | not logged (no AI) |
 | none | `searchNutrition` | — | not logged (USDA + Open Food Facts) |
 
@@ -46,8 +48,67 @@ Sept 18 (`tokenUsage` showed `gpt-5.6-terra`).
 `callGemini`. All of them share auth, the same daily quota bucket, usage
 logging and ops counters.
 
-**Why two passes.** OpenAI cannot combine web search with vision + strict
-JSON in one call. So pass 1 (`gpt-5-search-api`, in the `foodWebLookup`
+## Food scan accuracy overhaul (Oct 13, 2026) — one call, ChatGPT-style
+
+Problem reported: asking ChatGPT "what is this?" about a food photo gave a
+sensible answer; the app gave nonsense. Causes found in the code:
+
+1. **The typed text was always treated as a food name.** "what is this" +
+   photo ran a USDA / Open Food Facts keyword search for *"what is this"*, and
+   whatever came back was injected as "AUTHORITATIVE ... USE THESE VALUES",
+   plus a note to "use the database values for the item the user named".
+2. **No relevance check on database hits.** Top-3 keyword hits were forced
+   as truth (OFF was sorted by listing *completeness*, not match), so a
+   teriyaki *sauce* could stand in for a teriyaki *bowl*. A client-side
+   override then relabelled every item `nutrition_db`.
+3. **The food web lookup almost never fired** (USDA nearly always returns
+   something "medium"), and when it did it searched the typed words, not
+   what was in the photo.
+4. **The "can't combine search + vision" premise was only true of Chat
+   Completions.** gpt-5.6-terra on the **Responses API** takes images and the
+   hosted `web_search` tool in one call (reasoning effort defaults to medium).
+
+What changed:
+
+- `analyzeFoodEntry` now calls `callOpenAI` with `api: "responses"`,
+  `webSearch: true`, `reasoningEffort: "medium"`. The prompt
+  (`SEARCH_SCAN_INSTRUCTIONS`) makes the model **identify first**, search
+  only when a named restaurant / brand / unfamiliar dish calls for it, then
+  estimate portions and macros. New output field `identifiedAs`; the review
+  tip now reads "Looks like: … . <tip> Sources: site1, site2."
+- **Any failure falls back to the legacy two-pass scan**
+  (`analyzeFoodEntryLegacy`) except quota/auth errors. The browser console
+  logs `[analyzeFoodEntry] one-call scan FAILED — falling back` with the
+  upstream OpenAI message.
+- `searchNutrition` (server) has a **relevance gate**: questions/filler
+  return no matches without calling USDA/OFF; a hit must cover >= 60% of the
+  query's food words and must not be a different form (sauce, seasoning,
+  powder, bar, juice...). Branded hits the user didn't name are "low".
+  OFF no longer sorts by completeness. The client sends only the food words
+  (`extractFoodQuery`).
+- Database hits are now framed as **candidates to verify**, not authority,
+  in both pipelines. The forced `nutrition_db` relabel is gone.
+- Food photos upload at 1536 px / JPEG 0.85 (was 1024 / 0.7), `detail: high`.
+- `callOpenAI` timeout 180 s; client callable timeout 170 s.
+- Searched restaurant items (`web_lookup`) now also auto-save to the user's
+  custom menu, like `restaurant_db` items.
+
+**Untested against the live API at commit time** (no key in the dev
+environment). First thing after deploying: scan a photo with the note "what
+is this", then check Firestore `tokenUsage` → newest doc has `api:
+"responses"`. If it doesn't, the console shows why the fallback ran.
+Most likely failure: `web_search` combined with JSON-only output. The
+prompt asks for JSON in plain text (no `text.format`) to avoid exactly that.
+
+Cost: one call per scan instead of up to two, plus ~$0.01 per web search
+the model chooses to run (`WEB_SEARCH_CALL_USD`, an estimate — verify on
+OpenAI's pricing page). The `foodLookupCache` is not used by the one-call
+path; searched answers are not cached yet.
+
+### Legacy two-pass scan (fallback only)
+
+**Why two passes.** Chat Completions cannot combine web search with vision +
+strict JSON in one call. So pass 1 (`gpt-5-search-api`, in the `foodWebLookup`
 function, prompts server-side) looks up the food, then pass 2
 (`gpt-5.6-terra`) reads the photo/text with pass 1's findings injected.
 Pass 1 fires for:
@@ -92,15 +153,19 @@ Order of truth, best first:
    barcode button next to the camera in the food sheet. Items carry
    `source: "barcode"`.
 2. **Curated menu DB** (`data/restaurants.ts`) for exact chain items.
-3. **USDA / Open Food Facts text search** (`searchNutrition`). Now also runs
-   when a photo is attached with a short typed name (<= 60 chars).
-4. **Web lookup** (`foodWebLookup` function, `gpt-5-search-api`): named
-   places always; foods USDA/OFF missed. Prompts live server-side now.
+3. **USDA / Open Food Facts text search** (`searchNutrition`). Runs on the
+   food words only (skipped for "what is this"), also with a photo and a
+   short typed name (<= 60 chars). Relevance-gated server-side; the model
+   treats hits as candidates.
+4. **Web lookup**: in the one-call scan the model searches itself (hosted
+   `web_search`) when it judges it needs to. Legacy fallback only:
+   `foodWebLookup` function (`gpt-5-search-api`) for named places and foods
+   USDA/OFF missed.
    Shared cache `foodLookupCache/{sha256(kind:normalized query)}`; found 90 d,
    not found 3 d. **Cache hits write no `tokenUsage` doc** — a scan with no
    `foodRestaurantLookup` entry may simply have been a cache hit; check the
    browser console for `[lookupFoodOnWeb:…] cache hit`.
-5. **Vision/text estimate** (`callOpenAI`, `gpt-5.6-terra`).
+5. **Vision/text estimate** (`callOpenAI`, `gpt-5.6-terra`, same call as 4).
 
 Review screen: every item gets ½ / 1 / 1½ / 2× portion buttons (they scale
 macros and ingredients from cached 1× values; typing a number by hand resets
@@ -248,6 +313,12 @@ Ordered by what blocks what. Status as of Oct 13 — anything marked
 - **Accuracy regression set**: 15–20 meals with known macros (packaged,
   chain, local spot, home-cooked), rerun after every prompt/model change.
   Prompts have regressed twice (gotcha 7). Nothing measures accuracy today.
+  Most useful now: the same photos run through ChatGPT vs the app, side by
+  side, to confirm the one-call scan closed the gap.
+- **"That's not it" button** on the review screen: re-run the scan with the
+  user's correction ("it's actually birria tacos") as the note.
+- **Cache searched answers** from the one-call scan (it bypasses
+  `foodLookupCache`).
 - **Learn from corrections**: when a user edits macros on the review
   screen, save their version and reuse it next time they log the same thing.
 - **Nutritionix API** (paid) as a structured source for chains and
