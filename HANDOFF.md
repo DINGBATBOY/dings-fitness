@@ -7,13 +7,18 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 ## Where things stand (Oct 13, 2026)
 
 - **Oct 13 late:** `9e433c2` (one-call food scan + barcode work) is pushed,
-  Cloud Functions deployed (all on Node 22), web live on `9e433c2`.
-  **Codemagic build #69 FAILED at Build .ipa:** `"App" requires a
-  provisioning profile with the HealthKit feature`. The App Store profile
-  that `fetch-signing-files --create` reuses predates the HealthKit
-  entitlement. Fix: enable HealthKit on App ID `com.dings.fitness` in the
-  Apple Developer portal, delete the old App Store profile for it, rebuild
-  (the script then creates a new profile). iOS stays on build #68 until then.
+  Cloud Functions deployed (all on Node 22), web live, and **Codemagic #71
+  succeeded** (uploaded to App Store Connect). Builds #69/#70 failed with
+  `"App" requires a provisioning profile with the HealthKit feature`, but
+  the real cause was in the signing step: App Store Connect API returned
+  **403 "A required agreement is missing or has expired"**, so no profile
+  was fetched at all. Ding accepted the agreement + enabled HealthKit on the
+  App ID; #71 then built. If that error ever reappears, read the "Initialize
+  keychain + create signing files" step log first — that script does not
+  fail on the 403. Build numbers are still the epoch fallback (the
+  latest-build lookup fails), which is monotonic, so harmless.
+- **Next:** install #71 from TestFlight on a real iPhone — first-ever device
+  run of HealthKit, the AI consent sheet and the native barcode scanner.
 
 - **iOS**: v1.0, **not yet submitted**. Last TestFlight build is **#56, Aug
   12**. A Codemagic build was started Sept 18 for the OpenAI scan, but
