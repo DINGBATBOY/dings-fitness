@@ -6,6 +6,15 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 
 ## Where things stand (Oct 13, 2026)
 
+- **Oct 13 late:** `9e433c2` (one-call food scan + barcode work) is pushed,
+  Cloud Functions deployed (all on Node 22), web live on `9e433c2`.
+  **Codemagic build #69 FAILED at Build .ipa:** `"App" requires a
+  provisioning profile with the HealthKit feature`. The App Store profile
+  that `fetch-signing-files --create` reuses predates the HealthKit
+  entitlement. Fix: enable HealthKit on App ID `com.dings.fitness` in the
+  Apple Developer portal, delete the old App Store profile for it, rebuild
+  (the script then creates a new profile). iOS stays on build #68 until then.
+
 - **iOS**: v1.0, **not yet submitted**. Last TestFlight build is **#56, Aug
   12**. A Codemagic build was started Sept 18 for the OpenAI scan, but
   nothing since includes HealthKit-on-device verification, the consent
@@ -333,8 +342,23 @@ Ordered by what blocks what. Status as of Oct 13 — anything marked
   (`npm install <pkg> --package-lock-only`) and copy it back; typecheck
   locally needs the package unpacked into `node_modules` by hand, or the
   user runs `npm install`.
-- `git push` from Claude fails (no GitHub credentials there) — the user
-  pushes.
+- **Standing rule (Ding, Oct 13): after ANY edit, ship it as part of the
+  task** — commit, push to GitHub, deploy (`firebase deploy --only
+  functions` if `functions/` changed, then `.\deploy.ps1 -SkipPush`), then
+  start a Codemagic iOS build and watch it to the end. Don't ask first.
+- **Push / deploy from the Desktop Commander tools** (they run PowerShell on
+  Ding's PC with his GitHub + Firebase logins). The device shell can't push
+  (no credentials, no network). Desktop Commander's environment has
+  `NODE_ENV=production`, which makes `npm install` skip dev deps (tsc,
+  vite): prefix commands with `$env:NODE_ENV=""` and use
+  `npm install --include=dev`. Long deploys outlive the 60 s bridge wait;
+  poll with `list_sessions` / `read_process_output`, never re-run.
+- **Codemagic: use the Chrome browser named "personal chrome"**
+  (`select_browser`), not the other connected extension (Opera GX — its tab
+  groups break the extension). App = the first "dings-fitness" with
+  TestFlight builds: https://codemagic.io/app/6a20e6ff98dc5374825eecca
+  (the second one, ...42abba708d4b4b4c, is an old failed duplicate).
+  Start new build → branch `main` → workflow "iOS · TestFlight (main)".
 - Git in the connected folder leaves `.git/*.lock` files unless Claude has
   **delete permission** for the folder; grant it when asked or the user's
   next git command fails with "index.lock exists".
