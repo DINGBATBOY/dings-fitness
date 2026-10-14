@@ -48,6 +48,18 @@ export interface BodyMassResult {
   uuid?: string;
 }
 
+export interface DailySummary {
+  /** Local calendar day, yyyy-MM-dd. */
+  date: string;
+  steps: number | null;
+  activeKcal: number | null;
+}
+
+export interface DailySummariesResult {
+  available: boolean;
+  days: DailySummary[];
+}
+
 export interface DingHealthPlugin {
   /** Whether HealthKit exists on this device (false on iPad/web/Android). */
   isAvailable(): Promise<HealthAvailability>;
@@ -59,4 +71,6 @@ export interface DingHealthPlugin {
   getTodayWorkouts(): Promise<WorkoutsResult>;
   /** Most recent body-mass sample, whenever it was recorded. */
   getLatestBodyMass(): Promise<BodyMassResult>;
+  /** Per-day steps + active energy for the last `days` days (max 60). */
+  getDailySummaries(options: { days: number }): Promise<DailySummariesResult>;
 }

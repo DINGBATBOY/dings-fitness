@@ -9,13 +9,16 @@ import { Onboarding } from './components/Onboarding';
 import { RecompVelocity } from './components/RecompVelocity';
 import { RestaurantHub } from './components/RestaurantHub';
 import { FuelCoachSheet } from './components/FuelCoachSheet';
-import { FoodComposer, FoodLauncher, type FoodSeed, type FoodStatus } from './components/food/FoodComposer';
+import { FoodComposer, type FoodSeed, type FoodStatus } from './components/food/FoodComposer';
+import { Dashboard, type DaySummary } from './components/Dashboard';
+import { ProfileHub, type ProfileSection } from './components/ProfileHub';
+import { FoodDetailSheet } from './components/FoodDetailSheet';
+import { readAppearance, applyAppearance, isValidAppearance, type Appearance } from './services/theme';
 import { FoodDialog } from './components/food/FoodDialog';
 import { commitFood } from './services/foodCommit';
 import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
-import { FuelHome } from './components/FuelHome';
 
 
 import { WorkoutsHome } from './components/WorkoutsHome';
@@ -28,6 +31,7 @@ import {
   fetchTodayActiveEnergy,
   fetchTodayWorkouts,
   fetchLatestBodyMass,
+  fetchDailySummaries,
 } from './services/health';
 import { App as CapApp } from '@capacitor/app';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
@@ -288,6 +292,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
+  // Home shows ONE day at a time; the date bar switches it. New food logs to it.
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toLocaleDateString());
+  const [profileSection, setProfileSection] = useState<ProfileSection>('overview');
+  const [appearance, setAppearanceState] = useState<Appearance>(() => readAppearance());
+  const [healthByDate, setHealthByDate] = useState<Record<string, DaySummary>>({});
+  const [detailFood, setDetailFood] = useState<{ item: FoodItem; editable: boolean } | null>(null);
   const [showFuelCoach, setShowFuelCoach] = useState(false);
 
   // Single entry point for logging food. The FAB and the dashboard tile both
@@ -299,13 +309,25 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // Direction of the page-turn transition. Positive when moving to a
   // later tab (forward), negative when going back. Recomputed inside the
   // tab-switch handler below. Default forward feels right on first paint.
-  const TAB_ORDER = ['dashboard', 'restaurants', 'journal', 'reflect', 'workouts', 'coach', 'profile'];
+  const TAB_ORDER = ['dashboard', 'workouts', 'coach', 'profile'];
   const [pageTurnDirection, setPageTurnDirection] = useState<1 | -1>(1);
-  const switchTab = useCallback((next: string) => {
+  const switchTab = useCallback((requested: string) => {
+    // Old destinations now live elsewhere: Log + Reflect are Profile
+    // sections, Eats is a section of the Add Food page.
+    let next = requested;
+    if (requested === 'journal') { setProfileSection('history'); next = 'profile'; }
+    if (requested === 'reflect' || requested === 'recomp') { setProfileSection('overview'); next = 'profile'; }
+    if (requested === 'restaurants') {
+      try { sessionStorage.setItem('ding-add-section', 'eats'); } catch { /* ignore */ }
+      setShowAddFood(true);
+      return;
+    }
+    if (next === activeTab) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     setPageTurnDirection(
       TAB_ORDER.indexOf(next) >= TAB_ORDER.indexOf(activeTab) ? 1 : -1,
     );
     setActiveTab(next);
+    window.scrollTo({ top: 0 });
   }, [activeTab]);
   const [isGeneratingSplit, setIsGeneratingSplit] = useState(false);
   const [showAddFood, setShowAddFood] = useState(false);
@@ -723,6 +745,33 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const currentDayName = useMemo(() => new Date().toLocaleDateString('en-US', { weekday: 'long' }), []);
   const currentHour = useMemo(() => new Date().getHours(), []);
   
+  // ── Appearance (Profile → Settings) ──
+  useEffect(() => { applyAppearance(appearance); }, [appearance]);
+  // The account's saved appearance follows the user to other devices.
+  useEffect(() => {
+    const remote = appState.profile?.appearance;
+    if (isValidAppearance(remote) && (remote.mode !== appearance.mode || remote.tone !== appearance.tone)) setAppearanceState(remote);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appState.profile?.appearance?.mode, appState.profile?.appearance?.tone]);
+  const changeAppearance = (next: Appearance) => {
+    setAppearanceState(next);
+    handleUpdateAppState(prev => ({ ...prev, profile: prev.profile ? { ...prev.profile, appearance: next } : prev.profile }));
+  };
+  // A selected day of "today" that is now yesterday (app left open past
+  // midnight) rolls forward so Home doesn't silently show the wrong day.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      setSelectedDate(prev => {
+        const t = new Date().toLocaleDateString();
+        const y = new Date(Date.now() - 86400000).toLocaleDateString();
+        return prev === y ? t : prev;
+      });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
   const greeting = useMemo(() => {
     // Cuodi voice greetings — see VOICE.md
     if (currentHour < 12) return "MORNIN";
@@ -1390,6 +1439,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       //    user doc. null => the card falls back to the estimated model.
       const kcal = await fetchTodayActiveEnergy();
       setHealthActiveEnergy(kcal);
+      // Steps + active energy per day for the dashboard's day switcher.
+      // Ephemeral like active energy: never written to the user doc.
+      fetchDailySummaries(30).then(setHealthByDate).catch(() => undefined);
 
       // 2) Latest weight — seed a weigh-in only when the user hasn't already
       //    checked in today (manual check-ins always win; no duplicates).
@@ -1511,14 +1563,19 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       const { state: next, added: fresh } = commitFood(latestAppState.current, items, mealLabel, logDate);
       if (!fresh.length && next === latestAppState.current) return;
       const foodHistory = next.foodHistory;
+      const dailyLogsChanged = next.dailyLogs !== latestAppState.current.dailyLogs;
       // Local durability is required before the composer clears. Cloud sync may finish offline.
       if (!appStateKey) throw new Error('Sign in again to save your food.');
       localStorage.setItem(appStateKey, JSON.stringify(next));
       latestAppState.current = next;
       setAppState(next);
-      void saveToCloud({ todayLog: next.todayLog, dailyLogs: next.dailyLogs, foodHistory, lastActiveDate: next.lastActiveDate, waterIntake: next.waterIntake, activityBurn: next.activityBurn });
+      // dailyLogs is the whole history (the user doc's biggest field). Only send
+      // it when this commit actually changed it: a midnight rollover or food
+      // logged to a past day. Ordinary logs touch todayLog only.
+      void saveToCloud({ todayLog: next.todayLog, ...(dailyLogsChanged ? { dailyLogs: next.dailyLogs } : {}), foodHistory, lastActiveDate: next.lastActiveDate, waterIntake: next.waterIntake, activityBurn: next.activityBurn });
       const expiresAt = Date.now() + 8000;
       setPendingFoodUndo({ ids: fresh.map(i => i.id), label: mealLabel, expiresAt });
+      setSelectedDate(logDate);
       switchTab('dashboard');
       triggerToast(logDate === new Date().toLocaleDateString() ? 'Logged. LETS GOOOO' : 'Logged to ' + logDate, 8000, 'food');
   };
@@ -1689,6 +1746,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     <Layout
       activeTab={activeTab}
       onTabChange={switchTab}
+      onAdd={() => (showAddFood ? setShowAddFood(false) : openAddFood())}
+      addOpen={showAddFood}
+      foodStatus={foodStatus}
       profile={currentProfile}
       onUpdateName={(name) => {
         // Header username editor — name comes in trimmed and length-checked.
@@ -1718,7 +1778,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           undoFn = undoLastWater;
         }
         return (
-          <div role="status" className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-max max-w-[92vw] bg-[#d97757] text-[#161210] px-5 py-2 rounded-2xl font-semibold text-sm shadow-md animate-slide-up flex items-center gap-3 text-center leading-snug">
+          <div role="status" className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-max max-w-[92vw] bg-[#d97757] text-[var(--bg-dark)] px-5 py-2 rounded-2xl font-semibold text-sm shadow-md animate-slide-up flex items-center gap-3 text-center leading-snug">
             <span>{toastMessage}</span>
             {/* Undo button — appears whenever a 5-second undo window is open
                 for activity burn, food add, or food delete. Tapping reverses
@@ -1726,7 +1786,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             {undoFn && (
               <button
                 onClick={undoFn}
-                className="ml-1 min-h-11 px-3 rounded-xl bg-[#f5ede1] text-[#161210] text-sm font-semibold"
+                className="ml-1 min-h-11 px-3 rounded-xl bg-[var(--ink)] text-[var(--bg-dark)] text-sm font-semibold"
               >
                 Undo
               </button>
@@ -1735,96 +1795,92 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         );
       })()}
 
-      {!showAddFood && (activeTab !== 'dashboard' || !foodHeroVisible) && (
-        <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] left-1/2 z-[60] w-[calc(100%-2.5rem)] max-w-[408px] -translate-x-1/2">
-          <FoodLauncher compact status={foodStatus} onClick={openAddFood} />
-        </div>
-      )}
       <FoodComposer key={userId} uid={userId!} open={showAddFood} onClose={() => setShowAddFood(false)} onOpen={openAddFood}
         seed={foodSeed} onSeedConsumed={() => setFoodSeed(null)} onStatus={setFoodStatus}
         onSave={pushFoodToState} history={appState.foodHistory || []} onFavorite={toggleHistoryFavorite} onRemoveHistory={removeHistoryEntry}
         targets={targetMacros} consumed={consumedMacros} customMenuItems={appState.customMenuItems}
+        logDate={selectedDate}
+        dateLabel={selectedDate === new Date().toLocaleDateString() ? 'Today' : new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
         requireConsent={action => {
           if (hasAiConsent()) { action(); return; }
           setShowAddFood(false);
           requireAiConsent(action);
         }} />
 
-      {/* Short tab fade; respects reduced motion. */}
-      <div style={{ perspective: 1200 }}>
-        <AnimatePresence mode="wait" custom={pageTurnDirection}>
+      {/* Food drill-in from the dashboard. Today's items are editable; past days read-only. */}
+      <FoodDetailSheet
+        item={detailFood?.item ?? null}
+        readOnly={!detailFood?.editable}
+        onClose={() => setDetailFood(null)}
+        onDelete={(id) => deleteLog(id)}
+        onSave={(updated) => {
+          handleUpdateAppState(prev => ({
+            ...prev,
+            todayLog: (prev.todayLog || []).map(it => it.id === updated.id ? updated : it),
+          }));
+          triggerToast('Updated');
+        }}
+      />
+
+      {/* Quick direction-aware slide between tabs; respects reduced motion. */}
+      <div>
+        <AnimatePresence mode="wait" initial={false} custom={pageTurnDirection}>
           <motion.div
             key={activeTab}
             custom={pageTurnDirection}
             variants={{
-              enter: (d: number) => ({
-                opacity: 0,
-                rotateY: 0,
-                x: 0,
-                transformOrigin: d > 0 ? '0% 50%' : '100% 50%',
-              }),
-              center: { opacity: 1, rotateY: 0, x: 0 },
-              exit: (d: number) => ({
-                opacity: 0,
-                rotateY: 0,
-                x: 0,
-                transformOrigin: d > 0 ? '100% 50%' : '0% 50%',
-              }),
+              enter: (d: number) => ({ opacity: 0, x: reduceMotion ? 0 : d * 28 }),
+              center: { opacity: 1, x: 0 },
+              exit: (d: number) => ({ opacity: 0, x: reduceMotion ? 0 : d * -28 }),
             }}
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
-            style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
+            transition={{ duration: reduceMotion ? 0 : 0.18, ease: [0.16, 1, 0.3, 1] }}
+            style={{ willChange: 'transform, opacity' }}
           >
       {activeTab === 'dashboard' && (
         <>
         {isHealthSupported() && healthDeviceAvailable &&
          !appState.profile?.healthSyncEnabled && !appState.profile?.healthPromptDismissed && (
-          <HealthConnectCard
-            onConnect={connectHealth}
-            onDismiss={dismissHealthPrompt}
-            busy={healthConnecting}
-          />
+          <div className="mb-4">
+            <HealthConnectCard
+              onConnect={connectHealth}
+              onDismiss={dismissHealthPrompt}
+              busy={healthConnecting}
+            />
+          </div>
         )}
-        <FuelHome
-          profile={appState.profile}
+        <Dashboard
+          profile={currentProfile}
           targets={targetMacros}
-          consumed={consumedMacros}
-          activityBurn={appState.activityBurn || 0}
-          waterIntake={appState.waterIntake || 0}
-          workoutCompletedToday={(() => {
-            const todayStr = new Date().toLocaleDateString();
-            return (appState.dailyLogs || []).some(l => l.date === todayStr && l.workoutCompleted) ||
-              weeklyCompletedWorkouts.includes(new Date().toLocaleDateString('en-US', { weekday: 'long' }));
-          })()}
-          streak={streak}
-          greeting={greeting}
-          dateString={dateString}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          todayLog={appState.todayLog || []}
+          todayConsumed={consumedMacros}
+          todayWater={appState.waterIntake || 0}
+          todayActivityBurn={appState.activityBurn || 0}
           dailyLogs={appState.dailyLogs || []}
           weighIns={appState.weighIns || []}
-          onLogWeight={(weight) => recordWeight(weight)}
-          onQuickAddFood={openAddFood}
-          foodStatus={foodStatus}
-          onFoodHeroVisibility={setFoodHeroVisible}
-          todayFood={appState.todayLog || []}
-          onOpenLog={() => switchTab('journal')}
-          onAskDing={() => switchTab('coach')}
+          streak={streak}
+          greeting={greeting}
           energyBaseline={energyBaseline}
+          healthActiveEnergy={healthActiveEnergy}
+          healthByDate={healthByDate}
+          healthConnected={!!appState.profile?.healthSyncEnabled}
+          onConnectHealth={isHealthSupported() && healthDeviceAvailable && !appState.profile?.healthSyncEnabled ? connectHealth : undefined}
+          onAddFood={openAddFood}
+          onOpenFood={(item, editable) => setDetailFood({ item, editable })}
+          onLogWater={updateWater}
+          onLogWeight={(weight) => recordWeight(weight)}
           onLogActivity={() => {
-            // Reset to a sensible default each open so a prior manual entry
-            // doesn't linger in the form.
             setActivityModalForm({ kind: 'running', intensity: 'moderate', minutes: 30, manualKcal: '' });
             setShowActivityModal(true);
           }}
-          onOpenWorkouts={() => switchTab('workouts')}
-          onLogWater={() => updateWater(8)}
-          onOpenReflect={() => switchTab('reflect')}
-          hasEnoughDataForWrapped={(appState.dailyLogs?.filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0).length || 0) >= 2}
+          onOpenFuelCoach={() => setShowFuelCoach(true)}
+          onAskCoach={() => switchTab('coach')}
           adaptiveSuggestion={adaptiveSuggestion}
           onAcceptAdaptiveSuggestion={acceptAdaptiveSuggestion}
-          onOpenFuelCoach={() => setShowFuelCoach(true)}
-          healthActiveEnergy={healthActiveEnergy}
         />
         </>
       )}
@@ -1865,29 +1921,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         </div>
       )}
 
-      {activeTab === 'journal' && (
-        <div className="animate-fade-in">
-          <Journal
-            dailyLogs={appState.dailyLogs || []}
-            todayLog={appState.todayLog || []}
-            waterIntake={appState.waterIntake}
-            activityBurn={appState.activityBurn}
-            profile={appState.profile}
-            targets={targetMacros}
-            onDeleteLog={deleteLog}
-            onUpdateFood={(updated) => {
-              // Replace the matching item in today's live log. Past-day
-              // items pass a read-only sheet, so we don't need to touch
-              // archived logs here — the sheet won't call this for those.
-              handleUpdateAppState(prev => ({
-                ...prev,
-                todayLog: (prev.todayLog || []).map(it => it.id === updated.id ? updated : it),
-              }));
-              triggerToast('Updated');
-            }}
-          />
-        </div>
-      )}
 
       {activeTab === 'workouts' && (
         <WorkoutsHome
@@ -1938,46 +1971,13 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         />
       )}
 
-      {/* REFLECT — the analytics & insights home. Wrapped lives here inline
-          (no more buried-on-the-dashboard launcher), with Recomp Velocity
-          rendered below it as a deeper-dive section. Replaces the old
-          standalone Recomp tab; the old `recomp` tab id still resolves here
-          so any stale deep-links don't break. */}
-      {(activeTab === 'reflect' || activeTab === 'recomp') && appState.profile && (
-        <div className="space-y-6 pb-20">
-          <Wrapped
-            inline
-            profile={appState.profile}
-            dailyLogs={appState.dailyLogs || []}
-            weighIns={appState.weighIns || []}
-            todayLog={appState.todayLog || []}
-            todayActivityBurn={appState.activityBurn || 0}
-            todayWaterIntake={appState.waterIntake || 0}
-            foodHistory={appState.foodHistory || []}
-            bodyStats={appState.bodyStats}
-            targets={targetMacros}
-            weeklyCompletedWorkouts={weeklyCompletedWorkouts}
-            initialPeriod="week"
-          />
-
-          {/* RECOMP VELOCITY — deeper-dive trend analysis. Lives under
-              Wrapped so users who want the harder numbers can scroll to them. */}
-          <div className="pt-2 border-t border-white/5">
-            <div className="flex items-center gap-1.5 px-1 mb-3">
-              <span className="text-gray-500">🪶</span>
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400">Deeper read</h3>
-            </div>
-            <RecompVelocity appState={appState} workoutSplit={workoutSplit} />
-          </div>
-        </div>
-      )}
 
       {activeTab === 'coach' && (
         <div className="flex flex-col animate-fade-in relative min-h-screen pb-40">
            {/* ... existing coach content ... */}
           <div className="flex-1 space-y-6 pr-2 pb-4 pt-2">
               <div className="text-center opacity-30 my-4">
-                  <span className="text-4xl font-orbitron font-bold text-[#f5ede1]">Ding!</span>
+                  <span className="text-4xl font-orbitron font-bold text-[var(--ink)]">Ding!</span>
                   <p className="text-[10px] font-bold uppercase mt-2">Ask about food, training, or today</p>
               </div>
               {chatHistory.map((msg, idx) => (
@@ -2034,11 +2034,39 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         </div>
       )}
 
-      {activeTab === 'profile' && (
-        <div className="space-y-6 pb-20 animate-fade-in">
-           <div className="glass-panel p-8 rounded-[2rem] flex flex-col items-center gap-6 text-center border-t border-white/10 relative">
-              <button 
-                onClick={() => {
+      {activeTab === 'profile' && appState.profile && (
+        <ProfileHub
+          profile={appState.profile}
+          avatar={(
+              <div 
+                className="tap w-20 h-20 shrink-0 rounded-full border-[3px] border-[var(--primary)] p-0.5 cursor-pointer relative group flex items-center justify-center bg-[var(--bg-dark)]"
+                onClick={() => profilePicInputRef.current?.click()}
+              >
+                 {appState.profile?.profilePicture ? (
+                     <img src={appState.profile.profilePicture} className="w-full h-full object-cover rounded-full" />
+                 ) : (
+                     <span className="text-3xl font-orbitron font-bold text-[var(--primary)]">
+                         {appState.profile?.name?.charAt(0)?.toUpperCase() || 'U'}
+                     </span>
+                 )}
+                 <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                   <span className="text-xs text-white font-bold uppercase">Pic</span>
+                 </div>
+                 <input 
+                   type="file" 
+                   ref={profilePicInputRef} 
+                   className="hidden" 
+                   accept="image/*"
+                   onChange={handleProfilePicUpload} 
+                 />
+              </div>
+          )}
+          streak={streak}
+          dailyLogs={appState.dailyLogs || []}
+          todayLog={appState.todayLog || []}
+          foodHistory={appState.foodHistory || []}
+          weighIns={appState.weighIns || []}
+          onEdit={() => {
                    setEditProfileData({
                        weight: appState.profile?.weight,
                        bodyFat: appState.profile?.bodyFat,
@@ -2055,38 +2083,69 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                    });
                    setIsEditingProfile(true);
                 }}
-                className="absolute top-6 right-6 text-xs text-cyan-400 uppercase tracking-widest font-bold hover:text-white transition-colors"
-              >
-                Edit
-              </button>
-              <div 
-                className="w-24 h-24 rounded-full border-4 border-[#d4a55a] p-1 cursor-pointer relative group flex items-center justify-center bg-[#161210]"
-                onClick={() => profilePicInputRef.current?.click()}
-              >
-                 {appState.profile?.profilePicture ? (
-                     <img src={appState.profile.profilePicture} className="w-full h-full object-cover rounded-full" />
-                 ) : (
-                     <span className="text-3xl font-orbitron font-bold text-cyan-400">
-                         {appState.profile?.name?.charAt(0)?.toUpperCase() || 'U'}
-                     </span>
-                 )}
-                 <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                   <span className="text-xs text-white font-bold uppercase">Pic</span>
-                 </div>
-                 <input 
-                   type="file" 
-                   ref={profilePicInputRef} 
-                   className="hidden" 
-                   accept="image/*"
-                   onChange={handleProfilePicUpload} 
-                 />
-              </div>
-              <div>
-                 <h2 className="text-2xl font-orbitron font-bold text-white mb-1">{appState.profile?.name}</h2>
-                 <p className="text-xs text-cyan-400 font-bold uppercase tracking-[0.2em]">{appState.profile?.goal}</p>
-              </div>
+          section={profileSection}
+          onSection={setProfileSection}
+          appearance={appearance}
+          onAppearance={changeAppearance}
+          overview={(
+            <div className="space-y-6">
+           {/* CALORIE CALENDAR */}
+           <div className="glass-panel p-6 rounded-3xl">
+              <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
            </div>
+        <div className="space-y-6">
+          <Wrapped
+            inline
+            profile={appState.profile}
+            dailyLogs={appState.dailyLogs || []}
+            weighIns={appState.weighIns || []}
+            todayLog={appState.todayLog || []}
+            todayActivityBurn={appState.activityBurn || 0}
+            todayWaterIntake={appState.waterIntake || 0}
+            foodHistory={appState.foodHistory || []}
+            bodyStats={appState.bodyStats}
+            targets={targetMacros}
+            weeklyCompletedWorkouts={weeklyCompletedWorkouts}
+            initialPeriod="week"
+          />
 
+          {/* RECOMP VELOCITY — deeper-dive trend analysis. Lives under
+              Wrapped so users who want the harder numbers can scroll to them. */}
+          <div className="pt-2 border-t border-white/5">
+            <div className="flex items-center gap-1.5 px-1 mb-3">
+              <span className="text-gray-500">🪶</span>
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400">Deeper read</h3>
+            </div>
+            <RecompVelocity appState={appState} workoutSplit={workoutSplit} />
+          </div>
+        </div>
+            </div>
+          )}
+          history={(
+            <div>
+              <Journal
+            dailyLogs={appState.dailyLogs || []}
+            todayLog={appState.todayLog || []}
+            waterIntake={appState.waterIntake}
+            activityBurn={appState.activityBurn}
+            profile={appState.profile}
+            targets={targetMacros}
+            onDeleteLog={deleteLog}
+            onUpdateFood={(updated) => {
+              // Replace the matching item in today's live log. Past-day
+              // items pass a read-only sheet, so we don't need to touch
+              // archived logs here — the sheet won't call this for those.
+              handleUpdateAppState(prev => ({
+                ...prev,
+                todayLog: (prev.todayLog || []).map(it => it.id === updated.id ? updated : it),
+              }));
+              triggerToast('Updated');
+            }}
+          />
+            </div>
+          )}
+          settings={(
+            <div className="space-y-6">
            <div className="grid grid-cols-2 gap-4">
               <div className="glass-panel p-6 rounded-3xl text-center">
                  <p className="text-[9px] text-gray-500 font-bold uppercase mb-2 tracking-widest">Trend Weight</p>
@@ -2136,10 +2195,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               </div>
            )}
 
-           {/* CALORIE CALENDAR */}
-           <div className="glass-panel p-6 rounded-3xl">
-              <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
-           </div>
            
            <div className="flex flex-col items-center gap-3 mt-6">
               <button
@@ -2199,8 +2254,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               </button>
            </div>
 
-           <p className="text-center text-[9px] text-gray-700 uppercase tracking-widest mt-8">Ding! v2.1</p>
-        </div>
+           <p className="text-center text-[11px] text-[var(--ink-light)] uppercase tracking-widest mt-8">Ding! v2.2</p>
+            </div>
+          )}
+        />
       )}
           </motion.div>
         </AnimatePresence>
@@ -2537,11 +2594,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
       {/* One food invitation after onboarding. */}
       <FoodDialog open={showTour} onClose={handleCloseTour} title="Welcome to Ding!" closeLabel="Look around first">
-        <div className="space-y-5 text-[#f5ede1]">
+        <div className="space-y-5 text-[var(--ink)]">
           <h2 className="text-3xl font-bold">Yooo. Lets start with what you ate.</h2>
-          <p className="text-base leading-relaxed text-[#c4b8a4]">Show me a meal and Ill work out the macros. You get the last word.</p>
-          <button type="button" className="min-h-14 w-full rounded-xl bg-[#d97757] p-4 text-base font-semibold text-[#161210]" onClick={() => { handleCloseTour(); openAddFood(); }}>Show me what you ate</button>
-          <button type="button" className="min-h-11 w-full text-base text-[#c4b8a4]" onClick={handleCloseTour}>Look around first</button>
+          <p className="text-base leading-relaxed text-[var(--ink-mid)]">Show me a meal and Ill work out the macros. You get the last word.</p>
+          <button type="button" className="min-h-14 w-full rounded-xl bg-[#d97757] p-4 text-base font-semibold text-[var(--bg-dark)]" onClick={() => { handleCloseTour(); openAddFood(); }}>Show me what you ate</button>
+          <button type="button" className="min-h-11 w-full text-base text-[var(--ink-mid)]" onClick={handleCloseTour}>Look around first</button>
         </div>
       </FoodDialog>
 

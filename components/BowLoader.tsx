@@ -10,9 +10,9 @@ import React, { useEffect, useState } from 'react';
 
 const C = {
   bg: 'rgba(22, 18, 16, 0.97)',
-  ink: '#f5ede1',
-  inkMid: '#c4b8a4',
-  inkLight: '#8b7e6e',
+  ink: 'var(--ink)',
+  inkMid: 'var(--ink-mid)',
+  inkLight: 'var(--ink-light)',
   fire: '#d97757',
   ochre: '#e8a85a',
 };

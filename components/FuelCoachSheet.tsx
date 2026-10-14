@@ -30,14 +30,14 @@ import {
 } from '../services/geminiService';
 
 const C = {
-  bg: '#161210',
-  card: '#1d1815',
-  cardSoft: '#221d19',
-  border: 'rgba(255,255,255,0.06)',
-  borderStrong: 'rgba(255,255,255,0.10)',
-  ink: '#f5ede1',
-  inkMid: '#c4b8a4',
-  inkLight: '#8b7e6e',
+  bg: 'var(--bg-dark)',
+  card: 'var(--bg-card)',
+  cardSoft: 'var(--bg-card-soft)',
+  border: 'var(--line)',
+  borderStrong: 'var(--line-strong)',
+  ink: 'var(--ink)',
+  inkMid: 'var(--ink-mid)',
+  inkLight: 'var(--ink-light)',
   fire: '#d97757',
   ochre: '#e8a85a',
   emerald: '#7ab896',

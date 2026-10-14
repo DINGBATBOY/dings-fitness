@@ -79,7 +79,7 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({ onClose,
         style={{
           maxHeight: '90vh',
           borderTop: '1px solid rgba(239,68,68,0.25)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 0 60px rgba(239,68,68,0.1)',
+          boxShadow: 'inset 0 1px 0 var(--line), 0 0 60px rgba(239,68,68,0.1)',
           background: '#0a0a0a',
         }}
       >

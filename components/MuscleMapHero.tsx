@@ -23,18 +23,18 @@ interface MuscleMapHeroProps {
 }
 
 const C = {
-  bodyFill: '#221d19',           // silhouette base
-  bodyStroke: 'rgba(255,255,255,0.06)',
+  bodyFill: 'var(--bg-card-soft)',           // silhouette base
+  bodyStroke: 'var(--line)',
   muscleBase: '#2b241f',         // slightly lighter than body, defines groups
   muscleStroke: 'rgba(255,237,225,0.08)',
   primary: '#d97757',            // fire — hit hard today
   primaryGlow: 'rgba(217,119,87,0.35)',
   secondary: '#e8a85a',          // ochre — synergist
-  ink: '#f5ede1',
-  inkMid: '#c4b8a4',
-  inkLight: '#8b7e6e',
-  card: '#1d1815',
-  border: 'rgba(255,255,255,0.06)',
+  ink: 'var(--ink)',
+  inkMid: 'var(--ink-mid)',
+  inkLight: 'var(--ink-light)',
+  card: 'var(--bg-card)',
+  border: 'var(--line)',
 };
 
 export const MuscleMapHero: React.FC<MuscleMapHeroProps> = ({ activation, className = '', view: forcedView }) => {

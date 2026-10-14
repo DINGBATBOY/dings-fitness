@@ -142,6 +142,8 @@ export interface UserProfile {
   // state, weigh-ins/workouts flow through the existing bounded arrays).
   healthSyncEnabled?: boolean;
   healthPromptDismissed?: boolean;
+  /** Appearance (Profile → Settings): light/dark + background tone. */
+  appearance?: { mode: 'dark' | 'light'; tone: 'charcoal' | 'midnight' | 'forest' | 'plum' | 'black' };
 }
 
 export interface WorkoutExercise {

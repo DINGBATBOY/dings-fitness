@@ -5,9 +5,8 @@ import HealthKit
 /**
  * DingHealth — a small, read-only HealthKit bridge for Ding! Fitness.
  *
- * Deliberately minimal: it reads exactly three things the app needs and
- * nothing else — today's active energy, today's workouts, and the latest
- * body-mass sample. No writes, no background delivery, no raw sample
+ * Deliberately minimal: it reads only what the app displays: active energy, steps,
+ * today's workouts, and the latest body-mass sample. No writes, no background delivery, no raw sample
  * streaming. Keeping the surface tiny keeps the App Store health-data
  * review narrow and avoids ever holding data we don't display.
  *
@@ -23,7 +22,8 @@ public class DingHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "requestAuthorization", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getTodayActiveEnergy", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getTodayWorkouts", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "getLatestBodyMass", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "getLatestBodyMass", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getDailySummaries", returnType: CAPPluginReturnPromise)
     ]
 
     private let healthStore = HKHealthStore()
@@ -39,6 +39,7 @@ public class DingHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         var set = Set<HKObjectType>()
         if let energy = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned) { set.insert(energy) }
         if let mass = HKObjectType.quantityType(forIdentifier: .bodyMass) { set.insert(mass) }
+        if let steps = HKObjectType.quantityType(forIdentifier: .stepCount) { set.insert(steps) }
         set.insert(HKObjectType.workoutType())
         return set
     }
@@ -171,6 +172,76 @@ public class DingHealthPlugin: CAPPlugin, CAPBridgedPlugin {
             ])
         }
         healthStore.execute(query)
+    }
+
+    // MARK: - getDailySummaries
+
+    /// Per-day step count and active energy for the last `days` days
+    /// (including today), oldest first. Powers the dashboard's day switcher.
+    /// Uses HKStatisticsCollectionQuery so Apple deduplicates iPhone + Watch.
+    @objc func getDailySummaries(_ call: CAPPluginCall) {
+        guard HKHealthStore.isHealthDataAvailable(),
+              let stepType = HKObjectType.quantityType(forIdentifier: .stepCount),
+              let energyType = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned) else {
+            call.resolve(["available": false, "days": []])
+            return
+        }
+        let days = max(1, min(60, call.getInt("days") ?? 14))
+        let calendar = Calendar.current
+        let end = Date()
+        let todayStart = calendar.startOfDay(for: end)
+        guard let start = calendar.date(byAdding: .day, value: -(days - 1), to: todayStart) else {
+            call.resolve(["available": true, "days": []])
+            return
+        }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
+        let interval = DateComponents(day: 1)
+        let dayFormatter = DateFormatter()
+        dayFormatter.calendar = calendar
+        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dayFormatter.dateFormat = "yyyy-MM-dd"
+
+        var steps: [String: Double] = [:]
+        var energy: [String: Double] = [:]
+        var firstError: Error?
+        let group = DispatchGroup()
+        let lock = NSLock()
+
+        func collect(_ type: HKQuantityType, unit: HKUnit, into store: @escaping (String, Double) -> Void) {
+            group.enter()
+            let q = HKStatisticsCollectionQuery(quantityType: type, quantitySamplePredicate: predicate,
+                                                options: .cumulativeSum, anchorDate: todayStart, intervalComponents: interval)
+            q.initialResultsHandler = { _, results, error in
+                if let error = error { lock.lock(); firstError = firstError ?? error; lock.unlock() }
+                results?.enumerateStatistics(from: start, to: end) { stat, _ in
+                    if let sum = stat.sumQuantity() {
+                        store(dayFormatter.string(from: stat.startDate), sum.doubleValue(for: unit))
+                    }
+                }
+                group.leave()
+            }
+            healthStore.execute(q)
+        }
+        collect(stepType, unit: HKUnit.count()) { k, v in lock.lock(); steps[k] = v; lock.unlock() }
+        collect(energyType, unit: HKUnit.kilocalorie()) { k, v in lock.lock(); energy[k] = v; lock.unlock() }
+
+        group.notify(queue: .main) {
+            if steps.isEmpty && energy.isEmpty, let error = firstError {
+                call.reject(error.localizedDescription, nil, error)
+                return
+            }
+            var out: [[String: Any]] = []
+            for i in 0..<days {
+                guard let d = calendar.date(byAdding: .day, value: i, to: start) else { continue }
+                let key = dayFormatter.string(from: d)
+                out.append([
+                    "date": key,
+                    "steps": steps[key].map { round($0) } ?? NSNull(),
+                    "activeKcal": energy[key].map { round($0) } ?? NSNull()
+                ])
+            }
+            call.resolve(["available": true, "days": out])
+        }
     }
 
     // MARK: - Helpers

@@ -1,22 +1,28 @@
 @import "tailwindcss";
 
-/* Capacitor contentInset owns the outer safe area; avoid a second top inset. */
+/* Add Food is a full page (MacroFactor-style), not a sheet. Capacitor's
+   contentInset owns the outer safe area; avoid a second top inset. */
 .food-dialog {
   position: fixed;
-  inset: auto 0 0;
+  inset: 0;
   top: var(--food-top, 0px);
-  margin: auto auto 0;
+  margin: 0 auto;
   padding: 0;
   width: 100%;
   max-width: 448px;
-  height: min(920px, var(--food-height, 100dvh));
+  height: var(--food-height, 100dvh);
   max-height: var(--food-height, 100dvh);
-  border: 1px solid rgb(245 237 225 / 10%);
-  border-radius: 24px 24px 0 0;
-  background: #161210;
-  color: #f5ede1;
+  border: 0;
+  background: var(--bg-dark);
+  color: var(--ink);
 }
-.food-dialog::backdrop { background: rgb(0 0 0 / 70%); }
+.food-dialog[open] { animation: foodPageIn 0.32s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes foodPageIn {
+  from { transform: translateY(6%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.food-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+[tabindex="-1"]:focus { outline: none; }
 button:focus-visible, a:focus-visible, summary:focus-visible,
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid #e8a85a;
@@ -70,29 +76,52 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   --color-cream: var(--cream);
 }
 
-/* ───────────────── WARM DARK PALETTE (Cuodi direction) ─────────────────
-   Warm charcoal app-wide. Higher saturation accents for energy
-   (coral, gold, emerald on the macros). Feels like a friendly gym
-   companion — not pure-black clinical, not cream tribal. */
+/* ───────────────── PALETTE + APPEARANCE ─────────────────
+   Every surface/ink color is a variable so Appearance (Profile → Settings)
+   can switch light/dark and the background tone. services/theme.ts sets
+   data-theme / data-tone on <html>. Accents (terracotta, gold, sage) stay
+   the same in every theme. */
 :root {
-    --bg-dark: #161210;        /* warm charcoal background */
-    --bg-card: #1d1815;        /* slightly lighter card surface */
+    --bg-dark: #161210;        /* page background */
+    --bg-card: #1d1815;        /* card surface */
+    --bg-card-soft: #221d19;   /* raised / pressed surface */
+    --bg-glass: rgba(22, 18, 16, 0.92);
     --primary: #d97757;        /* terracotta — primary action */
     --accent: #e8a85a;         /* bright gold accent */
     --alert: #e3614a;          /* coral red */
     --rose-dusk: #c97b6e;      /* dusk rose */
-    --cream: #f5ede1;          /* warm cream primary text */
+    --ink: #f5ede1;            /* primary text */
+    --cream: var(--ink);       /* legacy name */
     --ink-mid: #c4b8a4;        /* secondary text */
     --ink-light: #8b7e6e;      /* tertiary / muted text */
-    --border-soft: rgba(255,255,255,0.08);
+    --line: rgba(255,255,255,0.07);
+    --line-strong: rgba(255,255,255,0.12);
+    --wash: rgba(255,255,255,0.05);
+    --border-soft: var(--line);
     --fire: #d97757;           /* ember CTA */
-    --sage: #7ab896;           /* emerald sage — friendlier green */
+    --sage: #7ab896;           /* emerald sage */
+    --on-primary: #161210;
+    color-scheme: dark;
 }
+:root[data-tone="midnight"] { --bg-dark: #0f1218; --bg-card: #171b23; --bg-card-soft: #1d222c; --bg-glass: rgba(15,18,24,0.92); --ink-mid: #b9bfcb; --ink-light: #7d8494; }
+:root[data-tone="forest"]   { --bg-dark: #0f1512; --bg-card: #16201a; --bg-card-soft: #1c2821; --bg-glass: rgba(15,21,18,0.92); --ink-mid: #bcc8bb; --ink-light: #7f8d80; }
+:root[data-tone="plum"]     { --bg-dark: #16101a; --bg-card: #1e1724; --bg-card-soft: #251d2c; --bg-glass: rgba(22,16,26,0.92); --ink-mid: #c8bccd; --ink-light: #8c7f92; }
+:root[data-tone="black"]    { --bg-dark: #000000; --bg-card: #0f0f0f; --bg-card-soft: #171717; --bg-glass: rgba(0,0,0,0.9); --ink-mid: #bdbdbd; --ink-light: #808080; }
+:root[data-theme="light"] {
+    --bg-dark: #f4eee6; --bg-card: #fffaf3; --bg-card-soft: #ece4d8; --bg-glass: rgba(244,238,230,0.92);
+    --ink: #2b211b; --ink-mid: #66574a; --ink-light: #8a7a6b;
+    --line: rgba(43,33,27,0.09); --line-strong: rgba(43,33,27,0.16); --wash: rgba(43,33,27,0.045);
+    --on-primary: #1f1712;
+    color-scheme: light;
+}
+
+/* Smooth swaps between themes. */
+body, .glass, .glass-panel { transition: background-color 0.25s ease, color 0.25s ease; }
 
 body {
     font-family: 'Inter', sans-serif;
-    background-color: var(--bg-dark);  /* warm charcoal */
-    color: var(--cream);               /* warm cream text */
+    background-color: var(--bg-dark);
+    color: var(--ink);
     overflow-x: hidden;
     -webkit-tap-highlight-color: transparent;
 }
@@ -107,13 +136,13 @@ body {
 /* WARM DARK CARD SURFACES — slightly lighter than body, subtle white border.
    Two variants used across components; both feel like the same paper. */
 .glass {
-    background: #1d1815;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--bg-card);
+    border: 1px solid var(--line);
 }
 .glass-panel {
-    background: #1d1815;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    box-shadow: inset 0 1px 0 var(--wash);
 }
 
 /* ───────────────── WARM-DARK OVERRIDES ─────────────────
@@ -130,17 +159,84 @@ body {
   .bg-\[\#0f0f0f\],
   .bg-\[\#151515\],
   .bg-\[\#1a0f08\],
-  .bg-\[\#1a1a1a\] { background-color: #161210 !important; }
+  .bg-\[\#1a1a1a\] { background-color: var(--bg-dark) !important; }
 
   /* Slightly lighter "card" hex shades */
-  .bg-\[\#161210\],
-  .bg-\[\#1a1612\] { background-color: #1d1815 !important; }
+  .bg-\[\#1a1612\] { background-color: var(--bg-card) !important; }
 
-  /* Translucent alpha variants of the dark bg → translucent warm dark */
+  /* Translucent alpha variants of the dark bg */
   .bg-\[\#050505\]\/95,
   .bg-\[\#0d0a08\]\/85,
-  .bg-\[\#0d0a08\]\/95 { background-color: rgba(22, 18, 16, 0.95) !important; }
+  .bg-\[\#0d0a08\]\/95 { background-color: var(--bg-glass) !important; }
 }
+
+/* ───────────────── LIGHT MODE BRIDGE ─────────────────
+   Older screens were written dark-only with Tailwind's white/gray classes.
+   In light mode those are redirected to the theme inks and hairlines so the
+   whole app follows the switch, not just the new screens. */
+:root[data-theme="light"] .text-white,
+:root[data-theme="light"] .text-gray-100,
+:root[data-theme="light"] .text-gray-200,
+:root[data-theme="light"] .text-gray-300 { color: var(--ink) !important; }
+:root[data-theme="light"] .text-gray-400,
+:root[data-theme="light"] .text-gray-500 { color: var(--ink-mid) !important; }
+:root[data-theme="light"] .text-white\/80,
+:root[data-theme="light"] .text-white\/70 { color: var(--ink) !important; }
+:root[data-theme="light"] .text-white\/60,
+:root[data-theme="light"] .text-white\/50,
+:root[data-theme="light"] .text-white\/40 { color: var(--ink-mid) !important; }
+:root[data-theme="light"] .text-white\/30,
+:root[data-theme="light"] .text-white\/25,
+:root[data-theme="light"] .text-white\/20 { color: var(--ink-light) !important; }
+:root[data-theme="light"] .bg-white\/\[0\.02\],
+:root[data-theme="light"] .bg-white\/\[0\.05\],
+:root[data-theme="light"] .bg-white\/\[0\.07\],
+:root[data-theme="light"] .bg-white\/\[0\.08\] { background-color: rgba(43,33,27,0.05) !important; }
+:root[data-theme="light"] .border-white\/30,
+:root[data-theme="light"] .border-white\/40 { border-color: rgba(43,33,27,0.25) !important; }
+:root[data-theme="light"] .text-gray-600,
+:root[data-theme="light"] .text-gray-700 { color: var(--ink-light) !important; }
+:root[data-theme="light"] .bg-white\/5,
+:root[data-theme="light"] .bg-white\/\[0\.03\],
+:root[data-theme="light"] .bg-white\/\[0\.04\] { background-color: rgba(43,33,27,0.04) !important; }
+:root[data-theme="light"] .bg-white\/10,
+:root[data-theme="light"] .bg-white\/15,
+:root[data-theme="light"] .bg-white\/20 { background-color: rgba(43,33,27,0.07) !important; }
+:root[data-theme="light"] .border-white\/5,
+:root[data-theme="light"] .border-white\/10,
+:root[data-theme="light"] .border-white\/15,
+:root[data-theme="light"] .border-white\/20 { border-color: var(--line-strong) !important; }
+:root[data-theme="light"] .bg-black\/20,
+:root[data-theme="light"] .bg-black\/30,
+:root[data-theme="light"] .bg-black\/40 { background-color: rgba(43,33,27,0.06) !important; }
+:root[data-theme="light"] .bg-gray-800,
+:root[data-theme="light"] .bg-gray-900 { background-color: var(--bg-card-soft) !important; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: #cfc4b6; }
+:root[data-theme="light"] .markdown-body h1,
+:root[data-theme="light"] .markdown-body h2,
+:root[data-theme="light"] .markdown-body h3 { color: var(--ink); }
+
+/* ───────────────── MOTION ───────────────── */
+/* Springy press feedback on anything tappable. */
+.tap { transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease, opacity 0.2s ease; }
+.tap:active { transform: scale(0.96); }
+button:not(:disabled) { -webkit-tap-highlight-color: transparent; }
+button:not(:disabled):active { transform: scale(0.97); transition: transform 0.1s ease; }
+@keyframes riseIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.rise-in { animation: riseIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger > * { animation: riseIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(6) { animation-delay: 200ms; }
+.stagger > *:nth-child(7) { animation-delay: 240ms; }
+.stagger > *:nth-child(n+8) { animation-delay: 280ms; }
+@keyframes plusPulse { 0%,100% { box-shadow: 0 8px 22px rgba(217,119,87,0.35), 0 0 0 0 rgba(217,119,87,0.35); } 50% { box-shadow: 0 8px 22px rgba(217,119,87,0.35), 0 0 0 8px rgba(217,119,87,0); } }
+.plus-idle { animation: plusPulse 3.2s ease-in-out infinite; }
+@keyframes barGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.bar-grow { transform-origin: bottom; animation: barGrow 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
@@ -151,7 +247,7 @@ body {
     background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: #333;
+    background: var(--line-strong);
     border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
@@ -183,7 +279,7 @@ body {
 .markdown-body h1, .markdown-body h2, .markdown-body h3 { 
     font-family: 'Orbitron', sans-serif; 
     font-weight: 700; 
-    color: #ffffff; 
+    color: var(--ink); 
     margin-top: 1em; 
     margin-bottom: 0.5em; 
     letter-spacing: -0.02em;

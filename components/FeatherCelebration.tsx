@@ -109,10 +109,10 @@ const FeatherSvg: React.FC<{ color: string }> = ({ color }) => (
       opacity={0.92}
     />
     {/* Spine */}
-    <line x1="8" y1="18" x2="30" y2="18" stroke="#161210" strokeWidth="0.7" opacity={0.4} />
+    <line x1="8" y1="18" x2="30" y2="18" stroke="var(--bg-dark)" strokeWidth="0.7" opacity={0.4} />
     {/* Side barbs */}
-    <line x1="14" y1="14" x2="20" y2="18" stroke="#161210" strokeWidth="0.4" opacity={0.3} />
-    <line x1="14" y1="22" x2="20" y2="18" stroke="#161210" strokeWidth="0.4" opacity={0.3} />
+    <line x1="14" y1="14" x2="20" y2="18" stroke="var(--bg-dark)" strokeWidth="0.4" opacity={0.3} />
+    <line x1="14" y1="22" x2="20" y2="18" stroke="var(--bg-dark)" strokeWidth="0.4" opacity={0.3} />
   </svg>
 );
 

@@ -7,6 +7,7 @@ import type {
   ActiveEnergyResult,
   WorkoutsResult,
   BodyMassResult,
+  DailySummariesResult,
 } from './definitions';
 
 /**
@@ -29,5 +30,8 @@ export class DingHealthWeb extends WebPlugin implements DingHealthPlugin {
   }
   async getLatestBodyMass(): Promise<BodyMassResult> {
     return { available: false, found: false };
+  }
+  async getDailySummaries(): Promise<DailySummariesResult> {
+    return { available: false, days: [] };
   }
 }

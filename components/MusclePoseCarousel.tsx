@@ -28,13 +28,13 @@ import type { MuscleKey, MuscleActivation } from '../constants';
 import { MuscleMapHero } from './MuscleMapHero';
 
 const C = {
-  bg: '#161210',
+  bg: 'var(--bg-dark)',
   imgBg: '#0a0806',            // near-black behind the artwork glow
-  border: 'rgba(255,255,255,0.06)',
-  borderStrong: 'rgba(255,255,255,0.10)',
-  ink: '#f5ede1',
-  inkMid: '#c4b8a4',
-  inkLight: '#8b7e6e',
+  border: 'var(--line)',
+  borderStrong: 'var(--line-strong)',
+  ink: 'var(--ink)',
+  inkMid: 'var(--ink-mid)',
+  inkLight: 'var(--ink-light)',
   fire: '#d97757',
   ochre: '#e8a85a',
 };

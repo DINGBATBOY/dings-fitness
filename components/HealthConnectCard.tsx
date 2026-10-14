@@ -12,11 +12,11 @@ import { HeartPulse, X } from 'lucide-react';
 // Palette matches FuelHome — one warm-dark surface tone throughout.
 const C = {
   bg: '#0f0c0a',
-  surface: '#161210',
+  surface: 'var(--bg-dark)',
   border: 'rgba(245,237,225,0.08)',
-  ink: '#f5ede1',
-  inkMid: '#c4b8a4',
-  inkLight: '#8b7e6e',
+  ink: 'var(--ink)',
+  inkMid: 'var(--ink-mid)',
+  inkLight: 'var(--ink-light)',
   fire: '#d97757',
   emerald: '#7ab896',
 };

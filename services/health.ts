@@ -43,6 +43,10 @@ interface DingHealthPlugin {
     date?: string;
     uuid?: string;
   }>;
+  getDailySummaries(options: { days: number }): Promise<{
+    available: boolean;
+    days: { date: string; steps: number | null; activeKcal: number | null }[];
+  }>;
 }
 
 const DingHealth = registerPlugin<DingHealthPlugin>('DingHealth');
@@ -113,5 +117,30 @@ export const fetchLatestBodyMass = async (): Promise<HealthBodyMass | null> => {
     return { lbs, date: res.date, uuid: res.uuid || res.date };
   } catch {
     return null;
+  }
+};
+
+/**
+ * Steps + active energy per day for the last `days` days, keyed by the app's
+ * date format (toLocaleDateString). {} when unavailable. Older app builds
+ * without the native method resolve to {} too (the call rejects → caught).
+ */
+export const fetchDailySummaries = async (days = 30): Promise<Record<string, { steps: number | null; activeKcal: number | null }>> => {
+  if (!isHealthSupported()) return {};
+  try {
+    const res = await DingHealth.getDailySummaries({ days });
+    if (!res.available || !Array.isArray(res.days)) return {};
+    const out: Record<string, { steps: number | null; activeKcal: number | null }> = {};
+    for (const d of res.days) {
+      const [y, m, day] = d.date.split('-').map(Number);
+      if (!y || !m || !day) continue;
+      out[new Date(y, m - 1, day).toLocaleDateString()] = {
+        steps: typeof d.steps === 'number' ? Math.round(d.steps) : null,
+        activeKcal: typeof d.activeKcal === 'number' ? Math.round(d.activeKcal) : null,
+      };
+    }
+    return out;
+  } catch {
+    return {};
   }
 };

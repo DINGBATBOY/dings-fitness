@@ -38,7 +38,7 @@ export const RecompVelocity: React.FC<RecompVelocityProps> = ({ appState, workou
               <h3 className="text-xl font-orbitron font-bold text-white tracking-tighter mb-4">
                   RECOMP <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">VELOCITY</span>
               </h3>
-              <div className="glass-panel border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] p-8 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] max-w-sm">
+              <div className="glass-panel border border-white/10 shadow-[inset_0_1px_0_var(--line)] border border-white/10 shadow-[inset_0_1px_0_var(--line)] p-8 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_var(--line)] max-w-sm">
                   <p className="text-gray-400 text-sm">Complete your first workout to start tracking velocity</p>
               </div>
           </div>
@@ -200,7 +200,7 @@ export const RecompVelocity: React.FC<RecompVelocityProps> = ({ appState, workou
 
       {/* 4. Daily Dashboard Output */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="glass-panel p-4 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] relative overflow-hidden">
+        <div className="glass-panel p-4 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_var(--line)] relative overflow-hidden">
           <div className="absolute -right-4 -top-4 w-20 h-20 bg-primary/20 rounded-full blur-xl"></div>
           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Recomp Score</p>
           <div className="flex items-end gap-1 font-mono">
@@ -214,7 +214,7 @@ export const RecompVelocity: React.FC<RecompVelocityProps> = ({ appState, workou
           </div>
         </div>
         
-        <div className="glass-panel p-4 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] relative overflow-hidden">
+        <div className="glass-panel p-4 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_var(--line)] relative overflow-hidden">
           <div className="absolute -right-4 -top-4 w-20 h-20 bg-accent/20 rounded-full blur-xl"></div>
           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Recovery Index</p>
           <div className="flex items-end gap-1 font-mono">
@@ -227,7 +227,7 @@ export const RecompVelocity: React.FC<RecompVelocityProps> = ({ appState, workou
       </div>
 
       {/* 1. Track the Work */}
-      <div className="glass-panel p-5 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+      <div className="glass-panel p-5 rounded-3xl border border-white/10 shadow-[inset_0_1px_0_var(--line)]">
         <div className="flex items-center gap-3 mb-3">
           <span className="text-2xl">📈</span>
           <div>
@@ -261,7 +261,7 @@ export const RecompVelocity: React.FC<RecompVelocityProps> = ({ appState, workou
         )}
         
         {!musclePreservationRisk && (
-           <div className="p-4 rounded-2xl border bg-white/5 border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+           <div className="p-4 rounded-2xl border bg-white/5 border-white/10 shadow-[inset_0_1px_0_var(--line)]">
              <div className="flex items-center gap-3 mb-2">
                <ShieldIcon />
                <h4 className="font-bold text-xs uppercase tracking-widest text-white">Muscle Protected</h4>
@@ -285,7 +285,7 @@ export const RecompVelocity: React.FC<RecompVelocityProps> = ({ appState, workou
         )}
         
         {hasLoggedFood && !visceralRisk && (
-           <div className="p-4 rounded-2xl border bg-white/5 border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+           <div className="p-4 rounded-2xl border bg-white/5 border-white/10 shadow-[inset_0_1px_0_var(--line)]">
              <div className="flex items-center gap-3 mb-2">
                <CheckIcon />
                <h4 className="font-bold text-xs uppercase tracking-widest text-white">Visceral Drivers Optimal</h4>

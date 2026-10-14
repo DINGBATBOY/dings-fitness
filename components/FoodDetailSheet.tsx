@@ -10,20 +10,20 @@ interface FoodDetailSheetProps {
 }
 export const FoodDetailSheet: React.FC<FoodDetailSheetProps> = ({ item, onSave, onDelete, onClose, readOnly = false }) => (
   <FoodDialog open={!!item} onClose={onClose} closeLabel="Close food details" title={readOnly ? 'Logged food' : 'Edit logged food'}>
-    {item && (readOnly ? <div className="space-y-4 text-[#f5ede1]">
+    {item && (readOnly ? <div className="space-y-4 text-[var(--ink)]">
       <h2 className="text-2xl font-bold">{item.name}</h2>
       <p className="text-3xl font-semibold tabular-nums">{Math.round(item.calories)} kcal</p>
       <p className="text-base">Protein {Math.round(item.protein)} g · Carbs {Math.round(item.carbs)} g · Fat {Math.round(item.fat)} g</p>
-      <p className="text-sm text-[#c4b8a4]">{item.nutritionEvidence?.portionNote}</p>
-      <p className="text-sm text-[#c4b8a4]">{item.nutritionEvidence?.summary || 'Previously logged numbers.'}</p>
-      <p className="text-sm text-[#c4b8a4]">Past entries are read-only.</p>
+      <p className="text-sm text-[var(--ink-mid)]">{item.nutritionEvidence?.portionNote}</p>
+      <p className="text-sm text-[var(--ink-mid)]">{item.nutritionEvidence?.summary || 'Previously logged numbers.'}</p>
+      <p className="text-sm text-[var(--ink-mid)]">Past entries are read-only.</p>
     </div> : <>
       <FoodEditor key={item.id} item={fromSavedFood(item)} onBack={onClose} onSave={draft => {
         const updated = toSavedFood(draft, item.draftId || item.id);
         onSave({ ...updated, id: item.id, timestamp: item.timestamp, draftId: item.draftId });
         onClose();
       }} />
-      <button type="button" onClick={() => { onDelete(item.id); onClose(); }} className="mt-5 min-h-11 w-full rounded-xl border border-[#c4b8a4]/50 px-4 text-base text-[#f5ede1]">Remove this food</button>
+      <button type="button" onClick={() => { onDelete(item.id); onClose(); }} className="mt-5 min-h-11 w-full rounded-xl border border-[var(--ink-mid)]/50 px-4 text-base text-[var(--ink)]">Remove this food</button>
     </>)}
   </FoodDialog>
 );

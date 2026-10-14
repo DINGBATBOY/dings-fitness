@@ -39,6 +39,46 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
   freshness, backend cost risk, and scans for code regressions.
 
+## App shell v2 (Oct 14, 2026) — read before touching navigation
+
+Ding's direction (spec: `design/V2_SPEC.md`). Built on top of ChatGPT's
+food-flow commit (`c79e6fc`: durable scan jobs, drafts, review, evidence).
+
+- **Tabs:** Home · Train · **(+)** · Coach · Profile (`components/Layout.tsx`).
+  The raised center + opens **Add Food**, a full-page `<dialog>`
+  (`FoodDialog` + `.food-dialog` in index.css). Old tab ids still resolve:
+  `journal` → Profile/History, `reflect`/`recomp` → Profile/Overview,
+  `restaurants` → Add Food's Eats section (`switchTab` in MainApp).
+- **Add Food** (`components/food/FoodComposer.tsx`): scan hero (camera,
+  photos, barcode, describe) + sections **Recent · Favorites · Eats
+  (RestaurantHub) · Quick add (FoodEditor)**. Logs to the dashboard's
+  selected day (`logDate` prop).
+- **Home** (`components/Dashboard.tsx`): one selected day at a time
+  (`selectedDate` in MainApp, `toLocaleDateString()` format). Past days read
+  from `dailyLogs`; today is live. Ring is signed (target − eaten). Energy =
+  `computeEnergyBalance`; steps + per-day active energy come from
+  `fetchDailySummaries(30)` (ephemeral, never written to the user doc).
+- **HealthKit:** new native method `getDailySummaries({days})` +
+  `stepCount` read type. **Needs a Codemagic build** — older builds simply
+  show no steps. Privacy policy + Info.plist usage string mention steps.
+- **Profile** (`components/ProfileHub.tsx`): stats, then Overview (old
+  Reflect + calorie calendar), History (old Journal), Settings (Appearance +
+  everything the old profile tab had).
+- **Appearance** (`services/theme.ts`): `data-theme` (dark/light) and
+  `data-tone` (charcoal/midnight/forest/plum/black) on `<html>`. All surface
+  and ink colors are CSS variables (`--bg-dark`, `--bg-card`, `--ink`,
+  `--ink-mid`, `--ink-light`, `--line`…). Older dark-only screens follow light
+  mode through the "LIGHT MODE BRIDGE" overrides in index.css. **New UI must
+  use the variables, not hex** (`bg-[var(--bg-card)]`, not `bg-[#1d1815]`).
+  Saved per device (localStorage) and to `profile.appearance`.
+- **Motion:** `.tap`, `.rise-in`, `.stagger`, `.bar-grow`, `.plus-idle` in
+  index.css; tab slide in MainApp (motion/react). All off under reduced motion.
+- `pushFoodToState` now writes `dailyLogs` only when a commit changed it
+  (rollover or past-day log) — ChatGPT's version sent the whole history on
+  every log.
+- Dev preview with sample data, no Firebase: `npx vite` then
+  `/design/preview.html` (`?tab=profile&section=settings&mode=light&add=1`).
+
 ## Two AI providers — deliberate split (Sept 2026)
 
 The food-macro scan runs on **OpenAI**; **everything else stays on Gemini**.

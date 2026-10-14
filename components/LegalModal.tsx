@@ -42,7 +42,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ initialTab = 'privacy', 
         style={{
           maxHeight: '90vh',
           borderTop: '1px solid rgba(249,115,22,0.2)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 0 60px rgba(249,115,22,0.06)',
+          boxShadow: 'inset 0 1px 0 var(--line), 0 0 60px rgba(249,115,22,0.06)',
         }}
       >
         {/* Header */}

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { sumMeal, scaleIngredients, validFood, type ReviewFood } from '../../services/foodDraft';
 
-const field = 'mt-1 min-h-12 w-full rounded-xl border border-[#c4b8a4]/60 bg-[#161210] p-3 text-base';
+const field = 'mt-1 min-h-12 w-full rounded-xl border border-[var(--ink-mid)]/60 bg-[var(--bg-card)] p-3 text-base';
 export type FoodEditorDraft = {
   name: string; amount: string; values: Record<'calories' | 'protein' | 'carbs' | 'fat' | 'fiber', string>;
   amounts: string[]; mode: 'macros' | 'ingredients'; multiplier: string; grams: string;
@@ -30,13 +30,13 @@ export function FoodEditor({ item, onSave, onBack, initialDraft, onDraftChange }
     if (!item || !Number.isFinite(quantity) || quantity <= 0) { setError('Enter an amount greater than zero.'); return; }
     onSave({ ...item, quantity });
   }
-  return <section className="space-y-5 text-[#f5ede1]">
-    <button type="button" onClick={onBack} className="min-h-11 text-base text-[#c4b8a4]">{item ? 'Back to review' : 'Back to your food'}</button>
+  return <section className="space-y-5 text-[var(--ink)]">
+    <button type="button" onClick={onBack} className="min-h-11 text-base text-[var(--ink-mid)]">{item ? 'Back to review' : 'Back to your food'}</button>
     <h2 className="text-2xl font-bold">{item ? 'Make it yours' : 'Enter your food'}</h2>
     {item && <div className="rounded-2xl border border-white/10 p-4">
       <p className="text-base">Base amount: {item.basePortion}</p>
       {item.baseGrams ? <label className="mt-3 block text-sm">Grams eaten<input className={field} type="number" inputMode="decimal" min="0.01" step="any" value={grams} onChange={e => setGrams(e.target.value)} /></label> : <label className="mt-3 block text-sm">Custom multiplier of base amount<input className={field} type="number" inputMode="decimal" min="0.01" step="any" value={multiplier} onChange={e => setMultiplier(e.target.value)} /></label>}
-      <button type="button" className="mt-3 min-h-11 rounded-xl border border-[#c4b8a4]/50 px-4" onClick={applyAmount}>Use this amount</button>
+      <button type="button" className="mt-3 min-h-11 rounded-xl border border-[var(--ink-mid)]/50 px-4" onClick={applyAmount}>Use this amount</button>
     </div>}
     <form className="space-y-4" onSubmit={e => {
       e.preventDefault();
@@ -61,12 +61,12 @@ export function FoodEditor({ item, onSave, onBack, initialDraft, onDraftChange }
       <label className="block text-sm">Food name<input required className={field} value={name} onChange={e => setName(e.target.value)} /></label>
       <label className="block text-sm">Amount these numbers describe<input required className={field} value={amount} onChange={e => setAmount(e.target.value)} placeholder="1 bar (60 g)" /></label>
       {ingredients.length > 0 && <div className="flex flex-wrap gap-2">
-        <button type="button" aria-pressed={mode === 'macros'} onClick={() => setMode('macros')} className="min-h-11 rounded-xl border border-[#c4b8a4]/50 px-4">Edit totals</button>
-        <button type="button" aria-pressed={mode === 'ingredients'} onClick={() => setMode('ingredients')} className="min-h-11 rounded-xl border border-[#c4b8a4]/50 px-4">Edit ingredients</button>
+        <button type="button" aria-pressed={mode === 'macros'} onClick={() => setMode('macros')} className="min-h-11 rounded-xl border border-[var(--ink-mid)]/50 px-4">Edit totals</button>
+        <button type="button" aria-pressed={mode === 'ingredients'} onClick={() => setMode('ingredients')} className="min-h-11 rounded-xl border border-[var(--ink-mid)]/50 px-4">Edit ingredients</button>
       </div>}
-      {mode === 'ingredients' ? <div className="space-y-3">{ingredients.map((part, i) => <label key={i} className="block text-sm">{part.name} (grams)<input className={field} type="number" inputMode="decimal" min="0" step="any" value={amounts[i]} onChange={e => setAmounts(prev => prev.map((v, j) => i === j ? e.target.value : v))} /></label>)}<p className="text-sm text-[#c4b8a4]">Set an ingredient to 0 to remove it. Totals recalculate from these ingredients.</p></div> : <><div className="grid grid-cols-2 gap-4">{(['calories', 'protein', 'carbs', 'fat', 'fiber'] as const).map(key => <label key={key} className="block text-sm capitalize">{key} {key === 'calories' ? '(kcal)' : '(g)'}<input className={field} required={key !== 'fiber'} type="number" inputMode="decimal" min="0" step="any" value={values[key]} onChange={e => setValues(prev => ({ ...prev, [key]: e.target.value }))} /></label>)}</div><p className="text-sm text-[#c4b8a4]">{ingredients.length ? 'Saving totals replaces the ingredient calculation. Your edits become the numbers used.' : 'Use the amount you ate. Leave fiber blank if you dont know it.'}</p></>}
+      {mode === 'ingredients' ? <div className="space-y-3">{ingredients.map((part, i) => <label key={i} className="block text-sm">{part.name} (grams)<input className={field} type="number" inputMode="decimal" min="0" step="any" value={amounts[i]} onChange={e => setAmounts(prev => prev.map((v, j) => i === j ? e.target.value : v))} /></label>)}<p className="text-sm text-[var(--ink-mid)]">Set an ingredient to 0 to remove it. Totals recalculate from these ingredients.</p></div> : <><div className="grid grid-cols-2 gap-4">{(['calories', 'protein', 'carbs', 'fat', 'fiber'] as const).map(key => <label key={key} className="block text-sm capitalize">{key} {key === 'calories' ? '(kcal)' : '(g)'}<input className={field} required={key !== 'fiber'} type="number" inputMode="decimal" min="0" step="any" value={values[key]} onChange={e => setValues(prev => ({ ...prev, [key]: e.target.value }))} /></label>)}</div><p className="text-sm text-[var(--ink-mid)]">{ingredients.length ? 'Saving totals replaces the ingredient calculation. Your edits become the numbers used.' : 'Use the amount you ate. Leave fiber blank if you dont know it.'}</p></>}
       {error && <p role="alert" className="text-[#e8a85a]">{error}</p>}
-      <button type="submit" className="min-h-14 w-full rounded-xl bg-[#d97757] px-4 font-semibold text-[#161210]">Use these numbers</button>
+      <button type="submit" className="min-h-14 w-full rounded-xl bg-[#d97757] px-4 font-semibold text-[var(--bg-dark)]">Use these numbers</button>
     </form>
   </section>;
 }
