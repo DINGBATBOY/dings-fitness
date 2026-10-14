@@ -4,13 +4,21 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 (ops + deploy layers), `DEPLOY.md` (secrets/deploy), `ROADMAP.md` (what's next),
 `APP_STORE_LISTING.md` (submission copy), `CUSTOM_GPT_INSTRUCTIONS.md`.
 
-## Where things stand (Sept 2026)
+## Where things stand (Oct 13, 2026)
 
 - **iOS**: v1.0, **not yet submitted**. Last TestFlight build is **#56, Aug
-  12** — well behind `main`. Codemagic builds from `main` but the webhook is
-  not wired, so nothing builds until you start it by hand. ~9 users, all
-  internal/TestFlight.
-- **Web**: live at dings.fitness (Firebase Hosting behind Cloudflare).
+  12**. A Codemagic build was started Sept 18 for the OpenAI scan, but
+  nothing since includes HealthKit-on-device verification, the consent
+  sheet, or barcode scanning. Codemagic webhook is **not wired** — start
+  builds by hand. ~9 users, all internal/TestFlight.
+- **Web**: live at dings.fitness (Firebase Hosting behind Cloudflare). Last
+  confirmed live build: `12ce6e9` (Sept 19). `3330580` (Cheddar's / venue-word
+  fix) was committed Sept 20; check https://dings.fitness/version.json for
+  what's actually live.
+- **Unpushed / undeployed at time of writing:** `f461d9c` (barcode scanning,
+  shared lookup cache, portion buttons) plus this handoff update. Needs
+  `npm install` (new dependency), `firebase deploy --only functions` (two new
+  functions) **and** `.\deploy.ps1`, then a Codemagic build. See Open items.
 - **Backend**: Firebase Cloud Functions. **Two AI providers on purpose** —
   see the next section.
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
@@ -23,47 +31,51 @@ Gemini's macro estimates were not accurate enough, and that one feature is
 the app's core promise. The other nine features were working fine, so they
 were left alone rather than migrated wholesale — a full switch was built,
 tested and **reverted** (`52cc4a1`) once before, and survives on the
-`openai-migration` branch if it's ever wanted.
+`openai-migration` branch if it's ever wanted. Verified working in prod on
+Sept 18 (`tokenUsage` showed `gpt-5.6-terra`).
 
-| Path | Function | Model | Features |
+| Path | Cloud Function | Model | tokenUsage feature |
 |---|---|---|---|
 | Gemini | `callGemini` | `gemini-2.5-flash` | the other 9 |
-| OpenAI | `callOpenAI` | `gpt-5.6-terra` | `analyzeFoodEntry` |
-| OpenAI | `callOpenAI` | `gpt-5-search-api` | `foodRestaurantLookup` |
-| OpenAI | `callOpenAI` | `gpt-5-search-api` | `foodWebLookup` |
+| OpenAI | `callOpenAI` | `gpt-5.6-terra` | `analyzeFoodEntry` (pass 2: vision + JSON) |
+| OpenAI | `foodWebLookup` | `gpt-5-search-api` | `foodRestaurantLookup` / `foodWebLookup` (pass 1) |
+| none | `lookupBarcode` | — | not logged (no AI) |
+| none | `searchNutrition` | — | not logged (USDA + Open Food Facts) |
 
 `callOpenAI` is a **separate function**, not a provider flag inside
-`callGemini` — nine working features had no reason to share that risk. Both
-share auth, the same daily quota bucket, usage logging and ops counters.
+`callGemini`. All of them share auth, the same daily quota bucket, usage
+logging and ops counters.
 
 **Why two passes.** OpenAI cannot combine web search with vision + strict
-JSON in one call. So pass 1 (`gpt-5-search-api`) looks up a named
-restaurant's dish, then pass 2 (`gpt-5.6-terra`) reads the photo with pass
-1's findings injected as context. Pass 1 fires for **any meal from a named
-place** — curated chain or not (changed Sept 19; curated menu data still wins
-for items it covers exactly). Place detection is case-insensitive ("bowl from
-ted peters"), fires on venue words ("cheddars scratch kitchen", "... cafe",
-"... steakhouse") and on real possessives ("joe's"), and ignores "at home",
-"from scratch", contractions, and times like "at 7pm". `lookupFoodOnWeb`
-still swallows failures, but now logs `[lookupFoodOnWeb:<kind>] FAILED` to
-the console — a silent empty lookup and a broken one look the same in the UI. Packaged food USDA/OFF already
-grounds skips it. Third trigger (Sept 19): a
-text-only food that USDA/OFF was queried for and **missed** (no matches, or
-only low-confidence ones) gets a generic web lookup, feature `foodWebLookup`;
-items it grounds carry `source: "web_lookup"` (UI badge "Web lookup").
+JSON in one call. So pass 1 (`gpt-5-search-api`, in the `foodWebLookup`
+function, prompts server-side) looks up the food, then pass 2
+(`gpt-5.6-terra`) reads the photo/text with pass 1's findings injected.
+Pass 1 fires for:
 
-**The two passes fail differently, and this matters for debugging.** Pass 2
-fails loudly — a bad key throws and the scan visibly errors. Pass 1 fails
-*silently* by design (`lookupRestaurantDish` swallows everything and returns
-`''`), so a broken search model degrades to an ordinary estimate with no
-visible symptom. A working scan only proves pass 2 ran.
+- **any meal from a named place** — curated chain or not. Curated menu data
+  still wins for items it covers exactly. Place detection
+  (`detectIndieRestaurantIntent`) is case-insensitive ("bowl from ted
+  peters"), fires on venue words ("cheddars scratch kitchen", "... cafe",
+  "... steakhouse") and real possessives ("joe's"), and ignores "at home",
+  "from scratch", contractions, and times like "at 7pm". The Cheddar's bug
+  (Sept 20) was exactly this: a bare restaurant name matched no rule, so no
+  lookup ran.
+- **a food USDA/OFF was queried for and missed** (no matches or only
+  low-confidence ones). Items it grounds carry `source: "web_lookup"`.
+
+**Pass 1 fails quietly, by design.** `lookupFoodOnWeb` (client) never throws
+— a failed lookup degrades to an ordinary estimate — but it logs
+`[lookupFoodOnWeb:<kind>] FAILED` to the browser console, and the server logs
+`[foodWebLookup] upstream error <message>` in Functions logs. A working scan
+only proves pass 2 ran.
 
 **GPT-6 Astra was ruled out — it has no vision.** Don't "upgrade" to it.
 
-**Verifying which provider actually ran:** Firestore → `tokenUsage` → check
-the newest doc's `model` field. Feature name alone is not proof —
-`analyzeFoodEntry` was the feature name on the Gemini path too. Only
-`foodRestaurantLookup` is unique to OpenAI.
+**Verifying which provider actually ran:** Firestore → `tokenUsage` → the
+newest doc's `model` field, or the admin **AI Usage** screen (Profile, admin
+only: *Recent calls* with a model chip per call, plus *By model*). Pass-1
+**cache hits write no `tokenUsage` doc** — check the browser console for
+`cache hit`.
 
 Secrets: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `USDA_API_KEY` (optional).
 Setting a secret does nothing until `firebase deploy --only functions` binds
@@ -194,46 +206,66 @@ an addition. Don't "fix" that by adding them.
 
 ## Open items
 
-Ordered by what blocks what.
+Ordered by what blocks what. Status as of Oct 13 — anything marked
+"unconfirmed" was raised but never confirmed done in chat.
 
-1. **Deploy the OpenAI food scan.** Set the secret, then *both* targets —
-   the function alone changes nothing, because the client is what decides to
-   call it:
+1. **Ship `f461d9c`** (barcode, lookup cache, portions):
    ```powershell
-   firebase functions:secrets:set OPENAI_API_KEY
-   firebase deploy --only functions
+   npm install                          # @capacitor/barcode-scanner is new
+   git push
+   firebase deploy --only functions     # lookupBarcode + foodWebLookup are new
    .\deploy.ps1
    ```
-   Then **spot-check accuracy on real meals with known macros** — accuracy
-   is the entire reason for the switch, so an untested deploy proves
-   nothing. Test on **web, not TestFlight** (#56 predates all of this and
-   will still call Gemini). Confirm pass 1 fired by looking for a
-   `foodRestaurantLookup` doc in `tokenUsage`, not just a working scan.
-2. **Set a spend limit on the OpenAI project.** Every scan is now a paid
-   call and the two-pass path can fire twice. The per-user daily quota caps
-   one account's abuse, not total spend. The $25 Firestore surprise was the
-   cheap version of this lesson.
-3. **Gemini postpay → prepay billing migration — was due Sept 14, 2026.**
-   That date has passed; verify it actually happened or nine features break.
-4. **Codemagic build.** iOS is ~5 weeks behind and carries the first-ever
-   run of HealthKit. Batch it rather than spending a build number per
-   change.
-5. Wire the Codemagic webhook so pushes build iOS automatically.
-6. Submit v1.0 to the App Store. Before submitting: fill the App Privacy
-   label per `APP_STORE_LISTING.md` §9 (Health & Fitness + Photos, shared
-   with third parties for App Functionality) and install a HealthKit build
-   on a real iPhone. Done Sept 18: privacy policy / terms / in-app legal now
-   name OpenAI; one-time AI data-sharing consent sheet gates the food scan
-   and coach chat (`acceptedAiDataSharing` on the profile, Guideline
-   5.1.2(i)); `ITSAppUsesNonExemptEncryption=false` in Info.plist.
-7. Cloud Functions Node 20 decommission Oct 30, 2026 (code is on 22; ships
-   on next functions deploy).
-8. Firestore subcollection migration (see gotcha 3).
+   Then on web: scan a barcode (try a protein bar), log "cheddars scratch
+   kitchen <dish>" twice (second should be a console `cache hit`), and tap
+   the portion buttons.
+2. **Gemini postpay → prepay billing — deadline was Oct 12, 2026**
+   (per Google's Aug 12 email; the earlier "Sept 14" note was wrong).
+   Unconfirmed. If it wasn't done, the nine Gemini features (coach chat,
+   onboarding macros, meal suggestions…) break.
+3. **OpenAI spend limit.** Unconfirmed. Every food scan is a paid call and
+   restaurant meals are two.
+4. **Codemagic build + real-iPhone test.** First-ever run of HealthKit
+   (`plugins/ding-health`), the AI consent sheet, and the native barcode
+   scanner (`CapacitorBarcodeScanner` pod). Test: Health permission prompt
+   and import, consent sheet on first scan, barcode scan.
+5. **App Privacy label** in App Store Connect per `APP_STORE_LISTING.md` §9
+   (Health & Fitness + Photos, shared with third parties for App
+   Functionality). Unconfirmed.
+6. **Submit v1.0.** Done already (Sept 18): privacy policy / terms / in-app
+   legal name OpenAI, Gemini, USDA + Open Food Facts; one-time AI consent
+   sheet gates food scan + coach chat (`acceptedAiDataSharing`, Guideline
+   5.1.2(i)); `ITSAppUsesNonExemptEncryption=false`. Known gap: onboarding
+   sends body stats to Gemini *before* the consent sheet; it relies on the
+   sign-up terms checkbox. Moving consent into sign-up would close it.
+7. **Cloud Functions Node 20 decommission Oct 30, 2026.** Code is on Node
+   22; it ships with the next functions deploy (item 1 covers it).
+8. **Firestore subcollection migration** (gotcha 3) — before user count grows.
+9. Wire the Codemagic webhook so pushes build iOS automatically.
 
-The admin **AI Usage** dashboard (Profile, admin only) now shows *Recent
-calls* with the model for each, plus a *By model* breakdown. That's the
-fastest in-app way to confirm a food scan hit `gpt-*` and not `gemini-*`.
+### Food-accuracy ideas not built yet
 
-Nice-to-have: add a `byModel` breakdown to `opsReport` — it already groups
-`byFeature`, and with two providers billing, per-model cost is the number
-you'll actually want.
+- **Accuracy regression set**: 15–20 meals with known macros (packaged,
+  chain, local spot, home-cooked), rerun after every prompt/model change.
+  Prompts have regressed twice (gotcha 7). Nothing measures accuracy today.
+- **Learn from corrections**: when a user edits macros on the review
+  screen, save their version and reuse it next time they log the same thing.
+- **Nutritionix API** (paid) as a structured source for chains and
+  plain-English entries, replacing some web searches.
+- `byModel` breakdown in `opsReport` (it already groups `byFeature`).
+
+## Working on this repo with Claude (Cowork)
+
+- The repo lives in the connected folder `Dings Fitness/ding! (2)`. The
+  device shell there has **no network**: `npm install` / `npm view` fail.
+  For a new dependency, generate `package-lock.json` in the cloud workspace
+  (`npm install <pkg> --package-lock-only`) and copy it back; typecheck
+  locally needs the package unpacked into `node_modules` by hand, or the
+  user runs `npm install`.
+- `git push` from Claude fails (no GitHub credentials there) — the user
+  pushes.
+- Git in the connected folder leaves `.git/*.lock` files unless Claude has
+  **delete permission** for the folder; grant it when asked or the user's
+  next git command fails with "index.lock exists".
+- Checks Claude can run: `npm run typecheck`, `cd functions && npx tsc
+  --noEmit -p .`, `npx vite build --outDir <scratch>`.
