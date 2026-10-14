@@ -6,47 +6,21 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 
 ## Where things stand (Oct 14, 2026)
 
-- **Shipped Oct 14 ~00:50:** `2c1ae5d` (app shell v2, below) on top of
-  `c79e6fc` (ChatGPT food flow). Firestore rules + index + storage rules,
-  all functions (incl. new startFoodAnalysis / processFoodAnalysis /
-  cancelFoodAnalysis / cleanFoodAnalysis), web (origin + edge verified) and
-  **Codemagic #72 green** (uploaded to App Store Connect).
-  `processFoodAnalysis` (Firestore trigger) failed its first deploy with an
-  Eventarc service-agent permission error — normal the first time; a retry
-  3 minutes later succeeded.
-- **Not yet verified live:** a real authenticated scan through the new job
-  pipeline (needs Ding signed in), and the step count on a real iPhone.
-
-- **Oct 13 late:** `9e433c2` (one-call food scan + barcode work) is pushed,
-  Cloud Functions deployed (all on Node 22), web live, and **Codemagic #71
-  succeeded** (uploaded to App Store Connect). Builds #69/#70 failed with
-  `"App" requires a provisioning profile with the HealthKit feature`, but
-  the real cause was in the signing step: App Store Connect API returned
-  **403 "A required agreement is missing or has expired"**, so no profile
-  was fetched at all. Ding accepted the agreement + enabled HealthKit on the
-  App ID; #71 then built. If that error ever reappears, read the "Initialize
-  keychain + create signing files" step log first — that script does not
-  fail on the 403. Build numbers are still the epoch fallback (the
-  latest-build lookup fails), which is monotonic, so harmless.
-- **Next:** install #71 from TestFlight on a real iPhone — first-ever device
-  run of HealthKit, the AI consent sheet and the native barcode scanner.
-
-- **iOS**: v1.0, **not yet submitted**. Last TestFlight build is **#56, Aug
-  12**. A Codemagic build was started Sept 18 for the OpenAI scan, but
-  nothing since includes HealthKit-on-device verification, the consent
-  sheet, or barcode scanning. Codemagic webhook is **not wired** — start
-  builds by hand. ~9 users, all internal/TestFlight.
-- **Web**: live at dings.fitness (Firebase Hosting behind Cloudflare). Last
-  confirmed live build: `12ce6e9` (Sept 19). `3330580` (Cheddar's / venue-word
-  fix) was committed Sept 20; check https://dings.fitness/version.json for
-  what's actually live.
-- **Unpushed / undeployed at time of writing:** `f461d9c` (barcode scanning,
-  shared lookup cache, portion buttons) and the **one-call food scan**
-  (Oct 13, see "Food scan accuracy overhaul" below). Needs `npm install`
-  (new dependency), `firebase deploy --only functions` **and**
-  `.\deploy.ps1`, then a Codemagic build. See Open items.
-- **Backend**: Firebase Cloud Functions. **Two AI providers on purpose** —
-  see the next section.
+- **Live everywhere: `2c1ae5d`** — app shell v2 (next section) on top of
+  `c79e6fc` (ChatGPT's food flow / scan jobs). Later commits are docs only.
+  - **Web**: dings.fitness (Firebase Hosting behind Cloudflare), origin + edge
+    verified on `2c1ae5d`. Check https://dings.fitness/version.json.
+  - **Backend**: all Cloud Functions on Node 22 (Node 20 decommission Oct 30 is
+    handled). Firestore rules + `foodAnalysisJobs` index + Storage rules
+    deployed Oct 14.
+  - **iOS**: **Codemagic #72 green** (uploaded to App Store Connect, Oct 14).
+    v1.0 **not yet submitted**. ~9 users, all internal/TestFlight.
+- **Not yet verified by a human:** a real signed-in scan through the job
+  pipeline (no one has run one yet), steps on a real iPhone, HealthKit /
+  consent sheet / native barcode on device, light mode on every screen.
+- **Recent history:** Oct 13 one-call OpenAI scan + relevance-gated database
+  lookups (`9e433c2`); Codemagic #69/#70 failed on an expired Apple agreement
+  (see gotcha 9), #71 green; Oct 14 ChatGPT food-flow redesign + v2 shell.
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
   freshness, backend cost risk, and scans for code regressions.
 
@@ -92,170 +66,136 @@ food-flow commit (`c79e6fc`: durable scan jobs, drafts, review, evidence).
 
 ## Two AI providers — deliberate split (Sept 2026)
 
-The food-macro scan runs on **OpenAI**; **everything else stays on Gemini**.
+The food scan runs on **OpenAI**; **everything else stays on Gemini**.
 Gemini's macro estimates were not accurate enough, and that one feature is
 the app's core promise. The other nine features were working fine, so they
-were left alone rather than migrated wholesale — a full switch was built,
-tested and **reverted** (`52cc4a1`) once before, and survives on the
-`openai-migration` branch if it's ever wanted. Verified working in prod on
-Sept 18 (`tokenUsage` showed `gpt-5.6-terra`).
+were left alone — a full switch was built, tested and **reverted**
+(`52cc4a1`) once, and survives on the `openai-migration` branch.
 
 | Path | Cloud Function | Model | tokenUsage feature |
 |---|---|---|---|
 | Gemini | `callGemini` | `gemini-2.5-flash` | the other 9 |
-| OpenAI | `callOpenAI` (`api: "responses"`) | `gpt-5.6-terra` + hosted `web_search` | `analyzeFoodEntry` — the scan (`api: "responses"`, `webSearchCalls` on the doc) |
-| OpenAI | `callOpenAI` (chat) | `gpt-5.6-terra` | `analyzeFoodEntry` — legacy fallback, pass 2 (doc has no `api` field) |
-| OpenAI | `foodWebLookup` | `gpt-5-search-api` | `foodRestaurantLookup` / `foodWebLookup` — legacy fallback, pass 1 |
+| OpenAI | `processFoodAnalysis` (Firestore trigger) | `gpt-5.6-terra` + hosted `web_search`, Responses API, streamed | `analyzeFoodEntry` (`api: "responses"`, `webSearchCalls`) — **the live scan** |
+| OpenAI | `callOpenAI` | `gpt-5.6-terra` | not called by the current UI (one-call + legacy paths, kept for now) |
+| OpenAI | `foodWebLookup` | `gpt-5-search-api` | not called by the current UI (legacy pass 1) |
 | none | `lookupBarcode` | — | not logged (no AI) |
 | none | `searchNutrition` | — | not logged (USDA + Open Food Facts) |
 
-`callOpenAI` is a **separate function**, not a provider flag inside
-`callGemini`. All of them share auth, the same daily quota bucket, usage
-logging and ops counters.
+All share auth, the same daily quota bucket (50/user/day), usage logging and
+ops counters. **GPT-6 Astra has no vision** — don't "upgrade" the scan to it.
 
-## Food scan accuracy overhaul (Oct 13, 2026) — one call, ChatGPT-style
-
-Problem reported: asking ChatGPT "what is this?" about a food photo gave a
-sensible answer; the app gave nonsense. Causes found in the code:
-
-1. **The typed text was always treated as a food name.** "what is this" +
-   photo ran a USDA / Open Food Facts keyword search for *"what is this"*, and
-   whatever came back was injected as "AUTHORITATIVE ... USE THESE VALUES",
-   plus a note to "use the database values for the item the user named".
-2. **No relevance check on database hits.** Top-3 keyword hits were forced
-   as truth (OFF was sorted by listing *completeness*, not match), so a
-   teriyaki *sauce* could stand in for a teriyaki *bowl*. A client-side
-   override then relabelled every item `nutrition_db`.
-3. **The food web lookup almost never fired** (USDA nearly always returns
-   something "medium"), and when it did it searched the typed words, not
-   what was in the photo.
-4. **The "can't combine search + vision" premise was only true of Chat
-   Completions.** gpt-5.6-terra on the **Responses API** takes images and the
-   hosted `web_search` tool in one call (reasoning effort defaults to medium).
-
-What changed:
-
-- `analyzeFoodEntry` now calls `callOpenAI` with `api: "responses"`,
-  `webSearch: true`, `reasoningEffort: "medium"`. The prompt
-  (`SEARCH_SCAN_INSTRUCTIONS`) makes the model **identify first**, search
-  only when a named restaurant / brand / unfamiliar dish calls for it, then
-  estimate portions and macros. New output field `identifiedAs`; the review
-  tip now reads "Looks like: … . <tip> Sources: site1, site2."
-- **Any failure falls back to the legacy two-pass scan**
-  (`analyzeFoodEntryLegacy`) except quota/auth errors. The browser console
-  logs `[analyzeFoodEntry] one-call scan FAILED — falling back` with the
-  upstream OpenAI message.
-- `searchNutrition` (server) has a **relevance gate**: questions/filler
-  return no matches without calling USDA/OFF; a hit must cover >= 60% of the
-  query's food words and must not be a different form (sauce, seasoning,
-  powder, bar, juice...). Branded hits the user didn't name are "low".
-  OFF no longer sorts by completeness. The client sends only the food words
-  (`extractFoodQuery`).
-- Database hits are now framed as **candidates to verify**, not authority,
-  in both pipelines. The forced `nutrition_db` relabel is gone.
-- Food photos upload at 1536 px / JPEG 0.85 (was 1024 / 0.7), `detail: high`.
-- `callOpenAI` timeout 180 s; client callable timeout 170 s.
-- Searched restaurant items (`web_lookup`) now also auto-save to the user's
-  custom menu, like `restaurant_db` items.
-
-**Untested against the live API at commit time** (no key in the dev
-environment). First thing after deploying: scan a photo with the note "what
-is this", then check Firestore `tokenUsage` → newest doc has `api:
-"responses"`. If it doesn't, the console shows why the fallback ran.
-Most likely failure: `web_search` combined with JSON-only output. The
-prompt asks for JSON in plain text (no `text.format`) to avoid exactly that.
-
-Cost: one call per scan instead of up to two, plus ~$0.01 per web search
-the model chooses to run (`WEB_SEARCH_CALL_USD`, an estimate — verify on
-OpenAI's pricing page). The `foodLookupCache` is not used by the one-call
-path; searched answers are not cached yet.
-
-### Legacy two-pass scan (fallback only)
-
-**Why two passes.** Chat Completions cannot combine web search with vision +
-strict JSON in one call. So pass 1 (`gpt-5-search-api`, in the `foodWebLookup`
-function, prompts server-side) looks up the food, then pass 2
-(`gpt-5.6-terra`) reads the photo/text with pass 1's findings injected.
-Pass 1 fires for:
-
-- **any meal from a named place** — curated chain or not. Curated menu data
-  still wins for items it covers exactly. Place detection
-  (`detectIndieRestaurantIntent`) is case-insensitive ("bowl from ted
-  peters"), fires on venue words ("cheddars scratch kitchen", "... cafe",
-  "... steakhouse") and real possessives ("joe's"), and ignores "at home",
-  "from scratch", contractions, and times like "at 7pm". The Cheddar's bug
-  (Sept 20) was exactly this: a bare restaurant name matched no rule, so no
-  lookup ran.
-- **a food USDA/OFF was queried for and missed** (no matches or only
-  low-confidence ones). Items it grounds carry `source: "web_lookup"`.
-
-**Pass 1 fails quietly, by design.** `lookupFoodOnWeb` (client) never throws
-— a failed lookup degrades to an ordinary estimate — but it logs
-`[lookupFoodOnWeb:<kind>] FAILED` to the browser console, and the server logs
-`[foodWebLookup] upstream error <message>` in Functions logs. A working scan
-only proves pass 2 ran.
-
-**GPT-6 Astra was ruled out — it has no vision.** Don't "upgrade" to it.
-
-**Verifying which provider actually ran:** Firestore → `tokenUsage` → the
-newest doc's `model` field, or the admin **AI Usage** screen (Profile, admin
-only: *Recent calls* with a model chip per call, plus *By model*). Pass-1
-**cache hits write no `tokenUsage` doc** — check the browser console for
-`cache hit`.
+**Verifying what ran:** Firestore → `tokenUsage` → newest doc (`model`, `api`,
+`webSearchCalls`), or the admin **AI Usage** screen (Profile → Settings,
+admin only).
 
 Secrets: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `USDA_API_KEY` (optional).
 Setting a secret does nothing until `firebase deploy --only functions` binds
 the new version to the running function.
 
-## Food lookup pipeline (Oct 2026)
+## Food scan jobs (Oct 14, 2026) — how a scan actually runs
 
-Order of truth, best first:
+Built by ChatGPT (`c79e6fc`); design notes in `design/IMPLEMENTATION.md`.
 
-1. **Barcode** (`lookupBarcode` function, no AI): Open Food Facts product
-   API, then USDA branded foods matched on `gtinUpc`. Cached in
-   `barcodeCache/{code}` (hits 180 d, misses 7 d). Client:
-   `@capacitor/barcode-scanner` (native on iOS, html5-qrcode on web), the
-   barcode button next to the camera in the food sheet. Items carry
-   `source: "barcode"`.
-2. **Curated menu DB** (`data/restaurants.ts`) for exact chain items.
-3. **USDA / Open Food Facts text search** (`searchNutrition`). Runs on the
-   food words only (skipped for "what is this"), also with a photo and a
-   short typed name (<= 60 chars). Relevance-gated server-side; the model
-   treats hits as candidates.
-4. **Web lookup**: in the one-call scan the model searches itself (hosted
-   `web_search`) when it judges it needs to. Legacy fallback only:
-   `foodWebLookup` function (`gpt-5-search-api`) for named places and foods
-   USDA/OFF missed.
-   Shared cache `foodLookupCache/{sha256(kind:normalized query)}`; found 90 d,
-   not found 3 d. **Cache hits write no `tokenUsage` doc** — a scan with no
-   `foodRestaurantLookup` entry may simply have been a cache hit; check the
-   browser console for `[lookupFoodOnWeb:…] cache hit`.
-5. **Vision/text estimate** (`callOpenAI`, `gpt-5.6-terra`, same call as 4).
+1. Client (`components/food/FoodComposer.tsx` → `services/foodAnalysisJobs.ts`)
+   builds the prompt with `prepareFoodAnalysis()` in `geminiService.ts` —
+   that includes the relevance-gated USDA/OFF lookup, curated chain data and
+   `SEARCH_SCAN_INSTRUCTIONS` — and calls **`startFoodAnalysis`** with a
+   client-generated `jobId`.
+2. `startFoodAnalysis` checks AI consent (`profile.acceptedAiDataSharing`)
+   and quota, stores the input in Storage `foodAnalysisInputs/{uid}/…`, and
+   creates `foodAnalysisJobs/{uid}_{jobId}` (`state: queued`).
+3. **`processFoodAnalysis`** (onDocumentCreated) claims it, streams the
+   Responses API call, and publishes real progress (`reading` → `searching`
+   → `source_opened` with a domain → `validating` → `ready`/`failed`).
+   90 s budget, one retry on 429/5xx, validates the JSON server-side
+   (`validateFoodResult`). **There is no fallback pipeline** — a failure shows
+   "Couldnt finish that lookup" with retry / enter-it-yourself.
+4. The client watches the job doc (`onSnapshot`, owner-only read rule) and
+   moves to review. `cancelFoodAnalysis` stops it. `cleanFoodAnalysis`
+   (hourly) fails stalled jobs, deletes results after 48 h, sweeps orphan
+   uploads. Account deletion removes jobs + inputs.
+- Drafts (photos, note, edits, job id) persist on the device in IndexedDB
+  (`services/foodDraftStore.ts`) so closing the app doesn't lose a meal.
+- Saved foods carry `nutritionEvidence` (source, portion note, summary, up to
+  8 source links, edited-by-user) — useful, but it grows the user doc.
+- 12 regression tests: `node --experimental-strip-types --test tests/food-flow.test.mjs`
+  (run `npm --prefix functions run build` first).
+- Known looseness: `startFoodAnalysis` accepts client-built messages, so an
+  authenticated user could send any prompt (quota-capped; same as the older
+  `callOpenAI`).
 
-Review screen: every item gets ½ / 1 / 1½ / 2× portion buttons (they scale
-macros and ingredients from cached 1× values; typing a number by hand resets
-the base) and an "Assumes: …" line from the model's `portionNote`.
+## Food scan accuracy overhaul (Oct 13, 2026) — why the prompt looks like it does
 
-Both cache collections are server-only (default-deny rule). To purge a bad
-cached answer, delete its doc in the console.
+Problem: asking ChatGPT "what is this?" about a food photo gave a sensible
+answer; the app gave nonsense. Causes, all fixed and still relevant to
+`prepareFoodAnalysis` / `searchNutrition`:
 
-## Three deploy targets — they drift apart
+1. **Typed text was treated as a food name.** "what is this" ran a USDA/OFF
+   keyword search for those words and injected the hits as AUTHORITATIVE.
+   Now `extractFoodQuery` (client) and `foodTokens` (server) drop questions
+   and filler; no food words → no database search.
+2. **No relevance check.** Server-side gate in `searchNutrition`: a hit must
+   cover >= 60% of the food words and not be a different form (sauce,
+   seasoning, powder, bar, juice…); branded hits the user didn't name are
+   "low"; OFF no longer sorts by completeness. Prompt frames hits as
+   **candidates to verify**.
+3. **Search + vision in one call.** gpt-5.6-terra on the Responses API takes
+   images and hosted `web_search` together (reasoning effort medium). The
+   model identifies first, then searches only for named restaurants, brands
+   or unfamiliar dishes. Output includes `identifiedAs` and `uncertainty`.
+4. Photos upload at 1536 px / JPEG 0.85, `detail: high`.
+- User-saved / AI-derived menu items are **never** sent as "VERIFIED MENU
+  DATA" (ChatGPT caught that in my first version).
+
+Cost: one model call per scan plus ~$0.01 per web search the model chooses
+(`WEB_SEARCH_CALL_USD`, an estimate). Searched answers are not cached.
+
+### Legacy two-pass scan (no longer called by the UI)
+
+`analyzeFoodEntry` / `analyzeFoodEntryLegacy` / `lookupFoodOnWeb` and the
+`foodWebLookup` function (gpt-5-search-api pass 1 + vision pass 2, shared
+`foodLookupCache`) remain in the code but nothing in the current UI calls
+them. Place detection (`detectIndieRestaurantIntent`) still feeds the job
+prompt. Delete the legacy path once the job pipeline has proven itself.
+
+## Food lookup pipeline — order of truth
+
+1. **Barcode** (`lookupBarcode`, no AI): Open Food Facts product API, then
+   USDA branded foods matched on `gtinUpc`. Cached in `barcodeCache/{code}`
+   (hits 180 d, misses 7 d). Native scanner on iOS, manual number entry on
+   web. Items carry `source: "barcode"`.
+2. **Curated menu DB** (`data/restaurants.ts`) for exact chain items — also
+   browsable in Add Food → **Eats**.
+3. **USDA / Open Food Facts** (`searchNutrition`), relevance-gated.
+4. **Model's own web search** inside the scan job.
+5. **Vision/text estimate** (same job call).
+
+Review (`MealReview` in `components/food/FoodFlow.tsx`): dish name + totals,
+evidence sentence, per-item ½ / 1 / 1½ / 2× against an **immutable base**
+(`services/foodDraft.ts`), "Thats not it" (re-checks only that item), full
+editor (`FoodEditor`, macros or per-ingredient grams). Nothing logs itself.
+`services/foodCommit.ts` is the single idempotent save (stable ids, handles
+midnight, logs to any date).
+
+## Four deploy targets — they drift apart
 
 This has caused more lost time than anything else in the project.
 
 | Changed | Command |
 |---|---|
-| App code (`components/`, `MainApp.tsx`, `services/`, `public/`) | `.\deploy.ps1` **and** a Codemagic build for iOS |
-| `functions/` | `firebase deploy --only functions` |
+| `firestore.rules`, `firestore.indexes.json`, `storage.rules` | `firebase deploy --only "firestore:rules,firestore:indexes,storage"` |
+| `functions/` | `firebase deploy --only functions` (deploy **before** web when the app depends on new functions) |
+| App code (`components/`, `MainApp.tsx`, `services/`, `public/`, `index.css`) | `.\deploy.ps1 -SkipPush` (after pushing) |
+| Anything the iPhone runs, incl. `plugins/ding-health` / `ios/` | a **Codemagic build** |
 | Docs only | just push |
 
-`.\deploy.ps1` builds, deploys hosting, pushes, then **verifies both layers**
-(Firebase origin vs the public Cloudflare edge) and tells you which is stale.
-Use it instead of running the commands by hand.
+`.\deploy.ps1` builds, deploys hosting, optionally pushes, then **verifies
+both layers** (Firebase origin vs the Cloudflare edge). Use it instead of
+running the commands by hand.
 
 **iOS does NOT update from a deploy.** TestFlight builds are frozen snapshots;
 only a Codemagic build ships new code to the phone. The Codemagic webhook is
-**not wired**, so pushes do not auto-build — start builds manually.
+**not wired** — start builds by hand (see "Working on this repo with Claude").
 
 ## Hard-won gotchas (do not relearn these)
 
@@ -274,9 +214,10 @@ only a Codemagic build ships new code to the phone. The Codemagic webhook is
 4. **PowerShell scripts must be plain ASCII.** Windows PS 5.1 reads UTF-8
    without BOM as ANSI; em dashes corrupt strings and produce nonsense parser
    errors.
-5. **Build numbers must increase monotonically.** They're now derived from the
-   latest App Store Connect build + 1. (Previously epoch % 100000, which wrapped
-   every ~28h and made old builds look newer.)
+5. **Build numbers must increase monotonically.** The script asks App Store
+   Connect for the latest build + 1, but that lookup currently fails and it
+   falls back to the epoch timestamp (e.g. 1791946985) — still monotonic, so
+   harmless. Never go back to `epoch % 100000` (it wrapped every ~28 h).
 6. **Imports must be at the top of `functions/src/index.ts`.** A mid-file
    import compiled to a TDZ `ReferenceError` and blocked all deploys.
 7. **When a capability changes, hunt the prompt strings that assumed it.**
@@ -285,6 +226,16 @@ only a Codemagic build ships new code to the phone. The Codemagic webhook is
    inviting it to fabricate a lookup it never performed. This exact bug was
    fixed once in `b36f972` and reintroduced in `1566bef`. Prompts are code;
    `grep` them whenever a tool or provider changes.
+8. **First deploy of a Firestore-triggered function fails** with an Eventarc
+   service-agent "Permission denied" (happened to `processFoodAnalysis`).
+   Wait ~3 minutes and redeploy just that function. Don't ship web that
+   depends on it until it exists — scans would sit in `queued` forever.
+9. **Codemagic "requires a provisioning profile with the HealthKit feature"
+   can be a lie.** On #69/#70 the real error was earlier, in "Initialize
+   keychain + create signing files": App Store Connect API **403 "A required
+   agreement is missing or has expired"**. That step doesn't fail on the
+   403. Read its log first; the fix is accepting the agreement in App Store
+   Connect (account holder).
 
 ## Calorie model — deliberate design
 
@@ -300,29 +251,36 @@ only a Codemagic build ships new code to the phone. The Codemagic webhook is
     *component* of it, never added on top.
   - No Health data → NEAT estimated from activity level (conservative
     `NEAT_BASELINE`, 150–600), and logged workouts **do** add.
-- `FuelHome` already accepts a `healthActiveEnergy` prop, currently unused.
+- The Home dashboard (`components/Dashboard.tsx`) shows burned energy via
+  `computeEnergyBalance` with Apple Health active energy for the selected
+  day when available, and **signed** calories left (negative = over).
 
-## HealthKit — written, NEVER RUN ON A DEVICE
+## HealthKit — shipped in builds, not yet confirmed on a device
 
-Built in `7969bde` + `cc42718` (Aug 23) as a **custom local Capacitor
-plugin**, `plugins/ding-health` (not an off-the-shelf package). Includes
-`DingHealthPlugin.swift`, entitlements, both Info.plist usage strings,
-`components/HealthConnectCard.tsx`, MainApp wiring, and a HealthKit section
-added to the published privacy policy. Setup notes: `HEALTHKIT_SETUP.md`.
+Custom local Capacitor plugin `plugins/ding-health` (Swift + TS), entitlements,
+Info.plist usage strings, `HealthConnectCard`, privacy-policy section. Setup
+notes: `HEALTHKIT_SETUP.md`. Reads only: active energy, **steps** (added Oct
+14), today's workouts, latest body mass. Never writes.
 
-**It has never executed.** The last TestFlight build (#56) predates the
-commit, and HealthKit does not work in the simulator. Treat every part of it
-as unverified until a Codemagic build runs on a physical device — the first
-build is where entitlement, permission-prompt and pod-linking problems will
-surface, and none of that can be checked from here.
+- Native methods: `isAvailable`, `requestAuthorization`,
+  `getTodayActiveEnergy`, `getTodayWorkouts`, `getLatestBodyMass`,
+  **`getDailySummaries({days})`** (per-day steps + active energy via
+  HKStatisticsCollectionQuery; feeds the dashboard's day switcher).
+- JS wrapper `services/health.ts` never throws; older builds without a method
+  just return empty data.
+- Builds #71 and #72 compiled and signed with the HealthKit entitlement, but
+  **nobody has confirmed on a real iPhone** that the permission prompt
+  (now incl. steps), imports and step counts work. Adding a read type means
+  the prompt appears again.
+- Step counts and per-day active energy are **ephemeral** — read on device,
+  never written to the user doc.
 
 Still outstanding: the **App Privacy nutrition label** in App Store Connect
-has to declare health data before submission. Apple applies extra scrutiny
-to HealthKit apps.
+must declare health data before submission.
 
-Double-counting is already handled in `computeEnergyBalance()` — when Health
-supplies active energy, logged workouts render as a *component* of it, never
-an addition. Don't "fix" that by adding them.
+Double-counting is handled in `computeEnergyBalance()` — when Health supplies
+active energy, logged workouts are a *component* of it, never an addition.
+Don't "fix" that by adding them.
 
 ## Deliberate product decisions (don't "fix" these)
 
@@ -330,93 +288,91 @@ an addition. Don't "fix" that by adding them.
   was removed as subjective and at odds with the app's ED-safety stance. The
   `tier` field remains in data because macro-fit ranking uses it internally,
   but it is never displayed.
-- **One food entry point.** The dashboard tile, the global +, and the Journal
-  button all open the same unified sheet.
+- **One food entry point.** The center **+**, the dashboard's Add button,
+  Fuel Coach picks and restaurant items all open the same Add Food page and
+  save through `commitFood`.
+- **Ding's navigation (Oct 14):** Home · Train · (+) · Coach · Profile. No
+  Log tab — the dashboard's date bar replaces it, and full history lives in
+  Profile → History. Reflect lives in Profile → Overview.
+- **Voice:** `VOICE.md` (Cuodi's texting voice). Hidatsa words only from
+  `MHA_LANGUAGE.md`; never invent new ones.
 - Minimum-calorie safety floors exist on purpose (`getMinSafeCalories`).
 
 ## Open items
 
-Ordered by what blocks what. Status as of Oct 13 — anything marked
-"unconfirmed" was raised but never confirmed done in chat.
+Ordered by what blocks what. "Unconfirmed" = raised but never confirmed done.
 
-1. **Ship `f461d9c`** (barcode, lookup cache, portions):
-   ```powershell
-   npm install                          # @capacitor/barcode-scanner is new
-   git push
-   firebase deploy --only functions     # lookupBarcode + foodWebLookup are new
-   .\deploy.ps1
-   ```
-   Then on web: scan a barcode (try a protein bar), log "cheddars scratch
-   kitchen <dish>" twice (second should be a console `cache hit`), and tap
-   the portion buttons.
-2. **Gemini postpay → prepay billing — deadline was Oct 12, 2026**
-   (per Google's Aug 12 email; the earlier "Sept 14" note was wrong).
+1. **Real-device + real-scan verification of `2c1ae5d` / build #72.** On
+   iPhone: Health permission prompt (incl. steps) and step counts on the
+   dashboard, AI consent sheet on first scan, native barcode scan, a photo
+   scan end to end through the job pipeline, Add Food drafts surviving an
+   app close, light mode + background tones. On web: one signed-in scan, then
+   check the newest `tokenUsage` doc (`api: "responses"`).
+2. **Gemini postpay → prepay billing — deadline was Oct 12, 2026.**
    Unconfirmed. If it wasn't done, the nine Gemini features (coach chat,
    onboarding macros, meal suggestions…) break.
-3. **OpenAI spend limit.** Unconfirmed. Every food scan is a paid call and
-   restaurant meals are two.
-4. **Codemagic build + real-iPhone test.** First-ever run of HealthKit
-   (`plugins/ding-health`), the AI consent sheet, and the native barcode
-   scanner (`CapacitorBarcodeScanner` pod). Test: Health permission prompt
-   and import, consent sheet on first scan, barcode scan.
-5. **App Privacy label** in App Store Connect per `APP_STORE_LISTING.md` §9
-   (Health & Fitness + Photos, shared with third parties for App
+3. **OpenAI spend limit.** Unconfirmed. Every scan is a paid call plus web
+   searches.
+4. **App Privacy label** in App Store Connect per `APP_STORE_LISTING.md` §9
+   (Health & Fitness incl. steps, Photos; shared with third parties for App
    Functionality). Unconfirmed.
-6. **Submit v1.0.** Done already (Sept 18): privacy policy / terms / in-app
+5. **Submit v1.0.** Already done (Sept 18): privacy policy / terms / in-app
    legal name OpenAI, Gemini, USDA + Open Food Facts; one-time AI consent
    sheet gates food scan + coach chat (`acceptedAiDataSharing`, Guideline
    5.1.2(i)); `ITSAppUsesNonExemptEncryption=false`. Known gap: onboarding
    sends body stats to Gemini *before* the consent sheet; it relies on the
-   sign-up terms checkbox. Moving consent into sign-up would close it.
-7. **Cloud Functions Node 20 decommission Oct 30, 2026.** Code is on Node
-   22; it ships with the next functions deploy (item 1 covers it).
-8. **Firestore subcollection migration** (gotcha 3) — before user count grows.
-9. Wire the Codemagic webhook so pushes build iOS automatically.
+   sign-up terms checkbox.
+6. **Firestore subcollection migration** (gotcha 3) — more urgent now that
+   every food item carries `nutritionEvidence`.
+7. **iOS storage risks from the ChatGPT commit, check on device:** Firestore
+   `persistentLocalCache` and IndexedDB food drafts both rely on WKWebView
+   IndexedDB, which `services/firebase.ts` notes is unreliable for auth.
+8. Wire the Codemagic webhook so pushes build iOS automatically.
+9. Tech debt: unused `FuelHome`, `BowLoader`, `SpotlightTour`; legacy scan
+   path (`analyzeFoodEntry*`, `lookupFoodOnWeb`, `foodWebLookup`,
+   `callOpenAI`'s one-call mode); `firebase-functions` is flagged outdated by
+   the CLI (upgrade has breaking changes); main JS bundle ~1.8 MB.
 
 ### Food-accuracy ideas not built yet
 
 - **Accuracy regression set**: 15–20 meals with known macros (packaged,
   chain, local spot, home-cooked), rerun after every prompt/model change.
-  Prompts have regressed twice (gotcha 7). Nothing measures accuracy today.
-  Most useful now: the same photos run through ChatGPT vs the app, side by
-  side, to confirm the one-call scan closed the gap.
-- **"That's not it" button** on the review screen: re-run the scan with the
-  user's correction ("it's actually birria tacos") as the note.
-- **Cache searched answers** from the one-call scan (it bypasses
-  `foodLookupCache`).
-- **Learn from corrections**: when a user edits macros on the review
-  screen, save their version and reuse it next time they log the same thing.
-- **Nutritionix API** (paid) as a structured source for chains and
-  plain-English entries, replacing some web searches.
+  Run the same photos through ChatGPT vs the app side by side.
+- **Cache searched answers** from scan jobs.
+- **Learn from corrections**: reuse a user's edited macros next time they
+  log the same thing (saved foods already keep `nutritionEvidence.editedByUser`).
+- **Nutritionix API** (paid) as a structured source for chains.
 - `byModel` breakdown in `opsReport` (it already groups `byFeature`).
 
 ## Working on this repo with Claude (Cowork)
 
-- The repo lives in the connected folder `Dings Fitness/ding! (2)`. The
-  device shell there has **no network**: `npm install` / `npm view` fail.
-  For a new dependency, generate `package-lock.json` in the cloud workspace
-  (`npm install <pkg> --package-lock-only`) and copy it back; typecheck
-  locally needs the package unpacked into `node_modules` by hand, or the
-  user runs `npm install`.
-- **Standing rule (Ding, Oct 13): after ANY edit, ship it as part of the
-  task** — commit, push to GitHub, deploy (`firebase deploy --only
-  functions` if `functions/` changed, then `.\deploy.ps1 -SkipPush`), then
-  start a Codemagic iOS build and watch it to the end. Don't ask first.
-- **Push / deploy from the Desktop Commander tools** (they run PowerShell on
-  Ding's PC with his GitHub + Firebase logins). The device shell can't push
-  (no credentials, no network). Desktop Commander's environment has
-  `NODE_ENV=production`, which makes `npm install` skip dev deps (tsc,
-  vite): prefix commands with `$env:NODE_ENV=""` and use
+- **Standing rule (Ding, Oct 13): after ANY edit to the app, ship it as part
+  of the task** — commit, push, deploy what changed (rules → functions → web,
+  see "Four deploy targets"), then start a Codemagic build and watch it to
+  the end. Don't ask first. Docs-only changes: commit + push only.
+- The repo lives in the connected folder `Dings Fitness/ding! (2)` (Windows,
+  CRLF files). The **device shell** (`device_bash`) has **no network** and no
+  git credentials — use it for reading, editing and local git commits.
+- **Push / deploy / npm from the Desktop Commander tools** — they run
+  PowerShell on Ding's PC with his GitHub + Firebase logins and network.
+  Their environment has `NODE_ENV=production`, which makes `npm install`
+  skip dev deps (tsc, vite): prefix with `$env:NODE_ENV=""` and use
   `npm install --include=dev`. Long deploys outlive the 60 s bridge wait;
   poll with `list_sessions` / `read_process_output`, never re-run.
-- **Codemagic: use the Chrome browser named "personal chrome"**
-  (`select_browser`), not the other connected extension (Opera GX — its tab
-  groups break the extension). App = the first "dings-fitness" with
-  TestFlight builds: https://codemagic.io/app/6a20e6ff98dc5374825eecca
-  (the second one, ...42abba708d4b4b4c, is an old failed duplicate).
-  Start new build → branch `main` → workflow "iOS · TestFlight (main)".
-- Git in the connected folder leaves `.git/*.lock` files unless Claude has
-  **delete permission** for the folder; grant it when asked or the user's
-  next git command fails with "index.lock exists".
-- Checks Claude can run: `npm run typecheck`, `cd functions && npx tsc
-  --noEmit -p .`, `npx vite build --outDir <scratch>`.
+- **Big edits:** tar the source on the device, stage it, work in the cloud
+  workspace (`npm ci` works there; `npx vite` + `/design/preview.html` +
+  Playwright give real screenshots), then tar the changed files back and
+  extract on the device. `device_commit_files` can serve a stale copy when
+  re-using the same staged path — always use a fresh file name.
+- **Codemagic:** use the Chrome browser named **"personal chrome"**
+  (`select_browser`), not Opera GX (its tab groups break the extension). App
+  = https://codemagic.io/app/6a20e6ff98dc5374825eecca (the other
+  "dings-fitness", …42abba708d4b4b4c, is an old failed duplicate). Start new
+  build → branch `main` → "iOS · TestFlight (main)". A build takes ~4 min.
+- **Delete permission** for the folder must be granted **each session**, or
+  git leaves `.git/*.lock` files and Ding's next git command fails with
+  "index.lock exists".
+- Claude can't sign in to the app (no passwords), so a live signed-in test
+  needs Ding.
+- Checks: `npx tsc --noEmit`, `npm --prefix functions run build`, the food
+  tests above, `npx vite build --outDir <scratch>`.
