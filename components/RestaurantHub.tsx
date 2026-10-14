@@ -30,6 +30,19 @@ import {
   type RestaurantTier,
 } from '../data/restaurants';
 import type { FoodItem } from '../types';
+import { Utensils } from 'lucide-react';
+
+function menuEvidence(restaurant: Restaurant, item: MenuItem, quantity = 1): FoodItem['nutritionEvidence'] {
+  const curated = restaurant.menuItems.some(known => known.id === item.id && known.calories === item.calories && known.protein === item.protein && known.carbs === item.carbs && known.fat === item.fat);
+  const url = restaurant.nutritionSourceUrl || restaurant.officialUrl;
+  return {
+    source: curated ? 'restaurant_db' : 'manual',
+    portionNote: `${quantity} × (${item.servingSize || 'listed menu portion'})`,
+    summary: curated ? 'Menu numbers. Check the portion and extras.' : 'Saved custom numbers. Check the portion.',
+    editedByUser: !curated,
+    sources: curated && url ? [{ title: `${restaurant.shortName} nutrition`, url }] : [],
+  };
+}
 
 interface RestaurantHubProps {
   onLogItem: (item: FoodItem, restaurantName: string) => void;
@@ -131,6 +144,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
       // rejects documents with `undefined` field values.
       ...(item.fiber !== undefined ? { fiber: Math.round(item.fiber * qty) } : {}),
       timestamp: new Date().toLocaleTimeString(),
+      nutritionEvidence: menuEvidence(r, item, qty),
     };
     onLogItem(food, r.shortName);
   };
@@ -164,14 +178,14 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
             ← All Restaurants
           </button>
           <span className={`text-[9px] uppercase tracking-widest font-bold px-2.5 py-1 rounded-full border ${tierColors.badge}`}>
-            {cuisine.emoji} {cuisine.label}
+            {cuisine.label}
           </span>
         </div>
 
         {/* Restaurant header */}
         <section className={`glass-panel rounded-3xl p-5 border ${tierColors.border}`}>
           <div className="flex items-start gap-3">
-            <span className="text-4xl leading-none">{selected.emoji}</span>
+            <Utensils size={28} aria-hidden="true" />
             <div className="flex-1 min-w-0">
               <h2 className="text-white text-xl font-bold tracking-tight">{selected.name}</h2>
               <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mt-0.5">{selected.category}</p>
@@ -241,7 +255,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
                         onClick={() => logItem(selected, item, qty)}
                         className="flex-1 h-8 bg-white text-black rounded-lg text-[11px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-colors"
                       >
-                        + Log {qty * item.calories} cal
+                        Review · {qty * item.calories} kcal
                       </button>
                     </div>
                   </div>
@@ -323,13 +337,14 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
                       // Only include fiber when present — Firestore rejects undefined.
                       ...(item.fiber !== undefined ? { fiber: Math.round(item.fiber) } : {}),
                       timestamp: new Date().toLocaleTimeString(),
+                      nutritionEvidence: menuEvidence(restaurant, item),
                     };
                     onLogItem(food, restaurant.shortName);
                   }}
                   className="w-full text-left bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 hover:border-cyan-500/40 rounded-xl px-3 py-2.5 transition-all group"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-xl shrink-0">{restaurant.emoji}</span>
+                    <Utensils size={20} aria-hidden="true" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-sm font-bold text-white truncate">{item.name}</span>
@@ -402,7 +417,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
                     : 'bg-white/5 text-gray-500 border-white/10 hover:bg-white/10'
                 }`}
               >
-                {info.emoji} {info.label} <span className="opacity-60">({count})</span>
+                {info.label} <span className="opacity-60">({count})</span>
               </button>
             );
           })}
@@ -423,7 +438,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
                 <section key={c} className="space-y-2">
                   <div className="flex items-baseline justify-between px-1">
                     <h3 className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">
-                      <span className="mr-1.5">{info.emoji}</span>
+
                       {info.label}
                     </h3>
                     <span className="text-[10px] text-gray-600 font-mono tabular-nums">{cuisineRestaurants.length}</span>
@@ -436,7 +451,7 @@ export const RestaurantHub: React.FC<RestaurantHubProps> = ({ onLogItem, targetM
                         className={`w-full text-left bg-white/[0.03] hover:bg-white/[0.05] border ${colors.border} rounded-2xl p-3.5 transition-all hover:border-opacity-70`}
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-3xl leading-none">{r.emoji}</span>
+                          <Utensils size={24} aria-hidden="true" />
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-white text-sm truncate">{r.name}</h4>
                             <p className="text-[10px] text-gray-500 mt-0.5">{r.category} · {r.menuItems.length} items</p>

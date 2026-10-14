@@ -683,6 +683,7 @@ export interface FoodAnalysisItem {
   source?: "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only";
   confidence?: "high" | "medium" | "low";
   portionNote?: string;                // what amount the numbers assume
+  uncertainty?: string;
 }
 
 export interface FoodAnalysisResult {
@@ -789,7 +790,8 @@ const formatRestaurantContext = (
     // user-added custom items. This means once a user has logged a new
     // item (e.g., Mango Magic Smoothie) and we auto-added it, future AI
     // requests will see it as authoritative without needing to web-search.
-    const effectiveItems = getEffectiveMenuItems(r, customMenuItems);
+    // User-saved/AI-derived numbers must never enter a VERIFIED reference block.
+    const effectiveItems = r.menuItems;
     const matchedItems: MenuItem[] = findMenuItemMatches(userText, effectiveItems);
 
     const formatItem = (i: MenuItem): string => {
@@ -1035,6 +1037,7 @@ Return ONLY a valid JSON object (no markdown, no code fences) with this shape:
       "fiber": number,
       "source": "label" | "restaurant_db" | "nutrition_db" | "web_lookup" | "visual_estimate" | "text_only",
       "confidence": "high" | "medium" | "low",
+      "uncertainty": "string — if uncertain, the specific food or portion question the user can resolve, e.g. 'Chicken or tofu? I couldnt tell.' Empty when there is no specific question. No percentages or judgment about food.",
       "servingSize": "string — only for nutrition labels, e.g. '1 cup (245g)'",
       "portionNote": "string — the amount these numbers assume, in plain words, e.g. '6 oz grilled chicken + 1 cup rice' or '1 bar (60 g)'. Always fill this in.",
       "servingsConsumed": number,
@@ -1280,6 +1283,7 @@ const normalizeItem = (raw: any): FoodAnalysisItem => {
       : undefined,
     source: validSources.includes(raw?.source) ? raw.source : undefined,
     confidence: validConfidence.includes(raw?.confidence) ? raw.confidence : undefined,
+    uncertainty: typeof raw?.uncertainty === 'string' ? raw.uncertainty.slice(0, 240) : undefined,
   };
 };
 
@@ -1524,7 +1528,7 @@ const formatRestaurantReference = (
 ): string => {
   if (restaurants.length === 0) return '';
   const blocks = restaurants.map(r => {
-    const matchedItems = findMenuItemMatches(userText, getEffectiveMenuItems(r, customMenuItems));
+    const matchedItems = findMenuItemMatches(userText, r.menuItems);
     const lines: string[] = matchedItems.map(i => {
       const fiber = i.fiber !== undefined ? `, fiber ${i.fiber}g` : '';
       const serving = i.servingSize ? ` [${i.servingSize}]` : '';
@@ -1587,6 +1591,17 @@ const SEARCH_SCAN_INSTRUCTIONS = `You are an expert nutritionist helping someone
 
 Reply with ONLY the JSON object described below — no prose before or after it, no markdown.
 `;
+
+/** Build the existing food-specific prompt for the durable server job. */
+export async function prepareFoodAnalysis(images: string[], description: string) {
+  const text = sanitize(description, 1000);
+  const lookup = await lookupNutritionForText(text, images.length > 0);
+  const chains = detectRestaurantsInText(text);
+  const note = `User's note: ${text || 'Identify the food from the attached photo.'}`;
+  const content: unknown[] = [{ type: 'text', text: note + formatRestaurantReference(chains, text) + formatNutritionContext(lookup.matches) + '\n' + FOOD_OUTPUT_SCHEMA }];
+  images.forEach(img => content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${extractBase64(img)}`, detail: 'high' } }));
+  return [{ role: 'system', content: SEARCH_SCAN_INSTRUCTIONS }, { role: 'user', content }];
+}
 
 const analyzeFoodEntryWithSearch = async (
   images: string[],

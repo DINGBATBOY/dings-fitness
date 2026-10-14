@@ -106,6 +106,7 @@ export const FuelCoachSheet: React.FC<FuelCoachSheetProps> = ({
       carbs: Math.round(idea.carbs),
       fat: Math.round(idea.fat),
       timestamp: new Date().toISOString(),
+      nutritionEvidence: { source: 'text_only', portionNote: 'The suggested amount', summary: 'Coach estimate. Check the food and amount.', sources: [] },
     });
     setLoggedIdx(prev => new Set(prev).add(idx));
   };
@@ -221,7 +222,7 @@ export const FuelCoachSheet: React.FC<FuelCoachSheetProps> = ({
                         style={isLogged
                           ? { background: `${C.emerald}22`, color: C.emerald, border: `1px solid ${C.emerald}55` }
                           : { background: `${C.fire}1f`, color: C.fire, border: `1px solid ${C.fire}40` }}
-                        aria-label={isLogged ? 'Logged' : `Log ${idea.name}`}
+                        aria-label={isLogged ? 'Selected for review' : `Review ${idea.name}`}
                       >
                         {isLogged ? <Check className="w-4 h-4" strokeWidth={2.2} /> : <Plus className="w-4 h-4" strokeWidth={2.2} />}
                       </button>

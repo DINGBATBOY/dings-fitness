@@ -16,6 +16,7 @@ import React, { useState } from 'react';
 import { httpsCallable } from 'firebase/functions';
 import { signOut } from 'firebase/auth';
 import { functions, auth } from '../services/firebase';
+import { writeFoodDraft } from '../services/foodDraftStore';
 import { X, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface DeleteAccountModalProps {
@@ -52,6 +53,7 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({ onClose,
       try { localStorage.removeItem('dings_app_state'); } catch {}
       try { localStorage.removeItem('dings_workout_split'); } catch {}
       try { await signOut(auth); } catch {}
+      if (uid) await writeFoodDraft(uid, null).catch(() => {});
 
       onDeleted();
     } catch (err: any) {

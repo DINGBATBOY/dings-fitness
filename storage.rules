@@ -19,8 +19,8 @@ service firebase.storage {
       allow read, write: if false;
     }
   }
-}
 
-function isOwner(userId) {
-  return request.auth != null && request.auth.uid == userId;
+  function isOwner(userId) {
+    return request.auth != null && request.auth.uid == userId;
+  }
 }

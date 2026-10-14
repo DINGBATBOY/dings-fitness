@@ -43,6 +43,8 @@ export default defineConfig({
   // white screen on app launch. Firebase Hosting handles absolute paths
   // fine, which is why this never surfaced on web.
   base: './',
+  // Scan source entries, not stale compiled Capacitor assets under ios/.
+  optimizeDeps: { entries: ['index.html', 'design/preview.html'] },
   server: {
     port: 3000,
     host: '0.0.0.0',

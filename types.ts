@@ -180,7 +180,19 @@ export interface FoodItem {
   carbs: number;
   fat: number;
   fiber?: number;
+  sugar?: number;
   timestamp: string;
+  /** Stable composer commit key; reused on retries to avoid duplicate meals. */
+  draftId?: string;
+  nutritionEvidence?: {
+    source?: 'label' | 'barcode' | 'restaurant_db' | 'nutrition_db' | 'web_lookup' | 'visual_estimate' | 'text_only' | 'manual';
+    confidence?: 'high' | 'medium' | 'low';
+    portionNote: string;
+    summary: string;
+    sources: { title: string; url: string }[];
+    needsCheck?: string;
+    editedByUser?: boolean;
+  };
   /**
    * When present, this FoodItem was logged as a prepared meal that the
    * AI could decompose. The Log tab uses this to render a drill-in view

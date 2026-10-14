@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Layout } from './components/Layout';
 import { CalorieCalendar } from './components/CalorieCalendar';
 import { Journal } from './components/Journal';
@@ -9,13 +9,15 @@ import { Onboarding } from './components/Onboarding';
 import { RecompVelocity } from './components/RecompVelocity';
 import { RestaurantHub } from './components/RestaurantHub';
 import { FuelCoachSheet } from './components/FuelCoachSheet';
-import { BowLoader } from './components/BowLoader';
+import { FoodComposer, FoodLauncher, type FoodSeed, type FoodStatus } from './components/food/FoodComposer';
+import { FoodDialog } from './components/food/FoodDialog';
+import { commitFood } from './services/foodCommit';
 import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
 import { FuelHome } from './components/FuelHome';
-import { SpotlightTour } from './components/SpotlightTour';
-import { FeatherCelebration } from './components/FeatherCelebration';
+
+
 import { WorkoutsHome } from './components/WorkoutsHome';
 import { SafeMarkdown } from './components/SafeMarkdown';
 import { HealthConnectCard } from './components/HealthConnectCard';
@@ -32,7 +34,7 @@ import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser, calculateTDEEDetailed } from './constants';
-import { generateMealSuggestion, generateSmartSplit, sendChatMessage, analyzeFoodEntry, lookupBarcode } from './services/geminiService';
+import { generateMealSuggestion, generateSmartSplit, sendChatMessage } from './services/geminiService';
 import { db, auth, functions, isConfigured } from './services/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
@@ -96,85 +98,6 @@ const FALLBACK_SPLIT = [
     ]}
 ];
 
-
-// Temporary type for scanned items before they become FoodItems
-interface ScannedItem {
-    name: string;
-    calories: string;
-    protein: string;
-    carbs: string;
-    fat: string;
-    fiber: string;
-    // Optional enrichment from the AI analysis. These drive UI badges and the
-    // collapsible "what's in this number?" panel. None of them are required;
-    // legacy/manual entries omit them and the UI gracefully hides the badges.
-    source?: 'label' | 'barcode' | 'restaurant_db' | 'nutrition_db' | 'web_lookup' | 'visual_estimate' | 'text_only';
-    confidence?: 'high' | 'medium' | 'low';
-    // What amount the numbers assume ("6 oz chicken + 1 cup rice").
-    portionNote?: string;
-    // Portion multiplier picked with the ½ / 1 / 1.5 / 2 buttons, and the
-    // 1× values it scales from. `base` is cleared when the user types a
-    // number by hand, and re-derived from the current values on the next tap.
-    portion?: number;
-    base?: { calories: number; protein: number; carbs: number; fat: number; fiber: number;
-             ingredients?: ScannedItem['ingredients'] };
-    ingredients?: Array<{
-        name: string;
-        grams: number;
-        calories: number;
-        protein: number;
-        carbs: number;
-        fat: number;
-        fiber?: number;
-        emoji?: string;
-    }>;
-    servingSize?: string;
-    servingsConsumed?: number;
-}
-
-// Image Resize Utility to prevent crashes
-// 1536 px / 0.85: the food scan reads labels and judges portions from small
-// details (fork size, plate rim, printed text), which 1024 px at 0.7 blurred.
-// ~0.4-0.8 MB per photo, well under the 9 MB callable cap.
-const resizeImage = (file: File, maxWidth = 1536, quality = 0.85): Promise<string> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxWidth) {
-            width = Math.round((width * maxWidth) / height);
-            height = maxWidth;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  });
-};
-
-const safeFloat = (val: any): number => {
-    const str = String(val).replace(/[^0-9.]/g, ''); // Remove non-numeric chars except dot
-    const num = parseFloat(str);
-    return isNaN(num) ? 0 : num;
-};
 
 // ============================================================================
 //  Dashboard helpers
@@ -307,8 +230,9 @@ const computeStreak = (dailyLogs: any[], todayLog: any[]): number => {
 };
 
 const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
+  const reduceMotion = useReducedMotion();
   // Auth State (managed by shell now, but keeping some refs)
-  const user = { uid: userId, email: userEmail };
+  const user = useMemo(() => ({ uid: userId, email: userEmail }), [userId, userEmail]);
 
   // Per-user cache keys. localStorage is global, so we scope every key by uid
   // to guarantee one user's cache can never leak into another's session.
@@ -336,6 +260,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       return { ...DEFAULT_STATE, profile: initialProfile };
   });
 
+  const latestAppState = useRef(appState);
+  latestAppState.current = appState;
   const [workoutSplit, setWorkoutSplit] = useState<any[]>(() => {
       try {
           const saved = splitKey ? localStorage.getItem(splitKey) : null;
@@ -368,7 +294,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // call this so there is exactly one destination — the unified add-food
   // sheet, which handles typing, photos, and your usuals in one screen.
   const openAddFood = useCallback(() => {
-    setAddFoodMode('ai');
     setShowAddFood(true);
   }, []);
   // Direction of the page-turn transition. Positive when moving to a
@@ -386,6 +311,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const [showAddFood, setShowAddFood] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [toastUndoKind, setToastUndoKind] = useState<'food' | 'delete' | 'activity' | 'water' | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   
   // Chat
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
@@ -397,25 +324,14 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const [manualExercise, setManualExercise] = useState({ name: '', sets: 3, reps: '10' });
   const [activeDayIndexForAdd, setActiveDayIndexForAdd] = useState<number | null>(null);
 
-  // Food Analysis State
-  const [addFoodMode, setAddFoodMode] = useState<'manual' | 'ai' | 'history'>('ai');
-  const [foodImages, setFoodImages] = useState<string[]>([]);
-  const [foodDescription, setFoodDescription] = useState('');
-  const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
-  const [analysisTip, setAnalysisTip] = useState('');
-  // Surfaces which nutrition databases the last analysis actually queried.
-  // Empty = nutrition DB wasn't queried (image path, restaurant match, or
-  // query too long). Used both as a debug aid and a trust signal to the user.
-  const [analysisNutritionSources, setAnalysisNutritionSources] = useState<('usda' | 'openfoodfacts')[]>([]);
-  const [analysisNutritionMatchCount, setAnalysisNutritionMatchCount] = useState<number>(0);
-  const [analysisNutritionSkipped, setAnalysisNutritionSkipped] = useState<{ source: string; reason: string }[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [foodStatus, setFoodStatus] = useState<FoodStatus>('empty');
+  const [foodHeroVisible, setFoodHeroVisible] = useState(true);
+  const [foodSeed, setFoodSeed] = useState<FoodSeed | null>(null);
   const profilePicInputRef = useRef<HTMLInputElement>(null);
-  
-  const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
-  // Which scanned items have their ingredient list expanded. Set of indices.
-  const [expandedIngredients, setExpandedIngredients] = useState<Set<number>>(new Set());
-  const [foodForm, setFoodForm] = useState<ScannedItem>({ name: '', calories: '', protein: '', carbs: '', fat: '', fiber: '' });
+  const seedFood = (items: FoodItem[]) => {
+    setFoodSeed({ id: crypto.randomUUID(), items });
+    setShowAddFood(true);
+  };
 
   // Activity Logging State
   const [isLoggingActivity, setIsLoggingActivity] = useState(false);
@@ -469,6 +385,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // (a food photo/description, a coach message) to OpenAI or Google. The
   // pending action runs only after they agree.
   const [aiConsentPending, setAiConsentPending] = useState<null | (() => void)>(null);
+  const [aiConsentSaving, setAiConsentSaving] = useState(false);
+  const [aiConsentError, setAiConsentError] = useState('');
   // Ref mirrors the profile flag so an action re-run right after acceptance
   // (from a closure created before the state update) sees consent immediately.
   const aiConsentRef = useRef(false);
@@ -476,6 +394,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const hasAiConsent = () => aiConsentRef.current;
   const requireAiConsent = (action: () => void) => {
     if (hasAiConsent()) { action(); return; }
+    setAiConsentError('');
     setAiConsentPending(() => action);
   };
 
@@ -485,7 +404,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const tourSeenKey = userId ? `dings_tour_seen_${userId}` : null;
   const [showTour, setShowTour] = useState(false);
   // Feather/arrow celebration overlay — pops when food gets logged.
-  const [showCelebration, setShowCelebration] = useState(false);
+
   useEffect(() => {
     if (!tourSeenKey || !appState.profile) return;
     // Only auto-fire once. Manual re-trigger uses setShowTour(true) directly.
@@ -917,10 +836,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // can list it in their deps without re-creating themselves every render.
   // The state setters inside are themselves stable, so an empty dep array
   // is safe.
-  const triggerToast = useCallback((msg: string, durationMs = 3000) => {
+  const triggerToast = useCallback((msg: string, durationMs = 3000, undo: 'food' | 'delete' | 'activity' | 'water' | null = null) => {
+    clearTimeout(toastTimer.current);
     setToastMessage(msg);
+    setToastUndoKind(undo);
     setShowToast(true);
-    setTimeout(() => setShowToast(false), durationMs);
+    toastTimer.current = setTimeout(() => setShowToast(false), durationMs);
   }, []);
 
   // Mint (or rotate) the personal bearer key the Fuel Coach GPT uses to
@@ -943,6 +864,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           ...prev,
           waterIntake: Math.max(0, prev.waterIntake + amount)
       }));
+      setPendingWaterUndo({ amount, expiresAt: Date.now() + 5000 });
+      triggerToast(`Added ${amount} oz of water.`, 5000, 'water');
   };
 
   const targetMacros = useMemo(() => {
@@ -1120,6 +1043,13 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // Tracks the most recent activity burn so the user can hit "Undo" inside
   // the success toast. Null means there's nothing to undo right now.
   const [pendingActivityUndo, setPendingActivityUndo] = useState<{ amount: number; expiresAt: number } | null>(null);
+  const [pendingWaterUndo, setPendingWaterUndo] = useState<{ amount: number; expiresAt: number } | null>(null);
+  const undoLastWater = () => {
+    if (!pendingWaterUndo) return;
+    handleUpdateAppState(prev => ({ ...prev, waterIntake: Math.max(0, prev.waterIntake - pendingWaterUndo.amount) }));
+    setPendingWaterUndo(null);
+    triggerToast('Water entry undone.');
+  };
 
   // Same pattern, but for food log additions. We snapshot the IDs that were
   // pushed so undo can remove exactly those (and not a re-logged duplicate).
@@ -1142,7 +1072,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     triggerToast(pickVoice([
       'Mhm getting to work I see',
       'Another step in the right direction. Keep workin',
-    ]), 5000);
+    ]), 5000, 'activity');
     // Auto-clear the undo window after it expires.
     setTimeout(() => {
       setPendingActivityUndo(curr =>
@@ -1170,13 +1100,19 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     handleUpdateAppState(prev => ({
         ...prev,
         todayLog: (prev.todayLog || []).filter(i => !idsToRemove.has(i.id)),
+        dailyLogs: (prev.dailyLogs || []).map(day => {
+          const removed = (day.foodItems || []).filter(i => idsToRemove.has(i.id));
+          if (!removed.length) return day;
+          return { ...day, foodItems: day.foodItems!.filter(i => !idsToRemove.has(i.id)),
+            caloriesConsumed: day.caloriesConsumed - removed.reduce((sum,i) => sum + i.calories, 0),
+            proteinConsumed: day.proteinConsumed - removed.reduce((sum,i) => sum + i.protein, 0),
+            carbsConsumed: day.carbsConsumed - removed.reduce((sum,i) => sum + i.carbs, 0),
+            fatConsumed: day.fatConsumed - removed.reduce((sum,i) => sum + i.fat, 0),
+            fiberConsumed: (day.fiberConsumed || 0) - removed.reduce((sum,i) => sum + (i.fiber || 0), 0) };
+        }),
     }));
     setPendingFoodUndo(null);
-    triggerToast(pickVoice([
-      'So you just didnt eat that?',
-      'was it really that bad?',
-      "Yeah I'd remove that too",
-    ]));
+    triggerToast('Undone. Your food log is back where it was.');
   };
 
   // Restore the last deleted food item. We splice it back at its original
@@ -1568,365 +1504,23 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       triggerToast('Apple Health disconnected');
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-        Array.from(e.target.files).forEach(async (file: File) => {
-            // Resize image before storing in state to prevent memory crashes
-            try {
-                const resized = await resizeImage(file);
-                setFoodImages(prev => [...prev, resized]);
-            } catch (err) {
-                console.error("Image resize failed", err);
-                triggerToast("Failed to process image");
-            }
-        });
-    }
-  };
-
-  const removeImage = (index: number) => {
-      setFoodImages(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Barcode path: scan -> lookupBarcode Cloud Function (Open Food Facts, then
-  // USDA branded) -> one review item at label values. No AI call, so no AI
-  // consent gate and no AI quota beyond the lookup itself.
-  const handleScanBarcode = async () => {
-      let code = '';
-      try {
-          const { CapacitorBarcodeScanner, CapacitorBarcodeScannerTypeHint } = await import('@capacitor/barcode-scanner');
-          const res = await CapacitorBarcodeScanner.scanBarcode({
-              hint: CapacitorBarcodeScannerTypeHint.ALL,
-              scanInstructions: 'Point at the barcode on the package',
-          });
-          code = (res?.ScanResult || '').trim();
-      } catch (err) {
-          // Cancelled, or camera permission denied.
-          console.warn('[barcode] scan cancelled or failed', err);
-      }
-      if (!code) return;
-
-      setIsAnalyzingFood(true);
-      setAnalysisTip('Looking up that barcode…');
-      try {
-          const res = await lookupBarcode(code);
-          const p = res.product;
-          const macros = p?.perServing ?? p?.per100g ?? null;
-          if (!res.found || !p || !macros) {
-              setAnalysisTip('');
-              triggerToast("Couldn't find that barcode. Snap the nutrition label instead and I'll read it.", 5000);
-              return;
-          }
-          const servingText = p.perServing ? (p.servingSize || '1 serving') : '100 g';
-          const displayName = p.brand && !p.name.toLowerCase().includes(p.brand.toLowerCase())
-              ? `${p.brand} ${p.name}`
-              : p.name;
-          setScannedItems([{
-              name: displayName,
-              calories: String(Math.round(macros.calories)),
-              protein: String(macros.protein),
-              carbs: String(macros.carbs),
-              fat: String(macros.fat),
-              fiber: String(macros.fiber ?? 0),
-              source: 'barcode',
-              confidence: 'high',
-              servingSize: servingText,
-              portionNote: `1 serving · ${servingText}`,
-              portion: 1,
-          }]);
-          setExpandedIngredients(new Set());
-          setAnalysisNutritionSources([]);
-          setAnalysisNutritionMatchCount(0);
-          setAnalysisNutritionSkipped([]);
-          setAnalysisTip(
-              `From ${p.source === 'usda' ? 'USDA FoodData Central' : 'Open Food Facts'} — label values for ${servingText}. ` +
-              `Use the portion buttons if you had more or less than one serving.`,
-          );
-      } catch (err: any) {
-          setAnalysisTip('');
-          triggerToast(err?.message || 'Barcode lookup failed. Try again.', 4000);
-      } finally {
-          setIsAnalyzingFood(false);
-      }
-  };
-
-  const handleAnalyzeFood = async () => {
-    if (foodImages.length === 0 && !foodDescription) return;
-    if (!hasAiConsent()) {
-      requireAiConsent(() => { handleAnalyzeFood(); });
-      return;
-    }
-    setIsAnalyzingFood(true);
-    setAnalysisTip(pickVoice([
-      'Trying to figure out what the hell you are eating....',
-      'This (whatever it is, im still figuring it out..) looks yummy',
-    ]));
-    try {
-      const result = await analyzeFoodEntry(foodImages, foodDescription, 'auto', appState.customMenuItems);
-      
-      if (!result.items || !Array.isArray(result.items)) {
-          throw new Error("Invalid AI response");
-      }
-
-      // Map result items to our scan form state safely. We preserve the new
-      // optional enrichment fields (source, confidence, ingredients, serving
-      // info) so the review UI can surface them as badges and an expandable
-      // ingredient list.
-      const items: ScannedItem[] = result.items.map((item: any) => ({
-          name: item.name || "Unknown Item",
-          calories: String(item.calories || '').replace(/[^0-9.]/g, ''),
-          protein: String(item.protein || '').replace(/[^0-9.]/g, ''),
-          carbs: String(item.carbs || '').replace(/[^0-9.]/g, ''),
-          fat: String(item.fat || '').replace(/[^0-9.]/g, ''),
-          fiber: String(item.fiber || '').replace(/[^0-9.]/g, ''),
-          source: item.source,
-          confidence: item.confidence,
-          ingredients: Array.isArray(item.ingredients) ? item.ingredients : undefined,
-          servingSize: typeof item.servingSize === 'string' ? item.servingSize : undefined,
-          servingsConsumed: typeof item.servingsConsumed === 'number' ? item.servingsConsumed : undefined,
-          portionNote: typeof item.portionNote === 'string' ? item.portionNote : undefined,
-          portion: 1,
-      }));
-
-      setScannedItems(items);
-      setExpandedIngredients(new Set());
-
-      // If detection found nothing, set manual mode default
-      if (items.length === 0) {
-           setFoodForm({ name: '', calories: '', protein: '', carbs: '', fat: '' });
-      }
-
-      // Lead with what the model decided the food IS, so a wrong
-      // identification is obvious at a glance, then how it got the numbers
-      // and which sites it read.
-      const sourceSites = Array.from(new Set(
-          (result.webSources ?? []).map(src => {
-              try { return new URL(src.url).hostname.replace(/^www\./, ''); } catch { return ''; }
-          }).filter(Boolean),
-      )).slice(0, 3);
-      const tipParts = [
-          result.identifiedAs ? `Looks like: ${result.identifiedAs}.` : '',
-          result.tip || '',
-          sourceSites.length ? `Sources: ${sourceSites.join(', ')}.` : '',
-      ].filter(Boolean);
-      if (tipParts.length) setAnalysisTip(tipParts.join(' '));
-      setAnalysisNutritionSources((result as any).nutritionSourcesUsed ?? []);
-      setAnalysisNutritionMatchCount((result as any).nutritionMatchCount ?? 0);
-      setAnalysisNutritionSkipped((result as any).nutritionSourcesSkipped ?? []);
-    } catch (e) {
-      triggerToast("Hm yeah so I dont know what you are eating, you sure its food?");
-      console.error(e);
-      setAddFoodMode('manual');
-    } finally {
-      setIsAnalyzingFood(false);
-    }
-  };
-
-  const addFoodEntry = () => {
-      // Manual Mode Entry
-      if (!foodForm.name || !foodForm.calories) return;
-      const newItem: FoodItem = {
-          id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 5),
-          name: foodForm.name,
-          calories: safeFloat(foodForm.calories),
-          protein: safeFloat(foodForm.protein),
-          carbs: safeFloat(foodForm.carbs),
-          fat: safeFloat(foodForm.fat),
-          fiber: safeFloat(foodForm.fiber),
-          timestamp: new Date().toLocaleTimeString()
-      };
-      
-      // Add single item
-      pushFoodToState([newItem], newItem.name);
-  };
-
-  const addAllScannedItems = () => {
-      const newItems: FoodItem[] = scannedItems.map((item, idx) => ({
-          id: Date.now().toString() + '-' + idx + '-' + Math.random().toString(36).substr(2, 5),
-          name: item.name || 'Unknown',
-          calories: safeFloat(item.calories),
-          protein: safeFloat(item.protein),
-          carbs: safeFloat(item.carbs),
-          fat: safeFloat(item.fat),
-          fiber: safeFloat(item.fiber),
-          timestamp: new Date().toLocaleTimeString(),
-          // Preserve AI-decomposed ingredients so the Log tab can drill in
-          // and let the user edit portions or delete individual ingredients.
-          ingredients: Array.isArray((item as any).ingredients) && (item as any).ingredients.length > 0
-              ? (item as any).ingredients.map((ing: any) => ({
-                  name: String(ing.name || 'Ingredient'),
-                  grams: safeFloat(ing.grams),
-                  calories: safeFloat(ing.calories),
-                  protein: safeFloat(ing.protein),
-                  carbs: safeFloat(ing.carbs),
-                  fat: safeFloat(ing.fat),
-                  fiber: ing.fiber !== undefined ? safeFloat(ing.fiber) : undefined,
-                  emoji: ing.emoji || undefined,
-              }))
-              : undefined,
-      }));
-
-      // AUTO-ADD UNKNOWN RESTAURANT ITEMS: if the user's description mentions
-      // a known chain AND any scanned item has a restaurant-attributed source,
-      // see whether the item exists in our verified menu (built-in or custom).
-      // If not, add it to the user's customMenuItems for that restaurant so
-      // they (and the AI, on future requests) can find it instantly.
-      const detected = detectRestaurantsInText(foodDescription || '');
-      if (detected.length > 0) {
-          const primaryRestaurant = detected[0];
-          const currentCustom = appState.customMenuItems?.[primaryRestaurant.id] || [];
-          const allKnownForThisRestaurant: MenuItem[] = [...primaryRestaurant.menuItems, ...currentCustom];
-
-          const newCustomEntries: NonNullable<AppState['customMenuItems']>[string] = [];
-          for (let i = 0; i < scannedItems.length; i++) {
-              const scanned = scannedItems[i];
-              const sourceItem = (scanned as any).source;
-              // Only auto-add when the AI attributed the macros to a restaurant
-              // database or nutrition database (real source). Skip pure
-              // text/visual estimates so guesses don't pollute the menu.
-              if (sourceItem !== 'restaurant_db' && sourceItem !== 'nutrition_db' && sourceItem !== 'web_lookup') continue;
-              const itemName = scanned.name || newItems[i].name;
-              if (!itemName) continue;
-              // Fuzzy match against everything we already know for this restaurant.
-              const matches = findMenuItemMatches(itemName, allKnownForThisRestaurant);
-              if (matches.length > 0) continue; // already in our menu, skip
-              newCustomEntries.push({
-                  id: `custom-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
-                  name: itemName,
-                  category: 'Added by you',
-                  calories: safeFloat(scanned.calories),
-                  protein:  safeFloat(scanned.protein),
-                  carbs:    safeFloat(scanned.carbs),
-                  fat:      safeFloat(scanned.fat),
-                  fiber:    safeFloat(scanned.fiber) || undefined,
-                  isCustom: true,
-                  addedAt: new Date().toISOString(),
-              });
-          }
-
-          if (newCustomEntries.length > 0) {
-              handleUpdateAppState(prev => ({
-                  ...prev,
-                  customMenuItems: {
-                      ...(prev.customMenuItems || {}),
-                      [primaryRestaurant.id]: [
-                          ...(prev.customMenuItems?.[primaryRestaurant.id] || []),
-                          ...newCustomEntries,
-                      ],
-                  },
-              }));
-              // Toast happens after the log toast in pushFoodToState — slight delay
-              // so the user sees both messages in sequence.
-              const itemLabels = newCustomEntries.map(e => `"${e.name}"`).join(', ');
-              setTimeout(() => triggerToast(`Saved ${itemLabels} to ${primaryRestaurant.shortName}`), 1500);
-          }
-      }
-
-      // Use user description or generic name if description missing
-      const mealLabel = foodDescription || (newItems.length > 1 ? "Scanned Meal" : newItems[0].name);
-      pushFoodToState(newItems, mealLabel);
-  };
-
-  const pushFoodToState = (items: FoodItem[], label?: string) => {
-      handleUpdateAppState(prev => {
-          const rawLabel = label || (items.length === 1 ? items[0].name : `Meal (${items.length} items)`);
-          const mealLabel = rawLabel.length > 30 ? rawLabel.substring(0, 30) + '...' : rawLabel;
-          const totalCalories = items.reduce((a,b) => a + b.calories, 0);
-          const totalProtein  = items.reduce((a,b) => a + b.protein, 0);
-          const totalCarbs    = items.reduce((a,b) => a + b.carbs, 0);
-          const totalFat      = items.reduce((a,b) => a + b.fat, 0);
-
-          const currentHistory = prev.foodHistory || [];
-
-          // De-dupe by label. If we've logged this exact meal label before,
-          // BUMP the existing entry (refresh timestamp + increment count)
-          // instead of creating a duplicate. This is what the user expected
-          // when re-logging "Chipotle Chicken Bowl" repeatedly.
-          const existingIdx = currentHistory.findIndex(e => e.label === mealLabel);
-          let newHistory: HistoryEntry[];
-          let bumped: HistoryEntry;
-
-          if (existingIdx >= 0) {
-              const existing = currentHistory[existingIdx];
-              const nextCount = (existing.loggedCount ?? 1) + 1;
-              // Auto-favorite at 5+ logs unless user has explicitly turned it off.
-              const shouldAutoFavorite =
-                  !existing.favorited &&
-                  nextCount >= 5 &&
-                  prev.profile?.autoFavoriteEnabled !== false;
-              bumped = {
-                  ...existing,
-                  timestamp: new Date().toLocaleDateString(),
-                  loggedCount: nextCount,
-                  favorited: existing.favorited || shouldAutoFavorite,
-                  // Keep the LATEST items list so re-logs reflect any AI macro
-                  // refinements between log events.
-                  items,
-                  totalCalories, totalProtein, totalCarbs, totalFat,
-              };
-              // Move to front
-              newHistory = [bumped, ...currentHistory.filter((_, i) => i !== existingIdx)];
-              if (shouldAutoFavorite) {
-                  setTimeout(() => triggerToast(`★ Added "${mealLabel}" to favorites`), 100);
-              }
-          } else {
-              bumped = {
-                  id: Date.now().toString(),
-                  label: mealLabel,
-                  timestamp: new Date().toLocaleDateString(),
-                  totalCalories, totalProtein, totalCarbs, totalFat,
-                  items,
-                  loggedCount: 1,
-              };
-              newHistory = [bumped, ...currentHistory];
-          }
-
-          // Prune to 50, but ALWAYS keep favorited entries even if they'd
-          // otherwise be dropped from the cap.
-          if (newHistory.length > 50) {
-              const favorited = newHistory.filter(e => e.favorited);
-              const nonFavorited = newHistory.filter(e => !e.favorited).slice(0, 50 - favorited.length);
-              // Re-merge preserving recency order: favorites at the start
-              // (latest first), then most-recent non-favorited.
-              newHistory = [...favorited, ...nonFavorited];
-          }
-
-          return {
-              ...prev,
-              todayLog: [...items, ...(prev.todayLog || [])],
-              foodHistory: newHistory,
-          };
-      });
-
-      // Reset Form
-      setFoodForm({ name: '', calories: '', protein: '', carbs: '', fat: '' });
-      setScannedItems([]);
-      setExpandedIngredients(new Set());
-      setFoodImages([]);
-      setFoodDescription('');
-      setShowAddFood(false);
-      setAddFoodMode('manual');
-
-      // 5-second undo window. Snapshot the exact item IDs so undo removes
-      // these specific entries even if the user logs the same meal again.
-      const undoExpiresAt = Date.now() + 5000;
-      const undoLabel = items.length > 1 ? `${items.length} items` : items[0]?.name || 'item';
-      setPendingFoodUndo({ ids: items.map(i => i.id), label: undoLabel, expiresAt: undoExpiresAt });
-      triggerToast(
-        items.length > 1
-          ? `${items.length} items down. Damn you ate huh`
-          : pickVoice([
-              'That must have been yummy',
-              'Really you ate that? HAHA Just kidding',
-            ]),
-        5000,
-      );
-      // Celebrate the log — feathers + arrows fly across the screen.
-      setShowCelebration(true);
-      setTimeout(() => {
-        setPendingFoodUndo(curr =>
-          curr && curr.expiresAt <= Date.now() ? null : curr,
-        );
-      }, 5100);
+  // Shared commit for scans, manual food, barcodes, usuals and menu suggestions.
+  // Stable item IDs make a retried save harmless, including after a relaunch.
+  const pushFoodToState = async (items: FoodItem[], label?: string, logDate = new Date().toLocaleDateString()) => {
+      const mealLabel = label || items.map(item => item.name).join(', ');
+      const { state: next, added: fresh } = commitFood(latestAppState.current, items, mealLabel, logDate);
+      if (!fresh.length && next === latestAppState.current) return;
+      const foodHistory = next.foodHistory;
+      // Local durability is required before the composer clears. Cloud sync may finish offline.
+      if (!appStateKey) throw new Error('Sign in again to save your food.');
+      localStorage.setItem(appStateKey, JSON.stringify(next));
+      latestAppState.current = next;
+      setAppState(next);
+      void saveToCloud({ todayLog: next.todayLog, dailyLogs: next.dailyLogs, foodHistory, lastActiveDate: next.lastActiveDate, waterIntake: next.waterIntake, activityBurn: next.activityBurn });
+      const expiresAt = Date.now() + 8000;
+      setPendingFoodUndo({ ids: fresh.map(i => i.id), label: mealLabel, expiresAt });
+      switchTab('dashboard');
+      triggerToast(logDate === new Date().toLocaleDateString() ? 'Logged. LETS GOOOO' : 'Logged to ' + logDate, 8000, 'food');
   };
 
   const deleteLog = (id: string) => {
@@ -1945,11 +1539,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           // 5-second undo window. Same pattern as activity-burn / food-add undo.
           const expiresAt = Date.now() + 5000;
           setPendingDeleteUndo({ item: snapshot, index, expiresAt });
-          triggerToast(pickVoice([
-            `So you just didnt eat that ${snapshot.name}?`,
-            `${snapshot.name}? Was it really that bad?`,
-            `Yeah I'd remove ${snapshot.name} too`,
-          ]), 5000);
+          triggerToast(`Removed ${snapshot.name}.`, 5000, 'delete');
           setTimeout(() => {
               setPendingDeleteUndo(curr =>
                   curr && curr.expiresAt <= Date.now() ? null : curr,
@@ -1958,79 +1548,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       } else {
           triggerToast("Removed from your trail");
       }
-  };
-
-  const updateScannedItem = (index: number, field: keyof ScannedItem, value: string) => {
-      const updated = [...scannedItems];
-      const isMacro = field === 'calories' || field === 'protein' || field === 'carbs' || field === 'fat' || field === 'fiber';
-      // A hand-typed number becomes the new truth at the current portion, so
-      // drop the cached 1x values; the next portion tap re-derives them.
-      updated[index] = { ...updated[index], [field]: value, ...(isMacro ? { base: undefined } : {}) };
-      setScannedItems(updated);
-  };
-
-  // Scale one scanned item to a portion multiplier (0.5, 1, 1.5, 2).
-  const setScannedPortion = (index: number, portion: number) => {
-      setScannedItems(prev => prev.map((item, i) => {
-          if (i !== index) return item;
-          const current = item.portion ?? 1;
-          const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
-          const base = item.base ?? {
-              calories: num(item.calories) / current,
-              protein: num(item.protein) / current,
-              carbs: num(item.carbs) / current,
-              fat: num(item.fat) / current,
-              fiber: num(item.fiber) / current,
-              ingredients: item.ingredients?.map(ing => ({
-                  ...ing,
-                  grams: ing.grams / current,
-                  calories: ing.calories / current,
-                  protein: ing.protein / current,
-                  carbs: ing.carbs / current,
-                  fat: ing.fat / current,
-                  fiber: ing.fiber !== undefined ? ing.fiber / current : undefined,
-              })),
-          };
-          const r0 = (n: number) => String(Math.round(n));
-          const r1 = (n: number) => String(Math.round(n * 10) / 10);
-          return {
-              ...item,
-              portion,
-              base,
-              calories: r0(base.calories * portion),
-              protein: r1(base.protein * portion),
-              carbs: r1(base.carbs * portion),
-              fat: r1(base.fat * portion),
-              fiber: r1(base.fiber * portion),
-              ingredients: base.ingredients?.map(ing => ({
-                  ...ing,
-                  grams: Math.round(ing.grams * portion),
-                  calories: Math.round(ing.calories * portion),
-                  protein: Math.round(ing.protein * portion * 10) / 10,
-                  carbs: Math.round(ing.carbs * portion * 10) / 10,
-                  fat: Math.round(ing.fat * portion * 10) / 10,
-                  fiber: ing.fiber !== undefined ? Math.round(ing.fiber * portion * 10) / 10 : undefined,
-              })),
-          };
-      }));
-  };
-
-  const removeScannedItem = (index: number) => {
-      const updated = scannedItems.filter((_, i) => i !== index);
-      setScannedItems(updated);
-  };
-
-  const logHistoryEntry = (entry: HistoryEntry) => {
-      // Create fresh copies of items with new IDs for the current log
-      const newItems = entry.items.map((item, idx) => ({
-          ...item,
-          id: Date.now() + '-' + idx + Math.random().toString(36).substr(2, 5),
-          timestamp: new Date().toLocaleTimeString()
-      }));
-      
-      // Push to state (this will also bubble it to top of history in pushFoodToState)
-      pushFoodToState(newItems, entry.label);
-      setAddFoodMode('manual');
   };
 
   const handleSendMessage = async () => {
@@ -2191,15 +1708,17 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         // typical action flow: delete > food-add > activity-burn.
         const now = Date.now();
         let undoFn: (() => void) | null = null;
-        if (pendingDeleteUndo && pendingDeleteUndo.expiresAt > now) {
+        if (toastUndoKind === 'delete' && pendingDeleteUndo && pendingDeleteUndo.expiresAt > now) {
           undoFn = undoLastDelete;
-        } else if (pendingFoodUndo && pendingFoodUndo.expiresAt > now) {
+        } else if (toastUndoKind === 'food' && pendingFoodUndo && pendingFoodUndo.expiresAt > now) {
           undoFn = undoLastFoodLog;
-        } else if (pendingActivityUndo && pendingActivityUndo.expiresAt > now) {
+        } else if (toastUndoKind === 'activity' && pendingActivityUndo && pendingActivityUndo.expiresAt > now) {
           undoFn = undoLastActivity;
+        } else if (toastUndoKind === 'water' && pendingWaterUndo && pendingWaterUndo.expiresAt > now) {
+          undoFn = undoLastWater;
         }
         return (
-          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-max max-w-[92vw] bg-[#d97757] text-white px-5 py-2.5 rounded-2xl font-bold text-xs uppercase tracking-widest shadow-md animate-slide-up flex items-center gap-3 text-center leading-snug">
+          <div role="status" className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-max max-w-[92vw] bg-[#d97757] text-[#161210] px-5 py-2 rounded-2xl font-semibold text-sm shadow-md animate-slide-up flex items-center gap-3 text-center leading-snug">
             <span>{toastMessage}</span>
             {/* Undo button — appears whenever a 5-second undo window is open
                 for activity burn, food add, or food delete. Tapping reverses
@@ -2207,7 +1726,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             {undoFn && (
               <button
                 onClick={undoFn}
-                className="ml-1 px-3 py-1 rounded-full bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-colors"
+                className="ml-1 min-h-11 px-3 rounded-xl bg-[#f5ede1] text-[#161210] text-sm font-semibold"
               >
                 Undo
               </button>
@@ -2216,527 +1735,22 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         );
       })()}
 
-      {/* FLOATING ACTION BUTTON FOR ADD FOOD - GLOBAL (Hidden on Coach tab) */}
-      {!showAddFood && activeTab !== 'coach' && (
-          <button
-            data-tour="add-food-fab"
-            onClick={openAddFood}
-            className="fixed bottom-28 right-6 w-14 h-14 bg-[#d97757] rounded-full shadow-[0_4px_14px_rgba(0,0,0,0.4)] z-[60] flex items-center justify-center text-2xl text-white hover:scale-110 transition-transform"
-          >
-              +
-          </button>
+      {!showAddFood && (activeTab !== 'dashboard' || !foodHeroVisible) && (
+        <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] left-1/2 z-[60] w-[calc(100%-2.5rem)] max-w-[408px] -translate-x-1/2">
+          <FoodLauncher compact status={foodStatus} onClick={openAddFood} />
+        </div>
       )}
+      <FoodComposer key={userId} uid={userId!} open={showAddFood} onClose={() => setShowAddFood(false)} onOpen={openAddFood}
+        seed={foodSeed} onSeedConsumed={() => setFoodSeed(null)} onStatus={setFoodStatus}
+        onSave={pushFoodToState} history={appState.foodHistory || []} onFavorite={toggleHistoryFavorite} onRemoveHistory={removeHistoryEntry}
+        targets={targetMacros} consumed={consumedMacros} customMenuItems={appState.customMenuItems}
+        requireConsent={action => {
+          if (hasAiConsent()) { action(); return; }
+          setShowAddFood(false);
+          requireAiConsent(action);
+        }} />
 
-      {/* ADD FOOD BOTTOM SHEET MODAL */}
-      {/* AI scan in flight — full-screen bow loader */}
-      {isAnalyzingFood && (
-        <BowLoader />
-      )}
-
-      {showAddFood && (
-            <div
-              className="fixed inset-0 z-[100] flex items-end justify-center"
-              style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(6px)' }}
-              onClick={() => setShowAddFood(false)}
-            >
-              <div
-                className="w-full max-w-md rounded-t-[2.5rem] shadow-2xl overflow-y-auto h-[94dvh] max-h-[94dvh] overscroll-contain animate-slide-up"
-                style={{
-                  background: '#161210',
-                  borderTop: '1px solid rgba(255,255,255,0.08)',
-                }}
-                onClick={e => e.stopPropagation()}
-              >
-                {/* Top grip + hero header */}
-                <div className="px-6 pt-3 pb-5">
-                  <div className="w-12 h-1.5 rounded-full mx-auto mb-5" style={{ background: 'rgba(255,255,255,0.12)' }}></div>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-[0.3em] font-bold tabular-nums" style={{ color: '#d97757' }}>
-                        Log fuel · {Math.max(0, Math.round(targetMacros.calories - consumedMacros.calories)).toLocaleString()} kcal left
-                      </div>
-                      <h2 className="text-3xl font-bold leading-tight mt-1" style={{ color: '#f5ede1' }}>
-                        Feed the fire{appState.profile?.name ? `, ${appState.profile.name.split(' ')[0]}` : ''}
-                      </h2>
-                    </div>
-                    <button
-                      onClick={() => setShowAddFood(false)}
-                      className="w-9 h-9 flex items-center justify-center rounded-full shrink-0 transition-colors"
-                      style={{ background: '#1d1815', border: '1px solid rgba(255,255,255,0.1)', color: '#c4b8a4' }}
-                      aria-label="Close"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-
-                <div className="px-6 pb-6">
-                
-                {addFoodMode === 'ai' && scannedItems.length === 0 && (
-                     <div className="space-y-4 mb-6">
-                         {/* SMART BAR — type it or shoot it. One input, two senses. */}
-                         <div className={`flex items-center gap-2 bg-white/5 border rounded-2xl pl-4 pr-2 py-1.5 transition-colors ${(foodDescription || foodImages.length > 0) ? 'border-[#d97757]/60' : 'border-white/15'}`}>
-                            <input
-                                type="text"
-                                value={foodDescription}
-                                onChange={(e) => setFoodDescription(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === 'Enter' && (foodDescription || foodImages.length > 0) && !isAnalyzingFood) handleAnalyzeFood(); }}
-                                placeholder="Tell me or show me what you ate…"
-                                className="flex-1 min-w-0 bg-transparent py-2.5 text-white text-sm focus:outline-none placeholder:text-gray-600"
-                            />
-                            <button
-                                onClick={() => fileInputRef.current?.click()}
-                                className="w-11 h-11 shrink-0 rounded-xl bg-[#d97757] text-white flex items-center justify-center text-lg active:scale-95 transition-transform shadow-md"
-                                aria-label="Snap or choose photos"
-                            >
-                                📷
-                            </button>
-                            <button
-                                onClick={handleScanBarcode}
-                                disabled={isAnalyzingFood}
-                                className="w-11 h-11 shrink-0 rounded-xl bg-white/10 border border-white/15 text-white flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
-                                aria-label="Scan a barcode"
-                                title="Scan a barcode"
-                            >
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
-                                    <path d="M7 8v8M10 8v8M13 8v8M17 8v8" />
-                                </svg>
-                            </button>
-                         </div>
-                         <input
-                            type="file"
-                            ref={fileInputRef}
-                            accept="image/*"
-                            multiple
-                            onChange={handleImageUpload}
-                            className="hidden"
-                         />
-
-                         {/* Attached photo previews */}
-                         {foodImages.length > 0 && (
-                             <div className="flex gap-3 overflow-x-auto pb-1 px-1">
-                                 {foodImages.map((img, idx) => (
-                                     <div key={idx} className="relative w-20 h-20 shrink-0 rounded-xl overflow-hidden border border-[#d97757]/40">
-                                         <img src={img} className="w-full h-full object-cover" alt={`Upload ${idx}`} />
-                                         <button
-                                            onClick={() => removeImage(idx)}
-                                            className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-[10px] backdrop-blur-md hover:bg-red-500 transition-colors"
-                                         >
-                                             ✕
-                                         </button>
-                                     </div>
-                                 ))}
-                             </div>
-                         )}
-
-                         {/* Translate CTA — appears the moment there's anything to read */}
-                         {(foodDescription || foodImages.length > 0) && (
-                            <button
-                                onClick={handleAnalyzeFood}
-                                disabled={isAnalyzingFood}
-                                className="w-full py-4 bg-gradient-to-r from-[#d97757] to-[#d4a55a] text-white font-bold text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all disabled:opacity-50 animate-fade-in"
-                            >
-                                {isAnalyzingFood
-                                    ? 'Reading…'
-                                    : foodImages.length > 0
-                                        ? `Translate my plate (${foodImages.length} photo${foodImages.length > 1 ? 's' : ''})`
-                                        : 'Translate my plate'}
-                            </button>
-                         )}
-                     </div>
-                )}
-
-                {addFoodMode === 'ai' && scannedItems.length === 0 && (() => {
-                    const all = appState.foodHistory || [];
-                    const favorites = all.filter(e => e.favorited);
-                    const recents = all.filter(e => !e.favorited);
-
-                    // Reusable card renderer — same shape for favorites and recents,
-                    // only the star fill / accent color differ.
-                    const renderEntry = (entry: HistoryEntry) => (
-                        <div
-                            key={entry.id}
-                            className={`group flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-3 py-2.5 transition-all ${entry.favorited ? 'border-orange-500/30' : ''}`}
-                        >
-                            {/* Tap the body to re-log */}
-                            <button
-                                onClick={() => logHistoryEntry(entry)}
-                                className="flex-1 min-w-0 text-left"
-                            >
-                                <p className="text-sm font-bold text-gray-100 truncate">{entry.label}</p>
-                                <div className="flex flex-wrap gap-x-2 gap-y-0 text-[9px] text-gray-500 uppercase tracking-wider mt-0.5 tabular-nums">
-                                    <span>{Math.round(entry.totalCalories)} kcal</span>
-                                    <span className="text-emerald-400">{Math.round(entry.totalProtein)}g P</span>
-                                    {entry.items.length > 1 && <span>· {entry.items.length} items</span>}
-                                    {entry.loggedCount && entry.loggedCount > 1 && <span className="text-gray-600">· logged {entry.loggedCount}×</span>}
-                                </div>
-                            </button>
-
-                            {/* Star toggle */}
-                            <button
-                                onClick={(e) => { e.stopPropagation(); toggleHistoryFavorite(entry.id); }}
-                                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-base ${
-                                    entry.favorited
-                                        ? 'text-orange-400 hover:text-orange-300 bg-orange-500/10'
-                                        : 'text-gray-600 hover:text-orange-400 hover:bg-white/5'
-                                }`}
-                                aria-label={entry.favorited ? 'Unfavorite' : 'Favorite'}
-                            >
-                                {entry.favorited ? '★' : '☆'}
-                            </button>
-
-                            {/* Remove from history. Favorites are pinned, so only allow
-                                removing non-favorited entries from this view. */}
-                            {!entry.favorited && (
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); removeHistoryEntry(entry.id); }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-600 hover:text-red-400 hover:bg-white/5 opacity-0 group-hover:opacity-100 transition-all text-xs"
-                                    aria-label="Remove from history"
-                                >
-                                    ✕
-                                </button>
-                            )}
-
-                            {/* Quick "+" log button (always visible) */}
-                            <button
-                                onClick={(e) => { e.stopPropagation(); logHistoryEntry(entry); }}
-                                className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-emerald-500 hover:text-black text-gray-300 text-sm font-bold transition-colors shrink-0"
-                                aria-label="Quick log"
-                            >
-                                +
-                            </button>
-                        </div>
-                    );
-
-                    if (all.length === 0) {
-                        return (
-                            <div className="text-center py-10 opacity-50">
-                                <p className="text-xs">No usuals yet — meals you log appear here for one-tap re-logging.</p>
-                            </div>
-                        );
-                    }
-
-                    return (
-                        <div className="space-y-5">
-                            {/* FAVORITES */}
-                            {favorites.length > 0 && (
-                                <div className="space-y-2">
-                                    <h3 className="text-[10px] font-bold text-orange-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                        <span>★ Favorites</span>
-                                        <span className="text-gray-600 font-mono">({favorites.length})</span>
-                                    </h3>
-                                    <div className="space-y-1.5 max-h-[26vh] overflow-y-auto">
-                                        {favorites.map(renderEntry)}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* RECENTS */}
-                            {recents.length > 0 && (
-                                <div className="space-y-2">
-                                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                                        <span>Your usuals</span>
-                                        <span className="text-gray-700 font-mono">({recents.length})</span>
-                                    </h3>
-                                    <div className="space-y-1.5 max-h-[26vh] overflow-y-auto">
-                                        {recents.map(renderEntry)}
-                                    </div>
-                                </div>
-                            )}
-
-                            <p className="text-[9px] text-gray-600 italic text-center pt-2">
-                                Star items you want pinned — favorites are kept forever.
-                                Items you log 5+ times are starred automatically.
-                            </p>
-                        </div>
-                    );
-                })()}
-
-
-                {scannedItems.length > 0 && (
-                    // SCANNED ITEMS REVIEW LIST
-                    <div className="space-y-4">
-                        {/* ... items list ... */}
-                         <div className="flex justify-between items-center mb-2">
-                             <h3 className="text-xs font-bold uppercase text-white">Review Detected Items</h3>
-                             <button onClick={() => { setScannedItems([]); setExpandedIngredients(new Set()); }} className="text-[10px] text-pink-500 font-bold uppercase">Clear All</button>
-                        </div>
-
-                        {analysisTip && (
-                            <div className="bg-purple-500/10 border border-purple-500/30 p-4 rounded-xl flex items-start gap-3">
-                                <span className="text-lg">💡</span>
-                                <p className="text-xs text-purple-400 leading-relaxed pt-0.5 font-medium">{analysisTip}</p>
-                            </div>
-                        )}
-
-                        {/* Nutrition DB lookup indicator — surfaces which authoritative
-                            sources were queried AND which were skipped, so the
-                            integration is fully visible. Hidden when no nutrition
-                            lookup was made (e.g. photo path, restaurant match, or
-                            query too long). */}
-                        {(analysisNutritionSources.length > 0 || analysisNutritionSkipped.length > 0) && (
-                            <div className="bg-cyan-500/10 border border-cyan-500/30 px-3 py-2 rounded-xl space-y-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm">🗄</span>
-                                    <div className="flex-1 text-[10px] text-cyan-300 uppercase tracking-widest font-bold">
-                                        {analysisNutritionSources.length === 0 ? (
-                                            <span className="text-amber-400">No databases used</span>
-                                        ) : (
-                                            <>
-                                                {analysisNutritionSources.includes('usda') && 'USDA'}
-                                                {analysisNutritionSources.includes('usda') && analysisNutritionSources.includes('openfoodfacts') && ' + '}
-                                                {analysisNutritionSources.includes('openfoodfacts') && 'Open Food Facts'}
-                                                {analysisNutritionMatchCount > 0
-                                                    ? ` · ${analysisNutritionMatchCount} match${analysisNutritionMatchCount !== 1 ? 'es' : ''}`
-                                                    : ' · no matches'}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                                {/* If any sources were skipped, show why. This is the diagnostic
-                                    for things like "USDA_API_KEY not set" — once the user fixes
-                                    that, this line disappears. */}
-                                {analysisNutritionSkipped.length > 0 && (
-                                    <div className="text-[9px] text-amber-400/80 leading-relaxed pl-6">
-                                        {analysisNutritionSkipped.map((s, i) => (
-                                            <div key={i}>
-                                                <span className="font-bold uppercase">{s.source}</span> skipped: {s.reason}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
-                            {scannedItems.map((item, idx) => {
-                                // Source label: short, human-readable, with emoji.
-                                const sourceLabel =
-                                    item.source === 'label' ? '📋 Nutrition label' :
-                                    item.source === 'barcode' ? '🏷 Barcode' :
-                                    item.source === 'restaurant_db' ? '🔍 Restaurant menu' :
-                                    item.source === 'nutrition_db' ? '🗄 USDA / Open Food Facts' :
-                                    item.source === 'web_lookup' ? '🌐 Web lookup' :
-                                    item.source === 'visual_estimate' ? '👁 Visual estimate' :
-                                    item.source === 'text_only' ? '✏️ Text estimate' :
-                                    null;
-
-                                // Confidence chip styling. Low confidence intentionally screams
-                                // "verify" so users catch AI errors like the per-unit / per-serving
-                                // mix-up that produced a 144g-protein 6-tender result for Huey Magoo.
-                                const confidenceClass =
-                                    item.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
-                                    item.confidence === 'medium' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
-                                    item.confidence === 'low' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
-                                    '';
-                                const confidenceText =
-                                    item.confidence === 'high' ? '● High confidence' :
-                                    item.confidence === 'medium' ? '● Medium — verify' :
-                                    item.confidence === 'low' ? '● Low — verify' :
-                                    null;
-
-                                const isExpanded = expandedIngredients.has(idx);
-                                const toggleExpanded = () => {
-                                    setExpandedIngredients(prev => {
-                                        const next = new Set(prev);
-                                        if (next.has(idx)) next.delete(idx);
-                                        else next.add(idx);
-                                        return next;
-                                    });
-                                };
-
-                                return (
-                                <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-2">
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={item.name}
-                                            onChange={(e) => updateScannedItem(idx, 'name', e.target.value)}
-                                            className="flex-1 bg-transparent border-b border-white/10 text-white font-bold text-sm focus:outline-none focus:border-pink-500"
-                                            placeholder="Item Name"
-                                        />
-                                        <button onClick={() => removeScannedItem(idx)} className="text-gray-500 hover:text-red-500">✕</button>
-                                    </div>
-
-                                    {/* Source + confidence badges — only render when AI provided them. */}
-                                    {(sourceLabel || confidenceText) && (
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {sourceLabel && (
-                                                <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/5 text-gray-300 border border-white/10">
-                                                    {sourceLabel}
-                                                </span>
-                                            )}
-                                            {confidenceText && (
-                                                <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full font-bold border ${confidenceClass}`}>
-                                                    {confidenceText}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Serving info for nutrition labels */}
-                                    {item.servingSize && (
-                                        <div className="text-[10px] text-gray-500">
-                                            Serving: <span className="text-gray-300">{item.servingSize}</span>
-                                            {typeof item.servingsConsumed === 'number' && (
-                                                <> · <span className="text-gray-300">{item.servingsConsumed} serving{item.servingsConsumed !== 1 ? 's' : ''} consumed</span></>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* What the numbers assume, then quick portion scaling. */}
-                                    {item.portionNote && !item.servingSize && (
-                                        <div className="text-[10px] text-gray-500">
-                                            Assumes: <span className="text-gray-300">{item.portionNote}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-[9px] uppercase tracking-widest text-gray-500 font-bold mr-1">
-                                            {item.source === 'barcode' ? 'Servings' : 'Portion'}
-                                        </span>
-                                        {[0.5, 1, 1.5, 2].map(p => {
-                                            const active = (item.portion ?? 1) === p;
-                                            return (
-                                                <button
-                                                    key={p}
-                                                    onClick={() => setScannedPortion(idx, p)}
-                                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
-                                                        active
-                                                            ? 'bg-[#d97757]/20 text-[#f0a080] border-[#d97757]/50'
-                                                            : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-                                                    }`}
-                                                >
-                                                    {p === 0.5 ? '½' : p === 1.5 ? '1½' : `${p}`}×
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-
-                                    <div className="grid grid-cols-5 gap-2">
-                                        <div>
-                                            <label className="text-[8px] text-gray-500 uppercase">Cals</label>
-                                            <input type="number" value={item.calories} onChange={(e) => updateScannedItem(idx, 'calories', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="text-[8px] text-emerald-400 uppercase">Prot</label>
-                                            <input type="number" value={item.protein} onChange={(e) => updateScannedItem(idx, 'protein', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="text-[8px] text-gray-500 uppercase">Carb</label>
-                                            <input type="number" value={item.carbs} onChange={(e) => updateScannedItem(idx, 'carbs', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="text-[8px] text-gray-500 uppercase">Fat</label>
-                                            <input type="number" value={item.fat} onChange={(e) => updateScannedItem(idx, 'fat', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="text-[8px] text-yellow-500 uppercase">Fibr</label>
-                                            <input type="number" value={item.fiber} onChange={(e) => updateScannedItem(idx, 'fiber', e.target.value)} className="w-full bg-white/5 rounded px-2 py-1 text-xs text-white" />
-                                        </div>
-                                    </div>
-
-                                    {/* Per-ingredient breakdown — read-only, collapsed by default. */}
-                                    {item.ingredients && item.ingredients.length > 0 && (
-                                        <div className="pt-1">
-                                            <button
-                                                onClick={toggleExpanded}
-                                                className="text-[10px] text-cyan-400 hover:text-cyan-300 uppercase tracking-widest font-bold"
-                                            >
-                                                {isExpanded ? '▾' : '▸'} {isExpanded ? 'Hide' : 'Show'} {item.ingredients.length} ingredient{item.ingredients.length !== 1 ? 's' : ''}
-                                            </button>
-                                            {isExpanded && (
-                                                <div className="mt-2 space-y-1 pl-2 border-l border-white/10">
-                                                    {item.ingredients.map((ing, ingIdx) => (
-                                                        <div key={ingIdx} className="flex items-center justify-between text-[11px] text-gray-400 gap-2">
-                                                            <span className="flex-1 truncate">
-                                                                {ing.emoji && <span className="mr-1">{ing.emoji}</span>}
-                                                                {ing.name}
-                                                                <span className="text-gray-600 ml-1">· {Math.round(ing.grams)}g</span>
-                                                            </span>
-                                                            <span className="text-gray-500 text-[10px] tabular-nums whitespace-nowrap">
-                                                                {Math.round(ing.calories)} cal · {Math.round(ing.protein)}p · {Math.round(ing.carbs)}c · {Math.round(ing.fat)}f
-                                                            </span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                                );
-                            })}
-                        </div>
-
-                        <div className="flex gap-3 pt-4">
-                            <button onClick={() => setShowAddFood(false)} className="flex-1 py-4 rounded-xl border border-white/10 text-gray-400 font-bold text-xs uppercase tracking-widest hover:bg-white/5">Cancel</button>
-                            <button onClick={addAllScannedItems} className="flex-1 py-4 rounded-xl bg-white text-black font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-gray-200">Log All ({scannedItems.length})</button>
-                        </div>
-                    </div>
-                )}
-                
-                {addFoodMode === 'ai' && scannedItems.length === 0 && (
-                    <button
-                        onClick={() => setAddFoodMode('manual')}
-                        className="mx-auto mt-5 block text-[10px] text-gray-500 underline underline-offset-4 uppercase tracking-widest hover:text-cyan-400 transition-colors"
-                    >
-                        Enter macros manually
-                    </button>
-                )}
-
-                {addFoodMode === 'manual' && scannedItems.length === 0 && (
-                    // MANUAL ENTRY FORM
-                    <form onSubmit={(e) => { e.preventDefault(); addFoodEntry(); }} className="space-y-4">
-                        <button
-                            type="button"
-                            onClick={() => setAddFoodMode('ai')}
-                            className="text-[10px] text-gray-500 uppercase tracking-widest font-bold hover:text-white transition-colors"
-                        >
-                            ← Back
-                        </button>
-                        <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Name</label>
-                            <input type="text" value={foodForm.name} onChange={e => setFoodForm({...foodForm, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Calories</label>
-                                <input type="number" value={foodForm.calories} onChange={e => setFoodForm({...foodForm, calories: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1.5 block ml-1">Protein (g)</label>
-                                <input type="number" value={foodForm.protein} onChange={e => setFoodForm({...foodForm, protein: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-emerald-400 focus:bg-emerald-400/5 transition-all" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Carbs (g)</label>
-                                <input type="number" value={foodForm.carbs} onChange={e => setFoodForm({...foodForm, carbs: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block ml-1">Fat (g)</label>
-                                <input type="number" value={foodForm.fat} onChange={e => setFoodForm({...foodForm, fat: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-white focus:bg-white/10 transition-all" />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mb-1.5 block ml-1">Fiber (g)</label>
-                                <input type="number" value={foodForm.fiber} onChange={e => setFoodForm({...foodForm, fiber: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:outline-none focus:border-yellow-500 focus:bg-yellow-500/5 transition-all" />
-                            </div>
-                        </div>
-                        <div className="flex gap-3 pt-4">
-                            <button type="button" onClick={() => setShowAddFood(false)} className="flex-1 py-4 rounded-xl border border-white/10 text-gray-400 font-bold text-xs uppercase tracking-widest hover:bg-white/5">Cancel</button>
-                            <button type="submit" className="flex-1 py-4 rounded-xl bg-white text-black font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-gray-200">Log Item</button>
-                        </div>
-                    </form>
-                )}
-                </div>
-              </div>
-            </div>
-      )}
-
-      {/* ───────────── Page-turn tab transition ─────────────
-          Wrap all the tab content blocks in a single motion.div whose
-          `key` is activeTab. AnimatePresence sees the key change, exits
-          the outgoing page with a subtle 3D rotateY + slide, and brings
-          the incoming page in from the opposite direction. The `custom`
-          prop carries the direction (1 = forward in TAB_ORDER, -1 = back). */}
+      {/* Short tab fade; respects reduced motion. */}
       <div style={{ perspective: 1200 }}>
         <AnimatePresence mode="wait" custom={pageTurnDirection}>
           <motion.div
@@ -2745,22 +1759,22 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             variants={{
               enter: (d: number) => ({
                 opacity: 0,
-                rotateY: d > 0 ? 28 : -28,
-                x: d > 0 ? 60 : -60,
+                rotateY: 0,
+                x: 0,
                 transformOrigin: d > 0 ? '0% 50%' : '100% 50%',
               }),
               center: { opacity: 1, rotateY: 0, x: 0 },
               exit: (d: number) => ({
                 opacity: 0,
-                rotateY: d > 0 ? -28 : 28,
-                x: d > 0 ? -60 : 60,
+                rotateY: 0,
+                x: 0,
                 transformOrigin: d > 0 ? '100% 50%' : '0% 50%',
               }),
             }}
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.35, ease: [0.32, 0.72, 0.36, 1] }}
+            transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
             style={{ transformStyle: 'preserve-3d', willChange: 'transform' }}
           >
       {activeTab === 'dashboard' && (
@@ -2791,6 +1805,11 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           weighIns={appState.weighIns || []}
           onLogWeight={(weight) => recordWeight(weight)}
           onQuickAddFood={openAddFood}
+          foodStatus={foodStatus}
+          onFoodHeroVisibility={setFoodHeroVisible}
+          todayFood={appState.todayLog || []}
+          onOpenLog={() => switchTab('journal')}
+          onAskDing={() => switchTab('coach')}
           energyBaseline={energyBaseline}
           onLogActivity={() => {
             // Reset to a sensible default each open so a prior manual entry
@@ -2814,7 +1833,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       {showFuelCoach && (
         <FuelCoachSheet
           remaining={{
-            calories: Math.max(0, Math.round(targetMacros.calories - consumedMacros.calories)),
+            calories: Math.round(targetMacros.calories - consumedMacros.calories),
             protein: Math.max(0, Math.round(targetMacros.protein - consumedMacros.protein)),
             carbs: Math.max(0, Math.round(targetMacros.carbs - consumedMacros.carbs)),
             fat: Math.max(0, Math.round(targetMacros.fat - consumedMacros.fat)),
@@ -2824,8 +1843,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           onLogItem={(item) => {
             // Fuel Coach macros are AI estimates (except DB-grounded eat-out
             // picks) — same trust level as the AI meal scan.
-            pushFoodToState([item], `Fuel Coach · ${item.name}`);
-            triggerToast(`Logged ${item.name}`);
+            seedFood([item]);
+            setShowFuelCoach(false);
           }}
         />
       )}
@@ -2840,8 +1859,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               // Push the verified menu item directly into today's food log.
               // Restaurant-sourced items skip the AI pipeline entirely — macros
               // come from the curated database, not from a Gemini estimate.
-              pushFoodToState([item], `${restaurantName} · ${item.name}`);
-              triggerToast(`Logged ${item.name}`);
+              seedFood([item]);
             }}
           />
         </div>
@@ -2867,7 +1885,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               }));
               triggerToast('Updated');
             }}
-            onAddFood={openAddFood}
           />
         </div>
       )}
@@ -3518,14 +2535,18 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         <UsageDashboard onClose={() => setShowUsageDashboard(false)} />
       )}
 
-      {/* SPOTLIGHT TOUR — fires once after first profile load (and on demand
-          from Profile's "Show tour again" button). Dims the screen and walks
-          the user through 4 stops in Cuodi-voice. */}
-      {showTour && <SpotlightTour onClose={handleCloseTour} />}
+      {/* One food invitation after onboarding. */}
+      <FoodDialog open={showTour} onClose={handleCloseTour} title="Welcome to Ding!" closeLabel="Look around first">
+        <div className="space-y-5 text-[#f5ede1]">
+          <h2 className="text-3xl font-bold">Yooo. Lets start with what you ate.</h2>
+          <p className="text-base leading-relaxed text-[#c4b8a4]">Show me a meal and Ill work out the macros. You get the last word.</p>
+          <button type="button" className="min-h-14 w-full rounded-xl bg-[#d97757] p-4 text-base font-semibold text-[#161210]" onClick={() => { handleCloseTour(); openAddFood(); }}>Show me what you ate</button>
+          <button type="button" className="min-h-11 w-full text-base text-[#c4b8a4]" onClick={handleCloseTour}>Look around first</button>
+        </div>
+      </FoodDialog>
 
-      {/* FEATHER CELEBRATION — fires every time food is logged.
-          Self-dismisses after ~1.6s. Stacked above everything. */}
-      <FeatherCelebration show={showCelebration} onDone={() => setShowCelebration(false)} />
+
+
 
       {/* WRAPPED OVERLAY — Spotify-Wrapped-style personalized summary.
           Launched from the dashboard launcher card or auto-prompted at the
@@ -3819,7 +2840,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                 <p>
                   Food scans send only the photo and what you typed. Coach chats include relevant profile
                   details like your goals and stats. Neither provider gets your email, password, or Apple
-                  Health data, and we don&rsquo;t keep your photos after the analysis.
+                  Health data. Food photos are kept privately while the analysis runs, then deleted.
+                  Your draft stays on this device until you log or discard it.
                 </p>
                 <p className="text-[12px] text-gray-400">
                   You can always log food manually instead. Details are in the Privacy Policy.
@@ -3827,27 +2849,31 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               </div>
               <div className="space-y-2">
                 <button
-                  onClick={() => {
+                  disabled={aiConsentSaving}
+                  onClick={async () => {
+                    if (aiConsentSaving) return;
                     const run = aiConsentPending;
-                    aiConsentRef.current = true;
-                    handleUpdateAppState(prev => ({
-                      ...prev,
-                      profile: prev.profile
-                        ? {
-                            ...prev.profile,
-                            acceptedAiDataSharing: true,
-                            aiDataSharingAcceptedAt: new Date().toISOString(),
-                          }
-                        : prev.profile,
-                    }));
-                    setAiConsentPending(null);
-                    run && run();
+                    setAiConsentSaving(true); setAiConsentError('');
+                    try {
+                      if (!db || !navigator.onLine || !latestAppState.current.profile) throw new Error('Reconnect to save your choice.');
+                      const consent = { acceptedAiDataSharing: true, aiDataSharingAcceptedAt: new Date().toISOString() };
+                      // The food worker verifies consent on the server before accepting input.
+                      await setDoc(doc(db, 'users', userId), { profile: consent }, { merge: true });
+                      aiConsentRef.current = true;
+                      handleUpdateAppState(prev => ({ ...prev, profile: prev.profile ? { ...prev.profile, ...consent } : prev.profile }));
+                      setAiConsentPending(null);
+                      run?.();
+                    } catch {
+                      setAiConsentError('Couldnt save your choice. Check your connection and try again.');
+                    } finally { setAiConsentSaving(false); }
                   }}
                   className="w-full py-4 rounded-2xl bg-white text-black font-orbitron font-bold text-sm tracking-widest hover:bg-gray-200 transition-colors"
                 >
-                  AGREE & CONTINUE
+                  {aiConsentSaving ? 'SAVING…' : 'AGREE & CONTINUE'}
                 </button>
+                {aiConsentError && <p role="alert" className="text-sm text-[#e8a85a]">{aiConsentError}</p>}
                 <button
+                  disabled={aiConsentSaving}
                   onClick={() => {
                     setAiConsentPending(null);
                     triggerToast('No problem. You can still log food manually.');

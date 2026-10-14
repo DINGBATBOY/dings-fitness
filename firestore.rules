@@ -46,20 +46,26 @@ service cloud.firestore {
     }
 
     // ---- default deny ----
+    match /foodAnalysisJobs/{jobId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      // Job progress, cancellation and results are owned by authenticated server functions.
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
   }
-}
 
-function isOwner(userId) {
-  return request.auth != null && request.auth.uid == userId;
-}
+  function isOwner(userId) {
+    return request.auth != null && request.auth.uid == userId;
+  }
 
-// Admin allowlist — keep tight. Find your UID in Firebase Console →
-// Authentication → Users. Add additional admin UIDs as needed.
-function isAdmin() {
-  return request.auth != null && request.auth.uid in [
-    "bYGcwJKlN2b4myugbVGNv8e4syO2"
-  ];
+  // Admin allowlist — keep tight. Find your UID in Firebase Console →
+  // Authentication → Users. Add additional admin UIDs as needed.
+  function isAdmin() {
+    return request.auth != null && request.auth.uid in [
+      "bYGcwJKlN2b4myugbVGNv8e4syO2"
+    ];
+  }
 }

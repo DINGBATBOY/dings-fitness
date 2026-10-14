@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
+    "test:food": "npm --prefix functions run build && node --experimental-strip-types --test tests/food-flow.test.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "cap:sync": "vite build && npx cap sync",
@@ -36,6 +37,8 @@
     "@capacitor/cli": "^6.2.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.8.2",

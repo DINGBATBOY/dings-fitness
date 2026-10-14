@@ -1,6 +1,6 @@
 
 import { initializeApp, FirebaseApp } from 'firebase/app';
-import { initializeFirestore, Firestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from 'firebase/firestore';
 import {
   initializeAuth,
   indexedDBLocalPersistence,
@@ -52,6 +52,8 @@ if (isConfigured) {
     db = initializeFirestore(app, {
         ignoreUndefinedProperties: true,
         experimentalAutoDetectLongPolling: true,
+        // Keep queued log writes across reloads/offline app restarts.
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
     });
     // initializeAuth with an explicit persistence chain. iOS WKWebView's
     // IndexedDB is unreliable — signInWithEmailAndPassword hangs forever

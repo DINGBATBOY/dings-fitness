@@ -27,6 +27,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
+import { registerFoodJobs } from './foodJobs';
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
@@ -81,6 +82,22 @@ const FALLBACK_PRICING = { input: 0.075, output: 0.30 };
 // ESTIMATE ($10 / 1k calls) — check https://openai.com/api/pricing and
 // update. Only used for the cost figure in tokenUsage.
 const WEB_SEARCH_CALL_USD = 0.01;
+
+export const { startFoodAnalysis, cancelFoodAnalysis, processFoodAnalysis, cleanFoodAnalysis } = registerFoodJobs({
+  apiKey: OPENAI_API_KEY,
+  model: DEFAULT_OPENAI_MODEL,
+  consumeQuota,
+  recordUsage: async (uid, response, durationMs) => {
+    const usage = response.usage ?? {};
+    const promptTokens = Number(usage.input_tokens) || 0;
+    const candidatesTokens = Number(usage.output_tokens) || 0;
+    const webSearchCalls = (response.output ?? []).filter((o: any) => o.type === 'web_search_call').length;
+    await logTokenUsage({ uid, userEmail: null, feature: 'analyzeFoodEntry', model: DEFAULT_OPENAI_MODEL,
+      promptTokens, candidatesTokens, totalTokens: promptTokens + candidatesTokens,
+      costUsd: estimateCostUsd(DEFAULT_OPENAI_MODEL, promptTokens, candidatesTokens) + webSearchCalls * WEB_SEARCH_CALL_USD,
+      durationMs, webSearchCalls, api: 'responses' });
+  },
+});
 
 const estimateCostUsd = (
   model: string,
@@ -833,6 +850,8 @@ export const deleteAccount = onCall(
         db.recursiveDelete(db.collection("user_workouts").doc(uid)),
         db.recursiveDelete(db.collection("quotas").doc(uid)),
       ]);
+      const foodJobs = await db.collection('foodAnalysisJobs').where('uid', '==', uid).get();
+      for (const job of foodJobs.docs) await job.ref.delete();
     } catch (err) {
       console.error("[deleteAccount] Firestore delete error", uid, err);
       // Continue — Auth deletion is still the most important.
@@ -842,6 +861,7 @@ export const deleteAccount = onCall(
     try {
       const bucket = storage.bucket();
       await bucket.deleteFiles({ prefix: `users/${uid}/` });
+      await bucket.deleteFiles({ prefix: `foodAnalysisInputs/${uid}/` });
     } catch (err) {
       console.error("[deleteAccount] Storage delete error", uid, err);
       // Continue.
