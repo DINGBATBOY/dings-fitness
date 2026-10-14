@@ -4,7 +4,18 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 (ops + deploy layers), `DEPLOY.md` (secrets/deploy), `ROADMAP.md` (what's next),
 `APP_STORE_LISTING.md` (submission copy), `CUSTOM_GPT_INSTRUCTIONS.md`.
 
-## Where things stand (Oct 13, 2026)
+## Where things stand (Oct 14, 2026)
+
+- **Shipped Oct 14 ~00:50:** `2c1ae5d` (app shell v2, below) on top of
+  `c79e6fc` (ChatGPT food flow). Firestore rules + index + storage rules,
+  all functions (incl. new startFoodAnalysis / processFoodAnalysis /
+  cancelFoodAnalysis / cleanFoodAnalysis), web (origin + edge verified) and
+  **Codemagic #72 green** (uploaded to App Store Connect).
+  `processFoodAnalysis` (Firestore trigger) failed its first deploy with an
+  Eventarc service-agent permission error — normal the first time; a retry
+  3 minutes later succeeded.
+- **Not yet verified live:** a real authenticated scan through the new job
+  pipeline (needs Ding signed in), and the step count on a real iPhone.
 
 - **Oct 13 late:** `9e433c2` (one-call food scan + barcode work) is pushed,
   Cloud Functions deployed (all on Node 22), web live, and **Codemagic #71
