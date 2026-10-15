@@ -54,6 +54,8 @@ interface JournalProps {
   profile: UserProfile;
   /** Profile as it may be sent to AI (no Apple Health weight; services/aiPrivacy.ts). */
   aiProfile?: UserProfile;
+  /** Runs the action once the user has agreed to AI data sharing (Guideline 5.1.2(i)). */
+  requireAiConsent: (action: () => void) => void;
   targets: NutritionTargets;
   onDeleteLog?: (id: string) => void;
   /** Persist edits made in the FoodDetailSheet drill-in view.
@@ -73,6 +75,7 @@ export const Journal: React.FC<JournalProps> = ({
   activityBurn = 0,
   profile,
   aiProfile,
+  requireAiConsent,
   targets,
   onDeleteLog,
   onUpdateFood,
@@ -214,7 +217,10 @@ export const Journal: React.FC<JournalProps> = ({
 
   const isToday = selectedDate === new Date().toLocaleDateString();
 
-  const handleAnalyze = async () => {
+  // Analyze Day sends the day's log, targets and goal to Gemini: consent first.
+  const handleAnalyze = () => { requireAiConsent(() => { void runAnalyze(); }); };
+
+  const runAnalyze = async () => {
     if (!currentLog) return;
     
     setIsAnalyzing(true);

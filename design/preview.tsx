@@ -54,7 +54,7 @@ function Preview() {
     {tab === 'profile' && <ProfileHub profile={profile} avatar={<div className="flex h-20 w-20 items-center justify-center rounded-full border-[3px] border-[var(--primary)] text-3xl font-bold text-[var(--primary)]">D</div>}
       streak={12} dailyLogs={dailyLogs} todayLog={todayLog} foodHistory={history} weighIns={weighIns} onEdit={() => {}} section={section} onSection={setSection}
       appearance={appearance} onAppearance={setAppearance}
-      history={<Journal dailyLogs={dailyLogs} todayLog={todayLog} waterIntake={32} activityBurn={0} profile={profile} targets={targets} onDeleteLog={() => {}} onUpdateFood={() => {}} />}
+      history={<Journal dailyLogs={dailyLogs} todayLog={todayLog} waterIntake={32} activityBurn={0} profile={profile} requireAiConsent={(a) => a()} targets={targets} onDeleteLog={() => {}} onUpdateFood={() => {}} />}
       settings={<div className="rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5 text-white">Apple Health, targets, account…</div>} />}
     {tab === 'progress' && <div className="space-y-5"><h1 className="text-[1.65rem] font-bold">Progress</h1><ProgressCharts profile={profile} targets={targets} dailyLogs={dailyLogs} todayLog={todayLog} todayConsumed={consumed} todayActivityBurn={0} weighIns={weighIns} energyBaseline={{ bmr: 1780, tdee: 2350 }} healthActiveEnergy={null} healthByDate={health} /><Wrapped inline profile={profile} dailyLogs={dailyLogs} weighIns={weighIns} todayLog={todayLog} todayActivityBurn={0} todayWaterIntake={32} foodHistory={history} bodyStats={undefined as any} targets={targets} initialPeriod="week" /></div>}
     {tab === 'coach' && <p className="pt-10 text-center text-[var(--ink-mid)]">{tab} screen</p>}

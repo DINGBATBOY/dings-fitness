@@ -1863,6 +1863,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             fat: Math.max(0, Math.round(targetMacros.fat - consumedMacros.fat)),
           }}
           profile={appState.profile ? profileForAi(appState.profile, appState.weighIns) : null}
+          requireAiConsent={requireAiConsent}
           onClose={() => setShowFuelCoach(false)}
           onLogItem={(item) => {
             // Fuel Coach macros are AI estimates (except DB-grounded eat-out
@@ -2054,6 +2055,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             activityBurn={appState.activityBurn}
             profile={appState.profile}
             aiProfile={profileForAi(appState.profile, appState.weighIns)}
+            requireAiConsent={requireAiConsent}
             targets={targetMacros}
             onDeleteLog={deleteLog}
             onUpdateFood={(updated) => {
@@ -2732,7 +2734,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             <div className="overflow-y-auto px-6 py-8 space-y-5">
               <div className="flex flex-col items-center gap-2">
                 <h2 className="text-lg font-orbitron font-bold text-white tracking-wider text-center">
-                  BEFORE WE SCAN
+                  BEFORE YOU USE AI
                 </h2>
                 <p className="text-[10px] text-gray-500 uppercase tracking-widest text-center">
                   How AI features use your data
@@ -2741,12 +2743,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               <div className="space-y-3 text-sm text-gray-300 leading-relaxed">
                 <p>
                   To estimate macros, Dings sends your food photos and descriptions to
-                  <span className="text-white font-semibold"> OpenAI</span>. Coach chats and other AI
-                  features are processed by <span className="text-white font-semibold">Google Gemini</span>.
+                  <span className="text-white font-semibold"> OpenAI</span>. Coach chats, Fuel Coach and
+                  Analyze Day are processed by <span className="text-white font-semibold">Google Gemini</span>.
                 </p>
                 <p>
-                  Food scans send only the photo and what you typed. Coach chats include relevant profile
-                  details like your goals and stats. Neither provider gets your email, password, or Apple
+                  Food scans send only the photo and what you typed. Coach features include your logged
+                  food, targets and profile details like your goal and stats. Neither provider gets your email, password, or Apple
                   Health data. Food photos are kept privately while the analysis runs, then deleted.
                   Your draft stays on this device until you log or discard it.
                 </p>

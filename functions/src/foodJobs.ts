@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { defineSecret } from 'firebase-functions/params';
 import OpenAI from 'openai';
+import { requireAiConsent } from './aiPolicy';
 
 type JobState = 'queued' | 'running' | 'ready' | 'failed' | 'cancelled';
 const terminal = (state: JobState) => ['ready', 'failed', 'cancelled'].includes(state);
@@ -48,8 +49,7 @@ export function registerFoodJobs(config: {
     const ref = getFirestore().collection('foodAnalysisJobs').doc(jobKey(uid, id));
     const existing = await ref.get();
     if (existing.exists) return { jobId: id };
-    const user = await getFirestore().collection('users').doc(uid).get();
-    if (user.get('profile.acceptedAiDataSharing') !== true) throw new HttpsError('failed-precondition', 'Allow AI food analysis first.');
+    await requireAiConsent(uid, 'Allow AI food analysis first.');
     const messages = req.data?.messages;
     if (!Array.isArray(messages) || !messages.length || messages.length > 4) throw new HttpsError('invalid-argument', 'Add a photo or description.');
     const payload = JSON.stringify(messages);

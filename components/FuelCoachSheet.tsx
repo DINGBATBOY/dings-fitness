@@ -57,6 +57,8 @@ interface FuelCoachSheetProps {
   onClose: () => void;
   /** Log a suggestion into today's food log. */
   onLogItem: (item: FoodItem) => void;
+  /** Runs the action once the user has agreed to AI data sharing (Guideline 5.1.2(i)). */
+  requireAiConsent: (action: () => void) => void;
 }
 
 export const FuelCoachSheet: React.FC<FuelCoachSheetProps> = ({
@@ -64,6 +66,7 @@ export const FuelCoachSheet: React.FC<FuelCoachSheetProps> = ({
   profile,
   onClose,
   onLogItem,
+  requireAiConsent,
 }) => {
   const [mode, setMode] = useState<FuelCoachMode>('eatout');
   const [note, setNote] = useState('');
@@ -75,7 +78,11 @@ export const FuelCoachSheet: React.FC<FuelCoachSheetProps> = ({
 
   const activeMode = MODES.find(m => m.id === mode)!;
 
-  const getIdeas = async () => {
+  // Every Fuel Coach request sends the remaining macros, note and goal to
+  // Gemini, so it goes through the one-time AI consent sheet first.
+  const getIdeas = () => { requireAiConsent(() => { void fetchIdeas(); }); };
+
+  const fetchIdeas = async () => {
     if (!profile) return;
     setLoading(true);
     setError('');

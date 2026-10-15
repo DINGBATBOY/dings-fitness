@@ -64,6 +64,9 @@ async function callGeminiProxy(req: ProxyRequest): Promise<ProxyResponse> {
     if (code === "functions/invalid-argument") {
       throw new Error(message || "Invalid request.");
     }
+    if (code === "functions/failed-precondition") {
+      throw new Error(message || "Allow AI features first.");
+    }
     throw new Error(message || "AI service unavailable. Please try again.");
   }
 }

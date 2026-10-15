@@ -106,3 +106,73 @@ test('PRIV-01: no remaining client prompt interpolates profile.weight without th
   assert.equal(raw.length, 0, 'found a raw ${profile.weight} in a prompt');
   assert.ok(!/generateVisionRoadmap|generateMealSuggestion/.test(gemini), 'unused weight-sending prompts were removed');
 });
+
+// ───────────────────────── PRIV-02: AI consent everywhere ─────────────────────────
+
+// Load a compiled functions module with firebase-admin/firestore replaced by a fake.
+function loadFunctionsModule(file, fakeFirestore) {
+  const Module = require('node:module');
+  const origLoad = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (request === 'firebase-admin/firestore') return fakeFirestore;
+    return origLoad.call(this, request, parent, isMain);
+  };
+  try {
+    const path = require.resolve(join(root, 'functions/lib', file));
+    delete require.cache[path];
+    return require(path);
+  } finally {
+    Module._load = origLoad;
+  }
+}
+const fakeUsers = (users) => {
+  const reads = [];
+  return {
+    reads,
+    FieldPath: class { constructor(...parts) { this.parts = parts; } },
+    FieldValue: { increment: (n) => ({ inc: n }), serverTimestamp: () => 'ts' },
+    getFirestore: () => ({
+      collection: () => ({ doc: (id) => ({ id }) }),
+      getAll: async (ref, opts) => {
+        reads.push({ id: ref.id, mask: opts?.fieldMask?.map((f) => f.parts.join('.')) });
+        const profile = users[ref.id];
+        return [{ get: (field) => (field === 'profile.acceptedAiDataSharing' ? profile?.acceptedAiDataSharing : undefined) }];
+      },
+    }),
+  };
+};
+
+test('PRIV-02: server consent check reads only the consent field and rejects without consent', async () => {
+  const fs = fakeUsers({ yes: { acceptedAiDataSharing: true }, no: { acceptedAiDataSharing: false } });
+  const policy = loadFunctionsModule('aiPolicy.js', fs);
+  assert.equal(await policy.hasAiConsent('yes'), true);
+  assert.equal(await policy.hasAiConsent('no'), false);
+  assert.equal(await policy.hasAiConsent('missing'), false);
+  await assert.rejects(policy.requireAiConsent('no'), (e) => e.code === 'failed-precondition');
+  assert.deepEqual(fs.reads[0].mask, ['profile.acceptedAiDataSharing']);
+});
+
+test('PRIV-02: callGemini and startFoodAnalysis check consent before spending quota', () => {
+  const index = src('functions/src/index.ts');
+  const body = index.slice(index.indexOf('export const callGemini = onCall('));
+  const consentAt = body.indexOf('await requireAiConsent(uid)');
+  assert.ok(consentAt > 0, 'callGemini must call requireAiConsent');
+  assert.ok(consentAt < body.indexOf('consumeQuota(uid)'), 'consent must be checked before quota');
+  const jobs = src('functions/src/foodJobs.ts');
+  assert.ok(jobs.indexOf('requireAiConsent(uid') < jobs.indexOf('config.consumeQuota(uid)'));
+});
+
+test('PRIV-02: every client entry point that calls Gemini goes through requireAiConsent', () => {
+  const aiCalls = /\b(sendChatMessage|analyzeDailyLog|generateFuelIdeas)\(/;
+  const entryPoints = {
+    'MainApp.tsx': /requireAiConsent\(\(\) => \{ handleSendMessage\(\); \}\)/,
+    'components/Journal.tsx': /requireAiConsent\(\(\) => \{ void runAnalyze\(\); \}\)/,
+    'components/FuelCoachSheet.tsx': /requireAiConsent\(\(\) => \{ void fetchIdeas\(\); \}\)/,
+  };
+  for (const [file, gate] of Object.entries(entryPoints)) {
+    const code = src(file);
+    assert.ok(aiCalls.test(code), `${file} should contain an AI call`);
+    assert.match(code, gate, `${file} must gate its AI call behind requireAiConsent`);
+  }
+  // Onboarding no longer calls any AI (NUT-02): checked in the NUT-02 tests.
+});

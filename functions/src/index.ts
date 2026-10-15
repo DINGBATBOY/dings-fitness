@@ -28,6 +28,7 @@ import { getStorage } from "firebase-admin/storage";
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import { registerFoodJobs } from './foodJobs';
+import { requireAiConsent } from './aiPolicy';
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
@@ -127,6 +128,11 @@ export const callGemini = onCall(
       throw new HttpsError("unauthenticated", "Sign in first.");
     }
     const uid = req.auth.uid;
+
+    // ----- 1b. AI data-sharing consent (Guideline 5.1.2(i); audit PRIV-02) -----
+    // Same rule as startFoodAnalysis: nothing goes to Gemini until the user
+    // has accepted the in-app AI consent sheet.
+    await requireAiConsent(uid);
 
     // ----- 2. Validate input -----
     const data = req.data;
