@@ -22,13 +22,14 @@ import { ChevronLeft, ChevronRight, Flame, Footprints, Droplets, Scale, Trending
 import type { DailyLog, FoodItem, NutritionTargets, UserProfile, WeightEntry } from '../types';
 import { computeEnergyBalance } from '../constants';
 import type { HealthWorkout } from '../services/health';
+import { addDays, dayKey, isoDate, normalizeDayKey, parseDayKey, shiftDayKey, todayKey } from '../services/dayKey';
 
 export type DaySummary = { steps?: number | null; activeKcal?: number | null };
 
 interface DashboardProps {
   profile: UserProfile;
   targets: NutritionTargets;
-  selectedDate: string;               // toLocaleDateString()
+  selectedDate: string;               // day key (services/dayKey)
   onSelectDate: (date: string) => void;
   todayLog: FoodItem[];
   todayConsumed: { calories: number; protein: number; carbs: number; fat: number };
@@ -46,7 +47,8 @@ interface DashboardProps {
   healthConnected?: boolean;
   onConnectHealth?: () => void;
   onAddFood: () => void;
-  onOpenFood: (item: FoodItem, editable: boolean) => void;
+  /** Open a logged food for edit/delete on the day it belongs to. */
+  onOpenFood: (item: FoodItem, date: string) => void;
   onLogWater: (oz: number) => void;
   onLogWeight: (weight: number) => boolean;
   onLogActivity?: () => void;
@@ -57,13 +59,13 @@ interface DashboardProps {
 }
 
 const P = { protein: '#7ab896', carbs: '#e8a85a', fat: '#d97757' };
-const DAY = 86400000;
 const card = 'rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5';
 const label = 'text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink-light)]';
 
-const parse = (d: string) => { const t = new Date(d); t.setHours(0, 0, 0, 0); return t; };
-const fmt = (d: Date) => d.toLocaleDateString();
-const shift = (d: string, n: number) => fmt(new Date(parse(d).getTime() + n * DAY));
+// Day keys go through services/dayKey (locale-independent, DST-safe; audit DATE-01/02).
+const parse = (d: string) => parseDayKey(d);
+const fmt = (d: Date) => dayKey(d);
+const shift = (d: string, n: number) => shiftDayKey(d, n);
 const n0 = (v: number) => Math.round(v).toLocaleString();
 
 export const Dashboard: React.FC<DashboardProps> = (props) => {
@@ -73,7 +75,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     onConnectHealth, onAddFood, onOpenFood, onLogWater, onLogWeight, onLogActivity, onOpenFuelCoach, onAskCoach,
     adaptiveSuggestion, onAcceptAdaptiveSuggestion,
   } = props;
-  const today = fmt(new Date(new Date().setHours(0, 0, 0, 0)));
+  const today = todayKey();
   const isToday = selectedDate === today;
   const firstName = (profile.name || 'friend').split(' ')[0];
 
@@ -81,8 +83,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     const m = new Map<string, DailyLog>();
     for (const l of dailyLogs || []) {
       if (!l?.date) continue;
-      const p = new Date(l.date);
-      m.set(Number.isNaN(p.getTime()) ? l.date : fmt(p), l);
+      m.set(normalizeDayKey(l.date), l);
     }
     return m;
   }, [dailyLogs]);
@@ -114,9 +115,9 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   // ── Week strip (Sun–Sat containing the selected day) ──
   const strip = useMemo(() => {
     const sel = parse(selectedDate);
-    const start = new Date(sel.getTime() - sel.getDay() * DAY);
+    const start = addDays(sel, -sel.getDay());
     return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(start.getTime() + i * DAY);
+      const d = addDays(start, i);
       const date = fmt(d);
       return { date, dow: d.toLocaleDateString('en-US', { weekday: 'narrow' }), num: d.getDate(), future: d > parse(today), logged: dayData(date).logged };
     });
@@ -141,7 +142,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
     const sorted = [...(weighIns || [])].filter(e => e.weight > 50 && e.weight < 700)
       .sort((a, b) => a.date.localeCompare(b.date));
     const latest = sorted[sorted.length - 1];
-    const cutoff = new Date(Date.now() - 7 * DAY).toISOString().slice(0, 10);
+    const cutoff = isoDate(addDays(new Date(), -7));
     const recent = sorted.filter(e => e.date >= cutoff);
     const change = recent.length >= 2 ? recent[recent.length - 1].weight - recent[0].weight : undefined;
     return { latest, change, spark: sorted.slice(-21).map(e => e.weight) };
@@ -409,7 +410,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
                   <ul className="mt-1 divide-y divide-[var(--line)]">
                     {items.map(f => (
                       <li key={f.id}>
-                        <button type="button" onClick={() => onOpenFood(f, isToday)} className="tap flex min-h-12 w-full items-center justify-between gap-3 py-2 text-left">
+                        <button type="button" onClick={() => onOpenFood(f, selectedDate)} className="tap flex min-h-12 w-full items-center justify-between gap-3 py-2 text-left">
                           <span className="min-w-0">
                             <span className="block truncate text-base">{f.name}</span>
                             <span className="text-xs tabular-nums text-[var(--ink-light)]">P {Math.round(f.protein)} · C {Math.round(f.carbs)} · F {Math.round(f.fat)}</span>

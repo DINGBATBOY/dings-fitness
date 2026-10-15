@@ -4,6 +4,7 @@ import { DailyLog, FoodItem, UserProfile, NutritionTargets } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, ChevronLeft, ChevronRight, Utensils, Droplets, Dumbbell, Trash2, Plus, Sparkles, AlertCircle, CheckCircle2, TrendingUp, Loader2, Download } from 'lucide-react';
 import { analyzeDailyLog } from '../services/geminiService';
+import { dayKey, normalizeDayKey, parseDayKey, todayKey } from '../services/dayKey';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Capacitor } from '@capacitor/core';
@@ -57,10 +58,10 @@ interface JournalProps {
   /** Runs the action once the user has agreed to AI data sharing (Guideline 5.1.2(i)). */
   requireAiConsent: (action: () => void) => void;
   targets: NutritionTargets;
-  onDeleteLog?: (id: string) => void;
+  onDeleteLog?: (id: string, date: string) => void;
   /** Persist edits made in the FoodDetailSheet drill-in view.
    *  When omitted, the sheet renders read-only. */
-  onUpdateFood?: (updated: FoodItem) => void;
+  onUpdateFood?: (updated: FoodItem, date: string) => void;
   onAddFood?: () => void;
   /** Optional — opens a small diagnostic panel showing what's actually stored.
    *  When provided, also enables the "Force archive yesterday" recovery button.
@@ -83,7 +84,7 @@ export const Journal: React.FC<JournalProps> = ({
   onForceArchive,
 }) => {
   const [showDebug, setShowDebug] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toLocaleDateString());
+  const [selectedDate, setSelectedDate] = useState<string>(todayKey());
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
   // Drill-in sheet — when non-null, FoodDetailSheet is open on this item.
@@ -106,7 +107,7 @@ export const Journal: React.FC<JournalProps> = ({
   // Combine today's live data with historical logs.
   // Also de-dupes by date in case the rollover ever wrote duplicates.
   const allLogs = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString();
+    const todayStr = todayKey();
     const rawCalories = todayLog.reduce((acc, item) => acc + (item.calories || 0), 0);
     const todayEntry: DailyLog = {
       date: todayStr,
@@ -124,6 +125,7 @@ export const Journal: React.FC<JournalProps> = ({
     // they arrived from storage), drop empty days, drop any duplicate of today.
     const seen = new Set<string>();
     const history = (dailyLogs || [])
+      .map(log => ({ ...log, date: normalizeDayKey(log.date) }))
       .filter(log => log.date !== todayStr)
       .filter(log => {
         if (seen.has(log.date)) return false;
@@ -132,13 +134,13 @@ export const Journal: React.FC<JournalProps> = ({
       })
       .filter(hasRealActivity);
 
-    return [todayEntry, ...history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return [todayEntry, ...history].sort((a, b) => parseDayKey(b.date).getTime() - parseDayKey(a.date).getTime());
   }, [dailyLogs, todayLog, waterIntake]);
 
   // Count of REAL archived days (not the raw dailyLogs length, which is
   // polluted with empties). This is what we surface in the diagnostic.
   const realArchivedCount = useMemo(
-    () => allLogs.filter(l => l.date !== new Date().toLocaleDateString()).length,
+    () => allLogs.filter(l => l.date !== todayKey()).length,
     [allLogs],
   );
 
@@ -157,7 +159,7 @@ export const Journal: React.FC<JournalProps> = ({
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const dateStr = d.toLocaleDateString();
+      const dateStr = dayKey(d);
       const dayAbbrev = d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1);
       const log = allLogs.find(l => l.date === dateStr) || null;
       days.push({
@@ -180,7 +182,7 @@ export const Journal: React.FC<JournalProps> = ({
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
 
     const inWindow = allLogs.filter(log => {
-      const d = new Date(log.date);
+      const d = parseDayKey(log.date);
       return d >= sevenDaysAgo && d <= todayD;
     });
     // Only count days where the user actually logged food.
@@ -215,7 +217,7 @@ export const Journal: React.FC<JournalProps> = ({
     }
   };
 
-  const isToday = selectedDate === new Date().toLocaleDateString();
+  const isToday = selectedDate === todayKey();
 
   // Analyze Day sends the day's log, targets and goal to Gemini: consent first.
   const handleAnalyze = () => { requireAiConsent(() => { void runAnalyze(); }); };
@@ -308,18 +310,18 @@ export const Journal: React.FC<JournalProps> = ({
   };
 
   const handleDownloadMonthlyPDF = async () => {
-    const selectedMonth = new Date(selectedDate).getMonth();
-    const selectedYear = new Date(selectedDate).getFullYear();
-    const monthName = new Date(selectedDate).toLocaleString('default', { month: 'long' });
+    const selectedMonth = parseDayKey(selectedDate).getMonth();
+    const selectedYear = parseDayKey(selectedDate).getFullYear();
+    const monthName = parseDayKey(selectedDate).toLocaleString('default', { month: 'long' });
 
     // ALL logs in the selected calendar month — both empty and real. We need
     // both for the "logged X of N calendar days" disclosure.
     const calendarDaysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
 
     const monthlyLogsAll = (dailyLogs || []).filter(log => {
-      const logDate = new Date(log.date);
+      const logDate = parseDayKey(log.date);
       return logDate.getMonth() === selectedMonth && logDate.getFullYear() === selectedYear;
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }).sort((a, b) => parseDayKey(a.date).getTime() - parseDayKey(b.date).getTime());
 
     // REAL logs only — what averages should actually be computed on. Empty
     // placeholder entries (no food, no water, no burn) get excluded so
@@ -398,10 +400,10 @@ export const Journal: React.FC<JournalProps> = ({
     }, monthlyLogs[0]);
 
     const standouts: [string, string][] = [
-      ['Highest protein', `${new Date(topProtein.date).toLocaleDateString()}  ·  ${Math.round(topProtein.proteinConsumed)}g`],
-      ['Closest to calorie target', `${new Date(cleanestCalDay.date).toLocaleDateString()}  ·  ${Math.round(cleanestCalDay.caloriesConsumed)} kcal (target ${targets.calories})`],
-      ['Most fiber', `${new Date(topFiber.date).toLocaleDateString()}  ·  ${Math.round(topFiber.fiberConsumed || 0)}g`],
-      ['Most water', `${new Date(topWater.date).toLocaleDateString()}  ·  ${Math.round(topWater.waterIntake)} oz`],
+      ['Highest protein', `${parseDayKey(topProtein.date).toLocaleDateString()}  ·  ${Math.round(topProtein.proteinConsumed)}g`],
+      ['Closest to calorie target', `${parseDayKey(cleanestCalDay.date).toLocaleDateString()}  ·  ${Math.round(cleanestCalDay.caloriesConsumed)} kcal (target ${targets.calories})`],
+      ['Most fiber', `${parseDayKey(topFiber.date).toLocaleDateString()}  ·  ${Math.round(topFiber.fiberConsumed || 0)}g`],
+      ['Most water', `${parseDayKey(topWater.date).toLocaleDateString()}  ·  ${Math.round(topWater.waterIntake)} oz`],
     ];
     autoTable(doc, {
       startY: y,
@@ -424,7 +426,7 @@ export const Journal: React.FC<JournalProps> = ({
     y = addSectionHeader(doc, 'Weekly Averages', y);
     const weeks: Record<number, { cal: number; pro: number; carb: number; fat: number; fib: number; cnt: number }> = {};
     monthlyLogs.forEach(log => {
-      const date = new Date(log.date);
+      const date = parseDayKey(log.date);
       const weekNum = Math.ceil(date.getDate() / 7);
       if (!weeks[weekNum]) weeks[weekNum] = { cal: 0, pro: 0, carb: 0, fat: 0, fib: 0, cnt: 0 };
       weeks[weekNum].cal  += log.caloriesConsumed || 0;
@@ -462,7 +464,7 @@ export const Journal: React.FC<JournalProps> = ({
     if (y > 240) { doc.addPage(); y = 20; }
     y = addSectionHeader(doc, 'Daily Breakdown', y);
     const dailyData = monthlyLogs.map(log => [
-      new Date(log.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' }),
+      parseDayKey(log.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', weekday: 'short' }),
       `${Math.round(log.caloriesConsumed || 0)}`,
       `${Math.round(log.proteinConsumed  || 0)}g`,
       `${Math.round(log.carbsConsumed    || 0)}g`,
@@ -497,7 +499,7 @@ export const Journal: React.FC<JournalProps> = ({
     doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...PDF_COLORS.mute);
-    const friendlyDate = new Date(selectedDate).toLocaleDateString(undefined, {
+    const friendlyDate = parseDayKey(selectedDate).toLocaleDateString(undefined, {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
     doc.text(friendlyDate, 14, 38);
@@ -569,20 +571,20 @@ export const Journal: React.FC<JournalProps> = ({
     }
 
     // ----- LAST 7 DAYS TREND -----
-    const todayStr = new Date().toLocaleDateString();
+    const todayStr = todayKey();
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setHours(0, 0, 0, 0);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
     const weeklyLogs = allLogs.filter(l => {
-      const d = new Date(l.date);
+      const d = parseDayKey(l.date);
       return d >= sevenDaysAgo && l.date !== todayStr; // exclude today's live entry to avoid mixing in-progress + closed
-    }).filter(hasRealActivity).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }).filter(hasRealActivity).sort((a, b) => parseDayKey(a.date).getTime() - parseDayKey(b.date).getTime());
 
     if (weeklyLogs.length > 0) {
       if (y > 240) { doc.addPage(); y = 20; }
       y = addSectionHeader(doc, 'Last 7 Days', y);
       const weeklyData = weeklyLogs.map(log => [
-        new Date(log.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+        parseDayKey(log.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
         `${Math.round(log.caloriesConsumed || 0)}`,
         `${Math.round(log.proteinConsumed || 0)}g`,
         `${Math.round(log.carbsConsumed || 0)}g`,
@@ -701,7 +703,7 @@ export const Journal: React.FC<JournalProps> = ({
             {isToday ? 'Today' : selectedDate}
           </span>
           <span className="text-white/40 text-xs uppercase tracking-widest">
-            {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long' })}
+            {parseDayKey(selectedDate).toLocaleDateString('en-US', { weekday: 'long' })}
           </span>
         </div>
 
@@ -979,14 +981,14 @@ export const Journal: React.FC<JournalProps> = ({
           edit portions, or delete. Read-only when viewing past days. */}
       <FoodDetailSheet
         item={detailItem}
-        readOnly={!isToday || !onUpdateFood}
+        readOnly={!onUpdateFood}
         onClose={() => setDetailItem(null)}
         onSave={(updated) => {
-          if (onUpdateFood) onUpdateFood(updated);
+          if (onUpdateFood) onUpdateFood(updated, selectedDate);
           setDetailItem(null);
         }}
         onDelete={(id) => {
-          if (onDeleteLog) onDeleteLog(id);
+          if (onDeleteLog) onDeleteLog(id, selectedDate);
           setDetailItem(null);
         }}
       />

@@ -48,7 +48,7 @@ const stubFirebase = {
 
 const out = mkdtempSync(join(tmpdir(), 'ding-release-'));
 const entry = join(out, 'entry.ts');
-const mods = ['services/aiPrivacy.ts', 'services/geminiService.ts', 'constants.tsx', 'services/starterTargets.ts'];
+const mods = ['services/aiPrivacy.ts', 'services/geminiService.ts', 'constants.tsx', 'services/starterTargets.ts', 'services/dayKey.ts', 'services/foodCommit.ts'];
 writeFileSync(entry, mods.map((m) => `export * from ${JSON.stringify(join(root, m))};`).join('\n'));
 await esbuild.build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: join(out, 'app.mjs'),
   jsx: 'automatic', logLevel: 'silent', nodePaths: [join(root, 'node_modules')], plugins: [stubFirebase] });
@@ -258,4 +258,131 @@ test('NUT-01: protein follows goal weight and lean mass, not total weight', () =
   // A lean, typical user is unchanged by the guard rails: 180 lb man, 0.85 g/lb.
   const lean = app.CALCULATE_MACROS(app.CALCULATE_TDEE(180, 70, 30, 'Moderately Active', 'Male'), 'Weight Loss', 180, 'Male');
   assert.equal(lean.protein, 153);
+});
+
+// ───────────────────────── DATE-01 / DATE-02: day keys ─────────────────────────
+
+import { execFileSync } from 'node:child_process';
+const appUrl = pathToFileURL(join(out, 'app.mjs')).href;
+const inTz = (tz, locale, code) => execFileSync(process.execPath, ['--input-type=module', '-e',
+  `const app = await import(${JSON.stringify(appUrl)});\n${code}`],
+  { env: { ...process.env, TZ: tz, LANG: locale, LC_ALL: locale }, encoding: 'utf8' }).trim();
+
+test('DATE-01: day navigation steps exactly one calendar day across both 2026/27 US DST changes', () => {
+  const out = inTz('America/New_York', 'en_US.UTF-8', `
+    const walk = (from, n, step) => { let k = from, seen = []; for (let i = 0; i < n; i++) { k = app.shiftDayKey(k, step); seen.push(k); } return seen; };
+    console.log(JSON.stringify({ fwd: walk('10/30/2026', 4, 1), back: walk('3/16/2027', 4, -1),
+      add: app.dayKey(app.addDays(new Date(2026, 10, 1), 1)), between: app.daysBetween(new Date(2026, 10, 1), new Date(2026, 10, 2)) }));`);
+  const r = JSON.parse(out);
+  assert.deepEqual(r.fwd, ['10/31/2026', '11/1/2026', '11/2/2026', '11/3/2026']);
+  assert.deepEqual(r.back, ['3/15/2027', '3/14/2027', '3/13/2027', '3/12/2027']);
+  assert.equal(r.add, '11/2/2026');
+  assert.equal(r.between, 1);
+});
+
+test('DATE-01: no millisecond day arithmetic left in the day-navigation code', () => {
+  for (const f of ['components/Dashboard.tsx', 'services/coachContext.ts', 'components/ProgressCharts.tsx']) {
+    assert.ok(!/86400000|86_400_000|\* DAY\b/.test(src(f)), `${f} still adds 24 h in milliseconds`);
+  }
+});
+
+test('DATE-02: day keys are locale-independent and parse back in en-GB, de-DE and en-CA', () => {
+  for (const [tz, loc] of [['Europe/London', 'en_GB.UTF-8'], ['Europe/Berlin', 'de_DE.UTF-8'], ['America/Vancouver', 'en_CA.UTF-8']]) {
+    const r = JSON.parse(inTz(tz, loc, `
+      const k = app.dayKey(new Date(2026, 9, 14)), p = app.parseDayKey(k);
+      const iso = app.parseDayKey('2026-10-14');
+      console.log(JSON.stringify({ k, md: [p.getMonth(), p.getDate()], iso: [iso.getMonth(), iso.getDate()],
+        prev: app.shiftDayKey(k, -1), legacyGB: app.normalizeDayKey('14/10/2026'), legacyDE: app.normalizeDayKey('14.10.2026') }));`));
+    assert.equal(r.k, '10/14/2026', loc);
+    assert.deepEqual(r.md, [9, 14], loc);
+    assert.deepEqual(r.iso, [9, 14], `${loc}: ISO keys must parse as LOCAL dates, not UTC`);
+    assert.equal(r.prev, '10/13/2026', loc);
+    assert.equal(r.legacyGB, '10/14/2026');
+    assert.equal(r.legacyDE, '10/14/2026');
+  }
+});
+
+test('DATE-02: day keys are no longer built with toLocaleDateString() in app code', () => {
+  const offenders = clientFiles()
+    .filter((f) => !/RecompVelocity|WeeklySummaryCard|design\/|services\/dayKey/.test(f))
+    .filter((f) => /\.toLocaleDateString\(\)/.test(src(f).replace(/parseDayKey\([^)]*\)\.toLocaleDateString\(\)/g, '')))
+    .filter((f) => !(f === 'MainApp.tsx' && (src(f).match(/\.toLocaleDateString\(\)/g) || []).length === 1)); // saved-note display date
+  assert.deepEqual(offenders, []);
+});
+
+// ───────────────────────── DATA-02: rollover never drops food ─────────────────────────
+
+const item = (id, calories = 100) => ({ id, name: id, calories, protein: 10, carbs: 10, fat: 2, fiber: 1, timestamp: '' });
+const baseState = (over = {}) => ({ profile: null, todayLog: [], dailyLogs: [], foodHistory: [], waterIntake: 0, activityBurn: 0,
+  lastActiveDate: '10/14/2026', ...over });
+
+test('DATA-02: rolling over onto a date that already has an archive merges, de-duplicated by id', () => {
+  const archived = { date: '10/14/2026', weight: 0, waterIntake: 24, workoutCompleted: false, caloriesConsumed: 1800,
+    proteinConsumed: 90, carbsConsumed: 200, fatConsumed: 60, foodItems: [item('a', 1800)] };
+  const s = baseState({ dailyLogs: [archived], todayLog: [item('dinner', 900), item('a', 1800)], waterIntake: 8 });
+  const { state, archived: did } = app.rolloverDay(s, '10/15/2026');
+  const day = state.dailyLogs.find((d) => d.date === '10/14/2026');
+  assert.ok(did);
+  assert.deepEqual(day.foodItems.map((f) => f.id).sort(), ['a', 'dinner']);
+  assert.equal(day.caloriesConsumed, 2700);
+  assert.equal(day.waterIntake, 24);
+  assert.equal(state.todayLog.length, 0);
+  assert.equal(state.lastActiveDate, '10/15/2026');
+  assert.equal(state.dailyLogs.filter((d) => d.date === '10/14/2026').length, 1);
+  // Idempotent: running it again changes nothing.
+  assert.equal(app.rolloverDay(state, '10/15/2026').state, state);
+});
+
+test('DATA-02: MainApp uses the shared rollover, not its own', () => {
+  const main = src('MainApp.tsx');
+  assert.match(main, /rolloverDay\(prev, todayStr\)/);
+  assert.ok(!/alreadyArchived/.test(main), 'the old drop-on-already-archived branch is gone');
+});
+
+test('DATA-02: a legacy-format key for today is adopted, not archived away', () => {
+  const s = baseState({ lastActiveDate: '2026-10-15', todayLog: [item('lunch')] });
+  const { state } = app.rolloverDay(s, '10/15/2026');
+  assert.equal(state.todayLog.length, 1);
+  assert.equal(state.lastActiveDate, '10/15/2026');
+});
+
+// ───────────────────────── FUNC-01: edit / delete on past days ─────────────────────────
+
+test('FUNC-01: editing and deleting a past-day food updates that day\'s stored totals', () => {
+  const day = { date: '10/12/2026', weight: 0, waterIntake: 0, workoutCompleted: false, caloriesConsumed: 600, proteinConsumed: 60,
+    carbsConsumed: 60, fatConsumed: 12, fiberConsumed: 3, foodItems: [item('x', 200), item('y', 200), item('z', 200)] };
+  let s = baseState({ dailyLogs: [day], lastActiveDate: '10/14/2026', todayLog: [item('t', 300)] });
+
+  s = app.updateFoodOnDay(s, '10/12/2026', { ...item('y', 500), protein: 40 }, '10/14/2026');
+  let d = s.dailyLogs[0];
+  assert.equal(d.caloriesConsumed, 900);
+  assert.equal(d.proteinConsumed, 90);
+  assert.equal(d.foodItems.find((f) => f.id === 'y').calories, 500);
+
+  const { state, removed } = app.removeFoodFromDay(s, '10/12/2026', 'x', '10/14/2026');
+  d = state.dailyLogs[0];
+  assert.equal(removed.item.id, 'x');
+  assert.equal(d.caloriesConsumed, 700);
+  assert.deepEqual(d.foodItems.map((f) => f.id), ['y', 'z']);
+  assert.equal(state.todayLog.length, 1, "today's log is untouched");
+
+  // Undo puts it back on the same past day, same position, totals restored.
+  const back = app.restoreFoodToDay(state, '10/12/2026', removed.item, removed.index, '10/14/2026');
+  assert.deepEqual(back.dailyLogs[0].foodItems.map((f) => f.id), ['x', 'y', 'z']);
+  assert.equal(back.dailyLogs[0].caloriesConsumed, 900);
+});
+
+test('FUNC-01: today goes through the same functions', () => {
+  let s = baseState({ todayLog: [item('t1'), item('t2')], lastActiveDate: '10/14/2026' });
+  s = app.updateFoodOnDay(s, '10/14/2026', item('t1', 450), '10/14/2026');
+  assert.equal(s.todayLog[0].calories, 450);
+  const { state } = app.removeFoodFromDay(s, '10/14/2026', 't2', '10/14/2026');
+  assert.deepEqual(state.todayLog.map((f) => f.id), ['t1']);
+});
+
+test('FUNC-01: past-day food sheets are no longer read-only', () => {
+  const main = src('MainApp.tsx');
+  assert.ok(!/readOnly=\{!detailFood\?\.editable\}/.test(main));
+  assert.match(main, /onOpenFood=\{\(item, date\) => setDetailFood\(\{ item, date \}\)\}/);
+  assert.ok(!/readOnly=\{!isToday/.test(src('components/Journal.tsx')));
 });

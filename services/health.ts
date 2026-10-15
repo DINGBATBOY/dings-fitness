@@ -13,6 +13,7 @@
  * on the plugin's JS.
  */
 import { registerPlugin, Capacitor } from '@capacitor/core';
+import { dayKey } from './dayKey';
 
 export interface HealthWorkout {
   uuid: string;
@@ -122,7 +123,7 @@ export const fetchLatestBodyMass = async (): Promise<HealthBodyMass | null> => {
 
 /**
  * Steps + active energy per day for the last `days` days, keyed by the app's
- * date format (toLocaleDateString). {} when unavailable. Older app builds
+ * day key (services/dayKey). {} when unavailable. Older app builds
  * without the native method resolve to {} too (the call rejects → caught).
  */
 export const fetchDailySummaries = async (days = 30): Promise<Record<string, { steps: number | null; activeKcal: number | null }>> => {
@@ -134,7 +135,7 @@ export const fetchDailySummaries = async (days = 30): Promise<Record<string, { s
     for (const d of res.days) {
       const [y, m, day] = d.date.split('-').map(Number);
       if (!y || !m || !day) continue;
-      out[new Date(y, m - 1, day).toLocaleDateString()] = {
+      out[dayKey(new Date(y, m - 1, day))] = {
         steps: typeof d.steps === 'number' ? Math.round(d.steps) : null,
         activeKcal: typeof d.activeKcal === 'number' ? Math.round(d.activeKcal) : null,
       };

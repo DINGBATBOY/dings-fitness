@@ -14,6 +14,7 @@
  * not sent, so the prompt stays small no matter how long someone uses Ding.
  */
 import type { AppState, DailyLog, NutritionTargets, WeightEntry } from '../types';
+import { addDays, dayKey, normalizeDayKey } from './dayKey';
 
 export interface CoachContextInput {
   appState: AppState;
@@ -23,12 +24,10 @@ export interface CoachContextInput {
 }
 
 const r = (n: number) => Math.round(n || 0);
-const DAY = 86400000;
 
 export function buildCoachContext(i: CoachContextInput): string {
   const { appState, targets, consumed } = i;
   const now = new Date();
-  const today = now.toLocaleDateString();
   const lines: string[] = [];
   const profile = appState.profile;
 
@@ -54,15 +53,14 @@ export function buildCoachContext(i: CoachContextInput): string {
   const byDate = new Map<string, DailyLog>();
   for (const l of appState.dailyLogs || []) {
     if (!l?.date) continue;
-    const p = new Date(l.date);
-    byDate.set(Number.isNaN(p.getTime()) ? l.date : p.toLocaleDateString(), l);
+    byDate.set(normalizeDayKey(l.date), l);
   }
   const start = new Date(); start.setHours(0, 0, 0, 0);
   lines.push('', 'LAST 7 DAYS (before today): date · kcal · P/C/F g · water · logged workouts · top foods');
   let weekKcal = 0, weekDays = 0, weekP = 0;
   for (let k = 7; k >= 1; k--) {
-    const d = new Date(start.getTime() - k * DAY);
-    const key = d.toLocaleDateString();
+    const d = addDays(start, -k);
+    const key = dayKey(d);
     const l = byDate.get(key);
     const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
     if (!l || !((l.caloriesConsumed || 0) > 0 || l.foodItems?.length)) { lines.push(`- ${label} · not logged`); continue; }
@@ -75,7 +73,7 @@ export function buildCoachContext(i: CoachContextInput): string {
   // ── 30-day summary ──
   const month: DailyLog[] = [];
   for (let k = 30; k >= 1; k--) {
-    const l = byDate.get(new Date(start.getTime() - k * DAY).toLocaleDateString());
+    const l = byDate.get(dayKey(addDays(start, -k)));
     if (l && ((l.caloriesConsumed || 0) > 0 || l.foodItems?.length)) month.push(l);
   }
   if (month.length) {

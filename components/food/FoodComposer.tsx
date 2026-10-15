@@ -11,6 +11,7 @@ import { fromAnalysis, fromSavedFood, toSavedFood, type ReviewFood } from '../..
 import { readFoodDraft, writeFoodDraft } from '../../services/foodDraftStore';
 import { startFoodJob, recoverFoodJob, watchFoodJob, cancelFoodJob, jobEvent } from '../../services/foodAnalysisJobs';
 import type { AppState, FoodItem, HistoryEntry, NutritionTargets } from '../../types';
+import { daysBetween, parseDayKey, todayKey } from '../../services/dayKey';
 
 type Draft = {
   id: string; text: string; photos: { id: string; url: string }[]; items: ReviewFood[];
@@ -22,7 +23,7 @@ type Draft = {
 export type FoodSeed = { id: string; items: FoodItem[] };
 export type FoodStatus = 'empty' | 'draft' | 'analyzing' | 'ready';
 // The day new food lands on: the dashboard's selected day (defaults to today).
-let targetLogDate = () => new Date().toLocaleDateString();
+let targetLogDate = () => todayKey();
 const freshDraft = (): Draft => ({ id: crypto.randomUUID(), text: '', photos: [], items: [], logDate: targetLogDate() });
 // An empty composer can sit open overnight. Start the date when food is first entered.
 const beginInput = (draft: Draft): Draft => draft.text.trim() || draft.photos.length || draft.items.length ||
@@ -71,10 +72,10 @@ export function FoodComposer({ uid, open, onClose, onOpen, seed, onSeedConsumed,
   history: HistoryEntry[]; onFavorite: (id: string) => void; onRemoveHistory: (id: string) => void;
   targets: NutritionTargets; consumed: { calories: number; protein: number; carbs: number; fat: number };
   customMenuItems?: AppState['customMenuItems']; requireConsent: (action: () => void) => void;
-  /** Selected dashboard day (toLocaleDateString). New food logs here. */
+  /** Selected dashboard day (services/dayKey). New food logs here. */
   logDate?: string; dateLabel?: string;
 }) {
-  const wanted = logDate || new Date().toLocaleDateString();
+  const wanted = logDate || todayKey();
   targetLogDate = () => wanted;
   const [draft, setDraft] = useState<Draft>(freshDraft);
   const current = useRef(draft); current.current = draft;
@@ -264,8 +265,8 @@ export function FoodComposer({ uid, open, onClose, onOpen, seed, onSeedConsumed,
     } catch (err) { if (!/cancel/i.test(String((err as Error)?.message))) { setError('Camera unavailable. Enter the barcode number here.'); setView('barcode'); } }
   }
   const progress = event && (pending || event.type === 'failed' || event.type === 'cancelled');
-  const todayStr = new Date().toLocaleDateString();
-  const draftDateLabel = draft.logDate === todayStr ? 'Today' : new Date(draft.logDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const todayStr = todayKey();
+  const draftDateLabel = draft.logDate === todayStr ? 'Today' : parseDayKey(draft.logDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   // Review / editor / barcode remember where you were; the header's Back goes
   // to the scan screen (camera, photos, describe) and keeps everything.
   const backToStart = loaded && !progress && view !== 'entry' && !(seed && hasDraft)
@@ -298,7 +299,7 @@ export function FoodComposer({ uid, open, onClose, onOpen, seed, onSeedConsumed,
         : view === 'barcode' ? <form className="space-y-4 text-[var(--ink)]" onSubmit={e => { e.preventDefault(); void findBarcode(barcode); }}><button type="button" className={action} onClick={() => setView('entry')}>Back</button><h2 className="text-2xl font-bold">Enter the barcode</h2><label className="block">Numbers below the bars<input autoFocus inputMode="numeric" pattern="[0-9]{8,14}" required value={barcode} onChange={e => setBarcode(e.target.value)} className="mt-2 min-h-12 w-full rounded-xl border border-[var(--ink-mid)]/60 bg-[var(--bg-card)] p-3 text-base" /></label><button type="submit" className="min-h-14 w-full rounded-xl bg-[#d97757] font-semibold text-[var(--bg-dark)]">Find this food</button></form>
         : view === 'review' ? <>
           {draft.photos[0] && <img src={draft.photos[0].url} alt="Your meal" className="mb-5 h-36 w-full rounded-2xl object-cover" />}
-          {draft.logDate !== new Date().toLocaleDateString() && <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-[#e8a85a]/50 p-3 text-[var(--ink)]"><p className="text-sm">Logging to <b>{draftDateLabel}</b></p><button type="button" className={`${action} tap shrink-0 text-sm`} onClick={() => setDraft(d => ({ ...d, logDate: new Date().toLocaleDateString() }))}>Use today</button></div>}
+          {draft.logDate !== todayKey() && <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-[#e8a85a]/50 p-3 text-[var(--ink)]"><p className="text-sm">Logging to <b>{draftDateLabel}</b></p><button type="button" className={`${action} tap shrink-0 text-sm`} onClick={() => setDraft(d => ({ ...d, logDate: todayKey() }))}>Use today</button></div>}
           <MealReview items={draft.items} onQuantity={(id, quantity) => setDraft(d => ({ ...d, items: d.items.map(i => i.id === id ? { ...i, quantity } : i) }))}
             onCorrect={async (id, note) => { requireConsent(() => { onOpen(); void analyze(id, note); }); }}
             onEdit={id => { setEditing(id); setView('editor'); }} onRemove={id => setDraft(d => ({ ...d, items: d.items.filter(i => i.id !== id) }))}
@@ -365,8 +366,8 @@ function AddSections({ history, onPick, onFavorite, onRemoveHistory, eats, quick
   const q = query.trim().toLowerCase();
   const shown = q ? list.filter(h => h.label.toLowerCase().includes(q)) : list;
   const ago = (ts: string) => {
-    const d = new Date(ts); if (Number.isNaN(d.getTime())) return '';
-    const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+    const d = ts.includes('T') ? new Date(ts) : parseDayKey(ts); if (Number.isNaN(d.getTime())) return '';
+    const days = daysBetween(d, new Date());
     return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? `${days} days ago` : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
   return <div className="space-y-4">

@@ -19,6 +19,7 @@
  */
 
 import type { DailyLog, UserProfile, WeightEntry } from '../../types';
+import { parseDayKey } from '../../services/dayKey';
 
 const KCAL_PER_LB = 3500;
 // How much of the observed error we apply each week. 0.4 = 40% — fast
@@ -123,7 +124,7 @@ export const computeAdaptiveTDEE = (
   const windowStart = baseline[0].date.getTime();
   const windowEnd = recent[recent.length - 1].date.getTime();
   const recentWindow = (dailyLogs || []).filter(log => {
-    const date = new Date(log.date).getTime();
+    const date = parseDayKey(log.date).getTime();
     return date >= windowStart && date <= windowEnd && (log.caloriesConsumed || 0) >= 500;
   });
   const dayCount = recentWindow.length;

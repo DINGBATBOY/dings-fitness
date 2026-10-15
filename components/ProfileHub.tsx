@@ -10,6 +10,7 @@ import React, { useMemo, useState } from 'react';
 import { Flame, CalendarCheck, Utensils, Gauge, Scale, ListChecks, Pencil, Sun, Moon, Check, Droplets } from 'lucide-react';
 import type { DailyLog, FoodItem, HistoryEntry, UserProfile, WeightEntry } from '../types';
 import { TONES, type Appearance } from '../services/theme';
+import { parseDayKey } from '../services/dayKey';
 
 export type ProfileSection = 'history' | 'settings';
 
@@ -58,7 +59,7 @@ export const ProfileHub: React.FC<ProfileHubProps> = ({
       for (const [name, count] of counts) if (!most || count > most.count) most = { name, count };
     }
     const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - 7);
-    const recent = days.filter(l => new Date(l.date) >= cutoff);
+    const recent = days.filter(l => parseDayKey(l.date) >= cutoff);
     const avg7 = recent.length ? recent.reduce((s, l) => s + (l.caloriesConsumed || 0), 0) / recent.length : 0;
     const sorted = [...(weighIns || [])].filter(w => w.weight > 50 && w.weight < 700).sort((a, b) => a.date.localeCompare(b.date));
     const start = profile.initialWeight || sorted[0]?.weight;

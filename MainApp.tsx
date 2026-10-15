@@ -16,7 +16,7 @@ import { buildCoachContext } from './services/coachContext';
 import { FoodDetailSheet } from './components/FoodDetailSheet';
 import { readAppearance, applyAppearance, isValidAppearance, type Appearance } from './services/theme';
 import { FoodDialog } from './components/food/FoodDialog';
-import { commitFood } from './services/foodCommit';
+import { commitFood, removeFoodFromDay, restoreFoodToDay, rolloverDay, updateFoodOnDay } from './services/foodCommit';
 import { DeleteAccountModal } from './components/DeleteAccountModal';
 import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
@@ -48,6 +48,7 @@ import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Mea
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser, calculateTDEEDetailed } from './constants';
 import { sendChatMessage } from './services/geminiService';
 import { profileForAi } from './services/aiPrivacy';
+import { dayKey, normalizeDayKey, parseDayKey, shiftDayKey, todayKey } from './services/dayKey';
 import { db, auth, functions, isConfigured } from './services/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
@@ -66,7 +67,7 @@ const DEFAULT_STATE: AppState = {
     waterIntake: 0,
     weighIns: [],
     bodyStats: INITIAL_BODY_STATS,
-    lastActiveDate: new Date().toLocaleDateString()
+    lastActiveDate: todayKey()
 };
 
 // FALLBACK SPLIT in case AI fails or is slow
@@ -214,15 +215,17 @@ const classifyMeal = (timestamp: string | undefined): MealKey => {
 // any logged food (calories consumed > 0 or foodItems present). Today is
 // pulled from todayLog since dailyLogs is the historical record.
 const computeStreak = (dailyLogs: any[], todayLog: any[]): number => {
+  // Day keys (services/dayKey). This used toISOString() (UTC, YYYY-MM-DD),
+  // which never matched the M/D/YYYY archive keys, so streaks stopped at 1.
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = dayKey(today);
 
   const loggedDates = new Set<string>();
   if (todayLog && todayLog.length > 0) loggedDates.add(todayStr);
   (dailyLogs || [])
     .filter(l => (l.caloriesConsumed ?? 0) > 0 || (l.foodItems && l.foodItems.length > 0))
-    .forEach(l => loggedDates.add(l.date));
+    .forEach(l => loggedDates.add(normalizeDayKey(l.date)));
 
   let streak = 0;
   const d = new Date(today);
@@ -231,7 +234,7 @@ const computeStreak = (dailyLogs: any[], todayLog: any[]): number => {
   if (!loggedDates.has(todayStr)) d.setDate(d.getDate() - 1);
 
   for (let i = 0; i < 365; i++) {
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = dayKey(d);
     if (loggedDates.has(dateStr)) {
       streak++;
       d.setDate(d.getDate() - 1);
@@ -302,12 +305,12 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // UI State
   const [activeTab, setActiveTab] = useState('dashboard');
   // Home shows ONE day at a time; the date bar switches it. New food logs to it.
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toLocaleDateString());
+  const [selectedDate, setSelectedDate] = useState(() => todayKey());
   const [profileSection, setProfileSection] = useState<ProfileSection>('history');
   const [appearance, setAppearanceState] = useState<Appearance>(() => readAppearance());
   const [healthByDate, setHealthByDate] = useState<Record<string, DaySummary>>({});
   const [healthWorkouts, setHealthWorkouts] = useState<HealthWorkout[]>([]);
-  const [detailFood, setDetailFood] = useState<{ item: FoodItem; editable: boolean } | null>(null);
+  const [detailFood, setDetailFood] = useState<{ item: FoodItem; date: string } | null>(null);
   const [showFuelCoach, setShowFuelCoach] = useState(false);
 
   // Single entry point for logging food. The FAB and the dashboard tile both
@@ -530,74 +533,25 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // midnight still roll over without requiring a navigation.
   useEffect(() => {
     const performRollover = () => {
-      const todayStr = new Date().toLocaleDateString();
+      const todayStr = todayKey();
 
       let archivedJustNow = false;
       let isMonday = false;
 
       setAppState(prev => {
-        const lastDate = prev.lastActiveDate;
-        if (!lastDate || lastDate === todayStr) return prev; // nothing to do
-
-        // IDEMPOTENCY GUARD — don't double-archive if a log for lastDate
-        // already exists (handles Strict Mode double-firing and snapshot
-        // race conditions where the same effect could run twice).
-        const alreadyArchived = (prev.dailyLogs || []).some(l => l.date === lastDate);
-
-        const safeTodayLog = prev.todayLog || [];
-        const calories = safeTodayLog.reduce((acc, item) => acc + (item.calories || 0), 0);
-        const protein  = safeTodayLog.reduce((acc, item) => acc + (item.protein  || 0), 0);
-        const carbs    = safeTodayLog.reduce((acc, item) => acc + (item.carbs    || 0), 0);
-        const fat      = safeTodayLog.reduce((acc, item) => acc + (item.fat      || 0), 0);
-        const fiber    = safeTodayLog.reduce((acc, item) => acc + (item.fiber    || 0), 0);
-
-        // Skip archiving days with no real activity — opening the app and
-        // logging nothing shouldn't create a placeholder entry. This was
-        // creating dozens of empty rows that polluted the Journal navigation.
-        const hadAnyActivity =
-          safeTodayLog.length > 0 ||
-          (prev.waterIntake || 0) > 0 ||
-          (prev.activityBurn || 0) > 0;
-
-        let nextDailyLogs = prev.dailyLogs || [];
-        if (!alreadyArchived && hadAnyActivity) {
-          const archivedLog: DailyLog = {
-            date: lastDate,
-            weight: 0,
-            caloriesConsumed: calories,
-            proteinConsumed: protein,
-            carbsConsumed: carbs,
-            fatConsumed: fat,
-            fiberConsumed: fiber,
-            waterIntake: prev.waterIntake,
-            caloriesBurned: prev.activityBurn,
-            workoutCompleted: false,
-            foodItems: safeTodayLog,
-          };
-          nextDailyLogs = [...nextDailyLogs, archivedLog];
-          archivedJustNow = true;
-          if (import.meta.env.DEV) console.log("[Rollover] Archived", safeTodayLog.length, "items for", lastDate, "→", todayStr);
-        } else if (alreadyArchived) {
-          if (import.meta.env.DEV) console.log("[Rollover] Already archived", lastDate, "— resetting today only");
-        } else {
-          if (import.meta.env.DEV) console.log("[Rollover] Skipping empty day", lastDate, "— no food/water/burn logged");
-        }
-
-        const next = {
-          ...prev,
-          dailyLogs: nextDailyLogs,
-          todayLog: [],
-          activityBurn: 0,
-          waterIntake: 0,
-          lastActiveDate: todayStr,
-        };
-        // Persist immediately. Fire-and-forget is OK because localStorage
-        // is also written synchronously inside saveToCloud, so a closed tab
-        // doesn't lose data — the next sign-in will push it.
+        if (!prev.lastActiveDate || prev.lastActiveDate === todayStr) return prev; // nothing to do
+        if (normalizeDayKey(prev.lastActiveDate) === todayStr) return { ...prev, lastActiveDate: todayStr }; // legacy key, same day
+        // Same merge commitFood uses (services/foodCommit rolloverDay): food
+        // is appended to any existing archive for that date, de-duplicated
+        // by id, so todayLog is never dropped (audit DATA-02). Idempotent:
+        // a second run finds lastActiveDate === today and does nothing.
+        const { state: next, archived } = rolloverDay(prev, todayStr);
+        archivedJustNow = archived;
+        if (import.meta.env.DEV) console.log('[Rollover]', prev.lastActiveDate, '->', todayStr, archived ? `archived ${(prev.todayLog || []).length} items` : 'nothing to archive');
         // Send only the fields rollover actually changes — spreading `next`
         // here would re-upload the entire document (see handleUpdateAppState).
         saveToCloud({
-          dailyLogs: nextDailyLogs,
+          dailyLogs: next.dailyLogs,
           todayLog: [],
           activityBurn: 0,
           waterIntake: 0,
@@ -764,8 +718,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       setSelectedDate(prev => {
-        const t = new Date().toLocaleDateString();
-        const y = new Date(Date.now() - 86400000).toLocaleDateString();
+        const t = todayKey();
+        const y = shiftDayKey(t, -1);
         return prev === y ? t : prev;
       });
     };
@@ -820,7 +774,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       const cutoff = new Date(today);
       cutoff.setDate(cutoff.getDate() - 30);
       const recentRealDays = (appState.dailyLogs || []).filter(l => {
-          const d = new Date(l.date);
+          const d = parseDayKey(l.date);
           const real = (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0 || (l.caloriesBurned || 0) > 0;
           return d >= cutoff && real;
       }).length;
@@ -1079,7 +1033,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   // Same pattern, but for food log deletions. We snapshot the deleted item
   // + its position in todayLog so undo restores it where it was.
-  const [pendingDeleteUndo, setPendingDeleteUndo] = useState<{ item: FoodItem; index: number; expiresAt: number } | null>(null);
+  const [pendingDeleteUndo, setPendingDeleteUndo] = useState<{ item: FoodItem; index: number; date: string; expiresAt: number } | null>(null);
 
   const logActivity = (calories: number) => {
     handleUpdateAppState(prev => ({
@@ -1141,13 +1095,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // position so the order doesn't visibly jump around on undo.
   const undoLastDelete = () => {
     if (!pendingDeleteUndo) return;
-    const { item, index } = pendingDeleteUndo;
-    handleUpdateAppState(prev => {
-        const next = [...(prev.todayLog || [])];
-        const insertAt = Math.min(index, next.length);
-        next.splice(insertAt, 0, item);
-        return { ...prev, todayLog: next };
-    });
+    const { item, index, date } = pendingDeleteUndo;
+    // Back onto the day it was deleted from, even if midnight passed since (FUNC-05).
+    handleUpdateAppState(prev => restoreFoodToDay(prev, date, item, index));
     setPendingDeleteUndo(null);
     triggerToast(`Restored ${item.name}`);
   };
@@ -1524,7 +1474,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   // Shared commit for scans, manual food, barcodes, usuals and menu suggestions.
   // Stable item IDs make a retried save harmless, including after a relaunch.
-  const pushFoodToState = async (items: FoodItem[], label?: string, logDate = new Date().toLocaleDateString()) => {
+  const pushFoodToState = async (items: FoodItem[], label?: string, logDate = todayKey()) => {
       const mealLabel = label || items.map(item => item.name).join(', ');
       const { state: next, added: fresh } = commitFood(latestAppState.current, items, mealLabel, logDate);
       if (!fresh.length && next === latestAppState.current) return;
@@ -1543,25 +1493,22 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       setPendingFoodUndo({ ids: fresh.map(i => i.id), label: mealLabel, expiresAt });
       setSelectedDate(logDate);
       switchTab('dashboard');
-      triggerToast(logDate === new Date().toLocaleDateString() ? 'Logged. LETS GOOOO' : 'Logged to ' + logDate, 8000, 'food');
+      triggerToast(logDate === todayKey() ? 'Logged. LETS GOOOO' : 'Logged to ' + parseDayKey(logDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }), 8000, 'food');
   };
 
-  const deleteLog = (id: string) => {
-      // Snapshot the item BEFORE we remove it so undo can restore it exactly
-      // (including its original position in the food log order).
-      const currentLog = appState.todayLog || [];
-      const index = currentLog.findIndex(item => item.id === id);
-      const snapshot = index >= 0 ? currentLog[index] : null;
+  // Delete a logged food from any day: today's live log or an archived day
+  // (audit FUNC-01). Totals for past days are adjusted in foodCommit.
+  const deleteLog = (id: string, date: string = todayKey()) => {
+      const { removed } = removeFoodFromDay(appState, date, id);
+      const snapshot = removed?.item ?? null;
+      const index = removed?.index ?? 0;
 
-      handleUpdateAppState(prev => ({
-          ...prev,
-          todayLog: (prev.todayLog || []).filter(item => item.id !== id)
-      }));
+      handleUpdateAppState(prev => removeFoodFromDay(prev, date, id).state);
 
       if (snapshot) {
           // 5-second undo window. Same pattern as activity-burn / food-add undo.
           const expiresAt = Date.now() + 5000;
-          setPendingDeleteUndo({ item: snapshot, index, expiresAt });
+          setPendingDeleteUndo({ item: snapshot, index, date, expiresAt });
           triggerToast(`Removed ${snapshot.name}.`, 5000, 'delete');
           setTimeout(() => {
               setPendingDeleteUndo(curr =>
@@ -1769,24 +1716,23 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         onSave={pushFoodToState} history={appState.foodHistory || []} onFavorite={toggleHistoryFavorite} onRemoveHistory={removeHistoryEntry}
         targets={targetMacros} consumed={consumedMacros} customMenuItems={appState.customMenuItems}
         logDate={selectedDate}
-        dateLabel={selectedDate === new Date().toLocaleDateString() ? 'Today' : new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+        dateLabel={selectedDate === todayKey() ? 'Today' : parseDayKey(selectedDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
         requireConsent={action => {
           if (hasAiConsent()) { action(); return; }
           setShowAddFood(false);
           requireAiConsent(action);
         }} />
 
-      {/* Food drill-in from the dashboard. Today's items are editable; past days read-only. */}
+      {/* Food drill-in from the dashboard. Any day's food can be edited or
+          deleted; that day's totals follow (audit FUNC-01). */}
       <FoodDetailSheet
         item={detailFood?.item ?? null}
-        readOnly={!detailFood?.editable}
+        readOnly={false}
         onClose={() => setDetailFood(null)}
-        onDelete={(id) => deleteLog(id)}
+        onDelete={(id) => deleteLog(id, detailFood?.date)}
         onSave={(updated) => {
-          handleUpdateAppState(prev => ({
-            ...prev,
-            todayLog: (prev.todayLog || []).map(it => it.id === updated.id ? updated : it),
-          }));
+          const date = detailFood?.date ?? todayKey();
+          handleUpdateAppState(prev => updateFoodOnDay(prev, date, updated));
           triggerToast('Updated');
         }}
       />
@@ -1844,7 +1790,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           healthConnected={!!appState.profile?.healthSyncEnabled}
           onConnectHealth={isHealthSupported() && healthDeviceAvailable && !appState.profile?.healthSyncEnabled ? connectHealth : undefined}
           onAddFood={openAddFood}
-          onOpenFood={(item, editable) => setDetailFood({ item, editable })}
+          onOpenFood={(item, date) => setDetailFood({ item, date })}
           onLogWater={updateWater}
           onLogWeight={(weight) => recordWeight(weight)}
           onOpenFuelCoach={() => setShowFuelCoach(true)}
@@ -2060,14 +2006,9 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             requireAiConsent={requireAiConsent}
             targets={targetMacros}
             onDeleteLog={deleteLog}
-            onUpdateFood={(updated) => {
-              // Replace the matching item in today's live log. Past-day
-              // items pass a read-only sheet, so we don't need to touch
-              // archived logs here — the sheet won't call this for those.
-              handleUpdateAppState(prev => ({
-                ...prev,
-                todayLog: (prev.todayLog || []).map(it => it.id === updated.id ? updated : it),
-              }));
+            onUpdateFood={(updated, date) => {
+              // Same path as the dashboard: today or any archived day (FUNC-01).
+              handleUpdateAppState(prev => updateFoodOnDay(prev, date, updated));
               triggerToast('Updated');
             }}
           />

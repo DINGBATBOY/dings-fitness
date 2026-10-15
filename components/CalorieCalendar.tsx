@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { DailyLog } from '../types';
+import { parseDayKey } from '../services/dayKey';
 
 interface CalorieCalendarProps {
   logs: DailyLog[];
@@ -26,7 +27,7 @@ export const CalorieCalendar: React.FC<CalorieCalendarProps> = ({ logs, targetCa
   // Let's normalize data for quick lookup
   const logMap = new Map<number, DailyLog>();
   logs.forEach(log => {
-      const d = new Date(log.date);
+      const d = parseDayKey(log.date);
       if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
           logMap.set(d.getDate(), log);
       }

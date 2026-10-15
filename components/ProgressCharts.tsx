@@ -19,6 +19,7 @@ import React, { useMemo, useState } from 'react';
 import type { DailyLog, FoodItem, NutritionTargets, UserProfile, WeightEntry } from '../types';
 import { computeEnergyBalance } from '../constants';
 import type { DaySummary } from './Dashboard';
+import { addDays, dayKey, isoDate, normalizeDayKey, parseDayKey } from '../services/dayKey';
 
 interface Props {
   profile: UserProfile;
@@ -39,7 +40,6 @@ type Day = {
   logged: boolean; burned: number | null; net: number | null;
 };
 
-const DAY = 86400000;
 const card = 'rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5';
 const eyebrow = 'text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink-light)]';
 const n0 = (v: number) => Math.round(v).toLocaleString();
@@ -57,13 +57,12 @@ export const ProgressCharts: React.FC<Props> = ({
     const byDate = new Map<string, DailyLog>();
     for (const l of dailyLogs || []) {
       if (!l?.date) continue;
-      const p = new Date(l.date);
-      byDate.set(Number.isNaN(p.getTime()) ? l.date : p.toLocaleDateString(), l);
+      byDate.set(normalizeDayKey(l.date), l);
     }
     const start = new Date(); start.setHours(0, 0, 0, 0);
     return Array.from({ length: range }, (_, i) => {
-      const d = new Date(start.getTime() - (range - 1 - i) * DAY);
-      const date = d.toLocaleDateString();
+      const d = addDays(start, -(range - 1 - i));   // DST-safe (DATE-01)
+      const date = dayKey(d);
       const isToday = i === range - 1;
       const l = byDate.get(date);
       const eaten = isToday ? todayConsumed.calories : (l?.caloriesConsumed || 0);
@@ -96,7 +95,7 @@ export const ProgressCharts: React.FC<Props> = ({
   const nearTarget = logged.filter(d => Math.abs(d.eaten - targets.calories) <= targets.calories * 0.1).length;
 
   const weights = useMemo(() => {
-    const cutoff = new Date(Date.now() - (range - 1) * DAY).toISOString().slice(0, 10);
+    const cutoff = isoDate(addDays(new Date(), -(range - 1)));
     return [...(weighIns || [])].filter(w => w.weight > 50 && w.weight < 700 && w.date >= cutoff).sort((a, b) => a.date.localeCompare(b.date));
   }, [weighIns, range]);
 
@@ -317,8 +316,8 @@ function WeightLine({ points }: { points: WeightEntry[] }) {
   const W = 320, H = 120, pad = 10;
   const ws = points.map(p => p.weight);
   const min = Math.min(...ws), max = Math.max(...ws), span = Math.max(1, max - min);
-  const t0 = new Date(points[0].date).getTime(), t1 = new Date(points[points.length - 1].date).getTime();
-  const x = (p: WeightEntry) => pad + ((new Date(p.date).getTime() - t0) / Math.max(1, t1 - t0)) * (W - pad * 2);
+  const t0 = parseDayKey(points[0].date).getTime(), t1 = parseDayKey(points[points.length - 1].date).getTime();
+  const x = (p: WeightEntry) => pad + ((parseDayKey(p.date).getTime() - t0) / Math.max(1, t1 - t0)) * (W - pad * 2);
   const y = (p: WeightEntry) => pad + (1 - (p.weight - min) / span) * (H - pad * 2);
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${x(p).toFixed(1)},${y(p).toFixed(1)}`).join(' ');
   const i = sel ?? points.length - 1;

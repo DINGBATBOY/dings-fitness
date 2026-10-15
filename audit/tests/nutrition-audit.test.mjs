@@ -32,6 +32,7 @@ export * from ${JSON.stringify(join(root, 'constants.tsx'))};
 export * from ${JSON.stringify(join(root, 'services/foodDraft.ts'))};
 export * from ${JSON.stringify(join(root, 'services/foodCommit.ts'))};
 export * from ${JSON.stringify(join(root, 'src/utils/adaptiveTDEE.ts'))};
+export * from ${JSON.stringify(join(root, 'services/dayKey.ts'))};
 `);
 esbuild.buildSync({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: join(out, 'app.mjs'),
   jsx: 'automatic', logLevel: 'silent', nodePaths: [join(root, 'node_modules')] });
@@ -208,18 +209,16 @@ test('DEFECT: server accepts a single item of 50,000 kcal (ISSUE AI-02)', () => 
 
 // ───────────────────────── 4. Dates, midnight, timezones ───────────────────
 
-// REPLICA of components/Dashboard.tsx parse/shift (lines 64–66).
-const DAY = 86400000;
-const parse = d => { const t = new Date(d); t.setHours(0, 0, 0, 0); return t; };
-const shift = (d, n) => new Date(parse(d).getTime() + n * DAY).toLocaleDateString();
+// Dashboard's day shift is now services/dayKey shiftDayKey (exported, no replica).
+// The date tests run the REAL bundled module in a child process with TZ/LANG set.
+const appUrl = pathToFileURL(join(out, 'app.mjs')).href;
 
 function inTz(tz, locale, code) {
   return execFileSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, TZ: tz, LANG: locale, LC_ALL: locale }, encoding: 'utf8' }).trim();
 }
 
 test('DEFECT: day switcher "next day" is stuck on the US fall-back DST day, Nov 1 2026 (ISSUE DATE-01)', () => {
-  const code = `const DAY=86400000;const parse=d=>{const t=new Date(d);t.setHours(0,0,0,0);return t};
-    const shift=(d,n)=>new Date(parse(d).getTime()+n*DAY).toLocaleDateString('en-US');
+  const code = `const { shiftDayKey: shift } = await import(${JSON.stringify(appUrl)});
     console.log(shift('11/1/2026',1)+'|'+shift('3/15/2027',-1))`;
   const [next, prev] = inTz('America/New_York', 'en_US.UTF-8', code).split('|');
   assert.equal(next, '11/2/2026', `next day after Nov 1 resolved to ${next}`);
@@ -227,25 +226,18 @@ test('DEFECT: day switcher "next day" is stuck on the US fall-back DST day, Nov 
 });
 
 test('DEFECT: non-US date formats break day parsing (en-GB "14/10/2026" → Invalid Date) (ISSUE DATE-02)', () => {
-  const code = `const s=new Date(2026,9,14).toLocaleDateString('en-GB');const p=new Date(s);
-    const s2=new Date(2026,9,5).toLocaleDateString('en-GB');const p2=new Date(s2);
+  // Was: new Date(toLocaleDateString()) round trip. Day keys now come from dayKey()/parseDayKey().
+  const code = `const { dayKey, parseDayKey } = await import(${JSON.stringify(appUrl)});
+    const s=dayKey(new Date(2026,9,14));const p=parseDayKey(s);
+    const s2=dayKey(new Date(2026,9,5));const p2=parseDayKey(s2);
     console.log(s+'|'+isNaN(p.getTime())+'|'+s2+'|'+p2.getMonth()+'-'+p2.getDate())`;
   const [s, invalid, s2, md] = inTz('Europe/London', 'en_GB.UTF-8', code).split('|');
   assert.equal(invalid, 'false', `${s} could not be parsed back into a date`);
   assert.equal(md, '9-5', `${s2} (5 Oct) parsed back as month-day ${md}`);
 });
 
-// REPLICA of MainApp.tsx performRollover (lines 537–606), reduced to the data path.
-function rollover(prev, todayStr) {
-  const lastDate = prev.lastActiveDate;
-  if (!lastDate || lastDate === todayStr) return prev;
-  const alreadyArchived = (prev.dailyLogs || []).some(l => l.date === lastDate);
-  const log = prev.todayLog || [];
-  const had = log.length > 0 || prev.waterIntake > 0 || prev.activityBurn > 0;
-  let dailyLogs = prev.dailyLogs || [];
-  if (!alreadyArchived && had) dailyLogs = [...dailyLogs, { date: lastDate, caloriesConsumed: log.reduce((a, i) => a + i.calories, 0), foodItems: log }];
-  return { ...prev, dailyLogs, todayLog: [], activityBurn: 0, waterIntake: 0, lastActiveDate: todayStr };
-}
+// MainApp's rollover is now services/foodCommit rolloverDay (exported, no replica).
+const rollover = (prev, todayStr) => app.rolloverDay(prev, todayStr).state;
 
 test('DEFECT: rollover silently drops today\'s food when that date already has an archive (ISSUE DATA-02)', () => {
   // Westward travel across midnight: Oct 15 local becomes Oct 14 again in the new zone.

@@ -13,6 +13,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { normalizeDayKey, parseDayKey, todayKey } from '../services/dayKey';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Flame, Beef, Wheat, Droplets, Trophy, Zap, Activity, TrendingUp,
@@ -107,7 +108,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
 
   // ----- ASSEMBLE LOGS IN WINDOW ------------------------------------------
   const logsInWindow = useMemo<DailyLog[]>(() => {
-    const todayStr = new Date().toLocaleDateString();
+    const todayStr = todayKey();
     const todayEntry: DailyLog = {
       date: todayStr,
       weight: profile.weight || 0,
@@ -122,6 +123,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
     };
     const seen = new Set<string>();
     const history = (dailyLogs || [])
+      .map(l => ({ ...l, date: normalizeDayKey(l.date) }))
       .filter(l => l.date !== todayStr)
       .filter(l => {
         if (seen.has(l.date)) return false;
@@ -130,7 +132,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
       });
     const combined = [todayEntry, ...history];
     return combined.filter(l => {
-      const d = new Date(l.date);
+      const d = parseDayKey(l.date);
       return d >= window.start && d <= window.end && hasRealActivity(l);
     });
   }, [dailyLogs, todayLog, todayActivityBurn, todayWaterIntake, profile.weight, window]);
@@ -156,7 +158,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
     const avg = (n: number) => (days > 0 ? Math.round(n / days) : 0);
 
     // ---- Streak: longest run of consecutive logged days in the window ----
-    const dateKeys = new Set(logsInWindow.map(l => new Date(l.date).toDateString()));
+    const dateKeys = new Set(logsInWindow.map(l => parseDayKey(l.date).toDateString()));
     let longestStreak = 0;
     let currentRun = 0;
     const probe = new Date(window.start);
@@ -242,7 +244,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
         3: { sum: 0, n: 0, ratioSum: 0 }, 4: { sum: 0, n: 0, ratioSum: 0 }, 5: { sum: 0, n: 0, ratioSum: 0 },
         6: { sum: 0, n: 0, ratioSum: 0 } };
     for (const l of logsInWindow) {
-      const dow = new Date(l.date).getDay();
+      const dow = parseDayKey(l.date).getDay();
       byDOW[dow].sum += (l.caloriesConsumed || 0);
       byDOW[dow].n   += 1;
       byDOW[dow].ratioSum += Math.min(1, (l.proteinConsumed || 0) / Math.max(1, targets.protein));
@@ -918,7 +920,7 @@ const StandoutRow: React.FC<{
       <div className="text-sm text-white font-bold tabular-nums">{value}</div>
     </div>
     <div className="text-[10px] text-gray-500 tabular-nums shrink-0">
-      {new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+      {parseDayKey(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
     </div>
   </div>
 );
