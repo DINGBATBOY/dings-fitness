@@ -1,0 +1,83 @@
+TAP version 13
+# Subtest: retrying a save does not duplicate food or increment usual counts
+ok 1 - retrying a save does not duplicate food or increment usual counts
+  ---
+  duration_ms: 32.158255
+  type: 'test'
+  ...
+# Subtest: a scan finished after midnight keeps both the previous meal and pending food on their intended day
+ok 2 - a scan finished after midnight keeps both the previous meal and pending food on their intended day
+  ---
+  duration_ms: 0.512651
+  type: 'test'
+  ...
+# Subtest: choosing today after midnight archives old food before adding the new meal
+ok 3 - choosing today after midnight archives old food before adding the new meal
+  ---
+  duration_ms: 0.215786
+  type: 'test'
+  ...
+# Subtest: portion toggles always use the original base, without rounding drift
+ok 4 - portion toggles always use the original base, without rounding drift
+  ---
+  duration_ms: 0.219026
+  type: 'test'
+  ...
+# Subtest: saving a composed food does not double-count its ingredients
+ok 5 - saving a composed food does not double-count its ingredients
+  ---
+  duration_ms: 0.16046
+  type: 'test'
+  ...
+# Subtest: relogging preserves evidence and does not apply the original portion twice
+ok 6 - relogging preserves evidence and does not apply the original portion twice
+  ---
+  duration_ms: 1.395104
+  type: 'test'
+  ...
+# Subtest: unknown fiber remains unknown; true zero remains zero
+ok 7 - unknown fiber remains unknown; true zero remains zero
+  ---
+  duration_ms: 0.232513
+  type: 'test'
+  ...
+# Subtest: zero calorie food can save but negative, missing and nonfinite values cannot
+ok 8 - zero calorie food can save but negative, missing and nonfinite values cannot
+  ---
+  duration_ms: 0.200773
+  type: 'test'
+  ...
+# Subtest: analyzed label totals already include servings; client never multiplies them twice
+ok 9 - analyzed label totals already include servings; client never multiplies them twice
+  ---
+  duration_ms: 0.616335
+  type: 'test'
+  ...
+# Subtest: malformed source links do not break food review or render unsafe schemes
+ok 10 - malformed source links do not break food review or render unsafe schemes
+  ---
+  duration_ms: 0.506612
+  type: 'test'
+  ...
+# Subtest: user overrides preserve evidence links but drop model confidence
+ok 11 - user overrides preserve evidence links but drop model confidence
+  ---
+  duration_ms: 0.235957
+  type: 'test'
+  ...
+# Subtest: server rejects incomplete or malformed nutrition rather than guessing zeros
+ok 12 - server rejects incomplete or malformed nutrition rather than guessing zeros
+  ---
+  duration_ms: 0.612428
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 426.159129
+exit 0

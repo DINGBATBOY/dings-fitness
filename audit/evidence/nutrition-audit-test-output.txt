@@ -1,0 +1,301 @@
+TAP version 13
+# Subtest: Mifflin-St Jeor BMR matches the published formula (male, 180 lb, 70 in, 30 y)
+ok 1 - Mifflin-St Jeor BMR matches the published formula (male, 180 lb, 70 in, 30 y)
+  ---
+  duration_ms: 1.085453
+  type: 'test'
+  ...
+# Subtest: Katch-McArdle is used only for plausible body fat (5–60%)
+ok 2 - Katch-McArdle is used only for plausible body fat (5–60%)
+  ---
+  duration_ms: 0.142992
+  type: 'test'
+  ...
+# Subtest: typical targets: macro calories reconcile with the calorie target within rounding (±15 kcal)
+ok 3 - typical targets: macro calories reconcile with the calorie target within rounding (±15 kcal)
+  ---
+  duration_ms: 0.387045
+  type: 'test'
+  ...
+# Subtest: safety floor holds for every split and goal (female 1200 / male 1500 / 75% TDEE)
+ok 4 - safety floor holds for every split and goal (female 1200 / male 1500 / 75% TDEE)
+  ---
+  duration_ms: 0.401339
+  type: 'test'
+  ...
+# Subtest: DEFECT: high body weight — protein is set on total body weight and crowds out fat (ISSUE NUT-01)
+not ok 5 - DEFECT: high body weight — protein is set on total body weight and crowds out fat (ISSUE NUT-01)
+  ---
+  duration_ms: 0.52893
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:85:1'
+  failureType: 'testCodeFailure'
+  error: 'protein is 70% of calories (288 g)'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:91:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: DEFECT: 420 lb user gets a 483 g/day protein target (ISSUE NUT-01)
+not ok 6 - DEFECT: 420 lb user gets a 483 g/day protein target (ISSUE NUT-01)
+  ---
+  duration_ms: 0.15198
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:95:1'
+  failureType: 'testCodeFailure'
+  error: 'protein 483 g/day'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:98:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: energy balance: Health active energy is truth, logged workouts are not added twice
+ok 7 - energy balance: Health active energy is truth, logged workouts are not added twice
+  ---
+  duration_ms: 0.33459
+  type: 'test'
+  ...
+# Subtest: logging 100 g, 150 g, 0.5 and 2.5 servings scales every macro linearly
+ok 8 - logging 100 g, 150 g, 0.5 and 2.5 servings scales every macro linearly
+  ---
+  duration_ms: 14.193384
+  type: 'test'
+  ...
+# Subtest: ingredients scale with the portion and still sum to the item total
+ok 9 - ingredients scale with the portion and still sum to the item total
+  ---
+  duration_ms: 0.448291
+  type: 'test'
+  ...
+# Subtest: rejects zero, negative and non-finite quantities and nutrients
+ok 10 - rejects zero, negative and non-finite quantities and nutrients
+  ---
+  duration_ms: 0.560076
+  type: 'test'
+  ...
+# Subtest: zero-calorie product (diet soda) is valid and adds nothing
+ok 11 - zero-calorie product (diet soda) is valid and adds nothing
+  ---
+  duration_ms: 0.781565
+  type: 'test'
+  ...
+# Subtest: incomplete fiber stays unknown (undefined) instead of becoming a verified 0
+ok 12 - incomplete fiber stays unknown (undefined) instead of becoming a verified 0
+  ---
+  duration_ms: 0.120904
+  type: 'test'
+  ...
+# Subtest: extremely large but valid quantity (20 servings) is accepted and scales exactly
+ok 13 - extremely large but valid quantity (20 servings) is accepted and scales exactly
+  ---
+  duration_ms: 0.109896
+  type: 'test'
+  ...
+# Subtest: adding the same saved food twice from Recent creates two entries (intended re-log)
+ok 14 - adding the same saved food twice from Recent creates two entries (intended re-log)
+  ---
+  duration_ms: 0.442946
+  type: 'test'
+  ...
+# Subtest: a retried save of the same draft does not double count (idempotent commit)
+ok 15 - a retried save of the same draft does not double count (idempotent commit)
+  ---
+  duration_ms: 0.145841
+  type: 'test'
+  ...
+# Subtest: logging to a past day updates that day's stored totals exactly
+ok 16 - logging to a past day updates that day's stored totals exactly
+  ---
+  duration_ms: 0.275657
+  type: 'test'
+  ...
+# Subtest: stored day totals equal the sum of the stored items after several commits
+ok 17 - stored day totals equal the sum of the stored items after several commits
+  ---
+  duration_ms: 0.520141
+  type: 'test'
+  ...
+# Subtest: fractional servings produce long floating-point tails (display must round)
+ok 18 - fractional servings produce long floating-point tails (display must round)
+  ---
+  duration_ms: 0.101992
+  type: 'test'
+  ...
+# Subtest: server rejects missing / negative / non-numeric nutrients
+ok 19 - server rejects missing / negative / non-numeric nutrients
+  ---
+  duration_ms: 0.556529
+  type: 'test'
+  ...
+# Subtest: DEFECT: server accepts calories that contradict the macros by >5x (ISSUE AI-02)
+not ok 20 - DEFECT: server accepts calories that contradict the macros by >5x (ISSUE AI-02)
+  ---
+  duration_ms: 0.226562
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:200:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception: implausible item (4800 kcal vs ~105 kcal from macros) should be rejected or flagged'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:202:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: DEFECT: server accepts a single item of 50,000 kcal (ISSUE AI-02)
+not ok 21 - DEFECT: server accepts a single item of 50,000 kcal (ISSUE AI-02)
+  ---
+  duration_ms: 0.139653
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:205:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:206:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: DEFECT: day switcher "next day" is stuck on the US fall-back DST day, Nov 1 2026 (ISSUE DATE-01)
+not ok 22 - DEFECT: day switcher "next day" is stuck on the US fall-back DST day, Nov 1 2026 (ISSUE DATE-01)
+  ---
+  duration_ms: 57.445463
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:220:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    next day after Nov 1 resolved to 11/1/2026
+    + actual - expected
+    
+    + '11/1/2026'
+    - '11/2/2026'
+          ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '11/2/2026'
+  actual: '11/1/2026'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:225:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: DEFECT: non-US date formats break day parsing (en-GB "14/10/2026" → Invalid Date) (ISSUE DATE-02)
+not ok 23 - DEFECT: non-US date formats break day parsing (en-GB "14/10/2026" → Invalid Date) (ISSUE DATE-02)
+  ---
+  duration_ms: 53.817745
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:229:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    14/10/2026 could not be parsed back into a date
+    
+    'true' !== 'false'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'false'
+  actual: 'true'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:234:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: DEFECT: rollover silently drops today's food when that date already has an archive (ISSUE DATA-02)
+not ok 24 - DEFECT: rollover silently drops today's food when that date already has an archive (ISSUE DATA-02)
+  ---
+  duration_ms: 0.504178
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:250:1'
+  failureType: 'testCodeFailure'
+  error: 'Dinner (900 kcal) logged on 10/14 disappeared during rollover'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:257:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: commitFood rollover merges into an existing archive (the safe path) — contrast with DATA-02
+ok 25 - commitFood rollover merges into an existing archive (the safe path) — contrast with DATA-02
+  ---
+  duration_ms: 0.3217
+  type: 'test'
+  ...
+# Subtest: DEFECT: adaptive TDEE under-reads a steady 1 lb/week loss by ~half (ISSUE NUT-03)
+not ok 26 - DEFECT: adaptive TDEE under-reads a steady 1 lb/week loss by ~half (ISSUE NUT-03)
+  ---
+  duration_ms: 1.202637
+  type: 'test'
+  location: '/home/claude/ding/audit/tests/nutrition-audit.test.mjs:269:1'
+  failureType: 'testCodeFailure'
+  error: 'suggested a -92 kcal change although the formula TDEE is exactly right'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/ding/audit/tests/nutrition-audit.test.mjs:281:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..26
+# tests 26
+# suites 0
+# pass 18
+# fail 8
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 556.05553

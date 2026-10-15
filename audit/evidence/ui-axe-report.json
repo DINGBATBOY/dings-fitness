@@ -1,0 +1,461 @@
+{
+  "home-dark-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "How this is worked out 40x40",
+      "Thursday: 1,800 kcal 38x128",
+      "Friday: 1,785 kcal 38x128",
+      "Saturday: 1,770 kcal 38x128",
+      "Sunday: 2,205 kcal 38x128",
+      "Monday: 1,740 kcal 38x128",
+      "Tuesday: 1,725 kcal 38x128",
+      "Wednesday: 760 kcal 38x128",
+      "Add 72x40"
+    ],
+    "smallTargetCount": 12,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 11,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".space-y-3 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".items-start > div > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".pt-4 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Page should contain a level-one heading",
+        "sample": [
+          "html ::   Page must have a level-one heading"
+        ]
+      }
+    ]
+  },
+  "home-light-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "How this is worked out 40x40",
+      "Thursday: 1,800 kcal 38x128",
+      "Friday: 1,785 kcal 38x128",
+      "Saturday: 1,770 kcal 38x128",
+      "Sunday: 2,205 kcal 38x128",
+      "Monday: 1,740 kcal 38x128",
+      "Tuesday: 1,725 kcal 38x128",
+      "Wednesday: 760 kcal 38x128",
+      "Add 72x40"
+    ],
+    "smallTargetCount": 12,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 17,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".space-y-3 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".items-start > div > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".text-\\[2rem\\].leading-none.mt-1 ::   Element has insufficient color contrast of 2.21 (foreground color: #7ab896, background color: #fffaf3, font size: 24.0pt (32px), font weight: bold). Expected contrast ratio of 3:1"
+        ]
+      },
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Page should contain a level-one heading",
+        "sample": [
+          "html ::   Page must have a level-one heading"
+        ]
+      }
+    ]
+  },
+  "home-dark-320": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "S11 38x71",
+      "M12 38x71",
+      "T13 38x71",
+      "W14 38x71",
+      "T15 38x71",
+      "F16 38x71",
+      "S17 38x71",
+      "How this is worked out 40x40",
+      "Thursday: 1,800 kcal 28x128",
+      "Friday: 1,785 kcal 28x128",
+      "Saturday: 1,770 kcal 28x128",
+      "Sunday: 2,205 kcal 28x128"
+    ],
+    "smallTargetCount": 19,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 11,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".space-y-3 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".items-start > div > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".pt-4 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Page should contain a level-one heading",
+        "sample": [
+          "html ::   Page must have a level-one heading"
+        ]
+      }
+    ]
+  },
+  "addfood-dark-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "How this is worked out 40x40",
+      "Thursday: 1,800 kcal 38x128",
+      "Friday: 1,785 kcal 38x128",
+      "Saturday: 1,770 kcal 38x128",
+      "Sunday: 2,205 kcal 38x128",
+      "Monday: 1,740 kcal 38x128",
+      "Tuesday: 1,725 kcal 38x128",
+      "Wednesday: 760 kcal 38x128",
+      "Add 72x40"
+    ],
+    "smallTargetCount": 12,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 3,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".p-2.pl-4:nth-child(1) > .text-left.min-h-12.flex-1 > .block.text-xs.text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-2.pl-4:nth-child(2) > .text-left.min-h-12.flex-1 > .block.text-xs.text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-2.pl-4:nth-child(3) > .text-left.min-h-12.flex-1 > .block.text-xs.text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+        ]
+      }
+    ]
+  },
+  "addfood-light-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "How this is worked out 40x40",
+      "Thursday: 1,800 kcal 38x128",
+      "Friday: 1,785 kcal 38x128",
+      "Saturday: 1,770 kcal 38x128",
+      "Sunday: 2,205 kcal 38x128",
+      "Monday: 1,740 kcal 38x128",
+      "Tuesday: 1,725 kcal 38x128",
+      "Wednesday: 760 kcal 38x128",
+      "Add 72x40"
+    ],
+    "smallTargetCount": 12,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 3,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".p-2.pl-4:nth-child(1) > .text-left.min-h-12.flex-1 > .block.text-xs.text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-2.pl-4:nth-child(2) > .text-left.min-h-12.flex-1 > .block.text-xs.text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-2.pl-4:nth-child(3) > .text-left.min-h-12.flex-1 > .block.text-xs.text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+        ]
+      }
+    ]
+  },
+  "progress-dark-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Thu, Oct 8: 1,800 kcal · targe 43x144",
+      "Fri, Oct 9: 1,785 kcal · targe 43x144",
+      "Sat, Oct 10: 1,770 kcal · targ 43x144",
+      "Sun, Oct 11: 2,205 kcal · targ 43x144",
+      "Mon, Oct 12: 1,740 kcal · targ 43x144",
+      "Tue, Oct 13: 1,725 kcal · targ 43x144",
+      "Wed, Oct 14: 760 kcal · target 43x144",
+      "Thu, Oct 8: deficit 650 kcal 43x160",
+      "Fri, Oct 9: deficit 634 kcal 43x160",
+      "Sat, Oct 10: deficit 617 kcal 43x160",
+      "Sun, Oct 11: deficit 196 kcal 43x160",
+      "Mon, Oct 12: deficit 584 kcal 43x160",
+      "Tue, Oct 13: deficit 568 kcal 43x160",
+      "Wed, Oct 14: deficit 1,406 kca 43x160",
+      "Thu, Oct 8: protein 134 g, car 43x144"
+    ],
+    "smallTargetCount": 24,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 14,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".p-3.rounded-2xl.bg-\\[var\\(--bg-card\\)\\]:nth-child(1) > .text-\\[11px\\]:nth-child(3) ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-3.rounded-2xl.bg-\\[var\\(--bg-card\\)\\]:nth-child(2) > .text-\\[11px\\]:nth-child(3) ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-3.rounded-2xl.bg-\\[var\\(--bg-card\\)\\]:nth-child(3) > .text-\\[11px\\]:nth-child(3) ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "heading-order",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Heading levels should only increase by one",
+        "sample": [
+          ".gap-1\\.5.px-1.items-center > h3 ::   Heading order invalid"
+        ]
+      }
+    ]
+  },
+  "progress-light-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Thu, Oct 8: 1,800 kcal · targe 43x144",
+      "Fri, Oct 9: 1,785 kcal · targe 43x144",
+      "Sat, Oct 10: 1,770 kcal · targ 43x144",
+      "Sun, Oct 11: 2,205 kcal · targ 43x144",
+      "Mon, Oct 12: 1,740 kcal · targ 43x144",
+      "Tue, Oct 13: 1,725 kcal · targ 43x144",
+      "Wed, Oct 14: 760 kcal · target 43x144",
+      "Thu, Oct 8: deficit 650 kcal 43x160",
+      "Fri, Oct 9: deficit 634 kcal 43x160",
+      "Sat, Oct 10: deficit 617 kcal 43x160",
+      "Sun, Oct 11: deficit 196 kcal 43x160",
+      "Mon, Oct 12: deficit 584 kcal 43x160",
+      "Tue, Oct 13: deficit 568 kcal 43x160",
+      "Wed, Oct 14: deficit 1,406 kca 43x160",
+      "Thu, Oct 8: protein 134 g, car 43x144"
+    ],
+    "smallTargetCount": 24,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 9,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".p-3.rounded-2xl.bg-\\[var\\(--bg-card\\)\\]:nth-child(1) > .text-\\[11px\\]:nth-child(3) ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-3.rounded-2xl.bg-\\[var\\(--bg-card\\)\\]:nth-child(2) > .text-\\[11px\\]:nth-child(3) ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".p-3.rounded-2xl.bg-\\[var\\(--bg-card\\)\\]:nth-child(3) > .text-\\[11px\\]:nth-child(3) ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "heading-order",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Heading levels should only increase by one",
+        "sample": [
+          ".gap-1\\.5.px-1.items-center > h3 ::   Heading order invalid"
+        ]
+      }
+    ]
+  },
+  "profile-history-light-390": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "BUTTON 40x40",
+      "BUTTON 40x40",
+      "Analyze Day 122x29"
+    ],
+    "smallTargetCount": 3,
+    "axe": [
+      {
+        "id": "button-name",
+        "impact": "critical",
+        "n": 2,
+        "help": "Buttons must have discernible text",
+        "sample": [
+          ".p-2.transition-colors.hover\\:bg-white\\/10:nth-child(1) ::   Element does not have inner text that is visible to screen readers",
+          ".disabled\\:opacity-20 ::   Element does not have inner text that is visible to screen readers"
+        ]
+      },
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 12,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".tracking-\\[0\\.18em\\] ::   Element has insufficient color contrast of 3.98 (foreground color: #8a7a6b, background color: #fffaf3, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".text-gray-600 ::   Element has insufficient color contrast of 3.58 (foreground color: #8a7a6b, background color: #f4eee6, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1",
+          ".text-emerald-400.text-base.tabular-nums ::   Element has insufficient color contrast of 1.56 (foreground color: #00d492, background color: #ece6de, font size: 12.0pt (16px), font weight: bold). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "heading-order",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Heading levels should only increase by one",
+        "sample": [
+          ".justify-between.px-1.items-center > .text-gray-400 ::   Heading order invalid"
+        ]
+      }
+    ]
+  },
+  "home-ipad-1024": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "How this is worked out 40x40",
+      "Add 72x40"
+    ],
+    "smallTargetCount": 5,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 11,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".space-y-3 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".items-start > div > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".pt-4 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Page should contain a level-one heading",
+        "sample": [
+          "html ::   Page must have a level-one heading"
+        ]
+      }
+    ]
+  },
+  "home-landscape-844": {
+    "errors": [
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "TypeError: Failed to fetch\n    at http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:51\n    at retryIfServerError (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:98:24)\n    at createInstallationRequest (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:133:26)\n    at async registerInstallation (http://localhost:5179/node_modules/.vite/deps/firebase_analytics.js?v=e57e3c53:324:41)",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED",
+      "Failed to load resource: net::ERR_TUNNEL_CONNECTION_FAILED"
+    ],
+    "overflowPx": 0,
+    "smallTargets": [
+      "Previous day 40x40",
+      "Today 76x33",
+      "Next day 40x40",
+      "How this is worked out 40x40",
+      "Add 72x40"
+    ],
+    "smallTargetCount": 5,
+    "axe": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "n": 11,
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "sample": [
+          ".space-y-3 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".items-start > div > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1",
+          ".pt-4 > div:nth-child(1) > .uppercase.tracking-\\[0\\.18em\\].text-\\[var\\(--ink-light\\)\\] ::   Element has insufficient color contrast of 4.44 (foreground color: #8b7e6e, background color: #1d1815, font size: 8.3pt (11px), font weight: bold). Expected contrast ratio of 4.5:1"
+        ]
+      },
+      {
+        "id": "page-has-heading-one",
+        "impact": "moderate",
+        "n": 1,
+        "help": "Page should contain a level-one heading",
+        "sample": [
+          "html ::   Page must have a level-one heading"
+        ]
+      }
+    ]
+  }
+}

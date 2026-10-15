@@ -1,0 +1,47 @@
+{
+ "metadata": {
+  "info": 0,
+  "low": 0,
+  "moderate": 2,
+  "high": 3,
+  "critical": 2,
+  "total": 7
+ },
+ "packages": {
+  "@capacitor/ios": {
+   "severity": "critical",
+   "range": "6.0.0 - 6.2.1",
+   "fix": true
+  },
+  "@grpc/grpc-js": {
+   "severity": "high",
+   "range": "<=1.13.5",
+   "fix": true
+  },
+  "dompurify": {
+   "severity": "moderate",
+   "range": "<=3.4.15",
+   "fix": true
+  },
+  "fflate": {
+   "severity": "moderate",
+   "range": "0.8.0 - 0.8.2",
+   "fix": true
+  },
+  "protobufjs": {
+   "severity": "high",
+   "range": "<=7.6.4",
+   "fix": true
+  },
+  "websocket-driver": {
+   "severity": "critical",
+   "range": "<=0.7.4",
+   "fix": true
+  },
+  "ws": {
+   "severity": "high",
+   "range": "8.0.0 - 8.20.1",
+   "fix": true
+  }
+ }
+}

@@ -1,0 +1,135 @@
+{
+ "metadata": {
+  "info": 0,
+  "low": 0,
+  "moderate": 10,
+  "high": 7,
+  "critical": 2,
+  "total": 19
+ },
+ "packages": {
+  "@fastify/busboy": {
+   "severity": "high",
+   "range": "<=3.2.1",
+   "fix": true
+  },
+  "@google-cloud/firestore": {
+   "severity": "moderate",
+   "range": "7.5.0-pre.0 || 7.6.0 - 7.11.6",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "@google-cloud/storage": {
+   "severity": "moderate",
+   "range": "2.2.0 - 2.5.0 || 5.19.0 - 8.0.0",
+   "fix": true
+  },
+  "@grpc/grpc-js": {
+   "severity": "high",
+   "range": "1.14.0 - 1.14.4",
+   "fix": true
+  },
+  "body-parser": {
+   "severity": "moderate",
+   "range": "<=1.20.6",
+   "fix": true
+  },
+  "express": {
+   "severity": "moderate",
+   "range": "4.22.2",
+   "fix": true
+  },
+  "firebase-admin": {
+   "severity": "high",
+   "range": "5.0.0 - 13.10.0",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "form-data": {
+   "severity": "high",
+   "range": "<2.5.6",
+   "fix": true
+  },
+  "gaxios": {
+   "severity": "moderate",
+   "range": "6.4.0 - 6.7.1",
+   "fix": true
+  },
+  "google-gax": {
+   "severity": "moderate",
+   "range": "4.0.5-experimental - 4.6.1",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "node-forge": {
+   "severity": "high",
+   "range": "*",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "protobufjs": {
+   "severity": "high",
+   "range": "<=7.6.4",
+   "fix": true
+  },
+  "proxy-addr": {
+   "severity": "critical",
+   "range": "1.1.0 - 2.0.7",
+   "fix": true
+  },
+  "qs": {
+   "severity": "moderate",
+   "range": "2.2.5 - 6.15.3",
+   "fix": true
+  },
+  "retry-request": {
+   "severity": "moderate",
+   "range": "7.0.0 - 7.0.2",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "teeny-request": {
+   "severity": "moderate",
+   "range": "3.9.1 - 9.0.0",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "uuid": {
+   "severity": "moderate",
+   "range": "<11.1.1",
+   "fix": {
+    "name": "firebase-admin",
+    "version": "14.5.0",
+    "isSemVerMajor": true
+   }
+  },
+  "websocket-driver": {
+   "severity": "critical",
+   "range": "<=0.7.4",
+   "fix": true
+  },
+  "ws": {
+   "severity": "high",
+   "range": "8.0.0 - 8.20.1",
+   "fix": true
+  }
+ }
+}
