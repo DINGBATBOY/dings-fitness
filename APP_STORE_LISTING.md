@@ -1,86 +1,89 @@
 # Ding! Fitness — App Store Listing
 
-_Everything you need to submit. Copy → paste into the right App Store Connect field._
-_Last updated: 2026-06_
+_Everything you need to submit v1.0. Copy → paste into the right App Store Connect field._
+_Last updated: 2026-10-14 (food-only app; matches the code after the pre-launch audit fixes)_
+
+Ding! is a **food-tracking app**: snap or describe a meal, review the macros,
+log it. Workouts are logged only as calories burned; there is no workout
+planner. Don't describe anything the binary doesn't do (Guideline 2.3.1).
 
 ---
 
 ## 1. App Name + Subtitle
 
-| Field | Value | Char limit |
+| Field | Value | Limit |
 |---|---|---|
 | **App Name** | Ding! Fitness | 30 |
-| **Subtitle** | Your path, your trail. | 30 |
+| **Subtitle** | Snap it. Know your macros. | 30 (26 used) |
 
-Subtitle alternatives if the first one doesn't grab you:
-- "Track food. Train. No noise."
-- "Macros + workouts, your way."
-- "AI macros. Smarter trail."
+Subtitle alternatives:
+- "AI food log and macro coach" (27)
+- "Photo food log, real macros" (27)
+- "Calories and macros, no noise" (29)
 
 ---
 
 ## 2. Promotional Text
 
-_(170 char limit. Updateable without re-submission, so safe to iterate.)_
+_(170 limit. Can be changed any time without a new build.)_
 
 ```
-Adaptive macros that adjust to your trend. AI photo food logging. Workouts built around your gym. No streak shame, no feed — just your path.
+Snap a photo, scan a barcode or just describe it. Ding! works out the macros, shows you where the numbers came from, and lets you fix anything before it logs.
 ```
 
 ---
 
 ## 3. Description
 
-_(4000 char limit. The first 3 lines are what shows above the "more" fold. Lead with the voice.)_
+_(4000 limit. The first three lines show above "more".)_
 
 ```
-Yooo. Welcome to your path.
+Yooo. Logging food shouldn't feel like homework.
 
-Ding! is the fitness app for people who want to start but dont know where to. Track food, train, log everything in between. The AI figures out what you ate from a photo. Your calorie target adapts every week so you stop guessing. Workouts get built around YOUR equipment, YOUR schedule, YOUR energy.
+Ding! is a food tracker that works out what you ate from a photo, a barcode or a quick note, then shows you the macros and where they came from. You check it, tweak it, log it. That's it.
 
 What you get:
 
-• AI Food Logging — Snap a photo, type it, or scan the label. Macros figured out in seconds.
-• Adaptive Targets — Your weekly calorie target adjusts based on your actual weight trend. The trail bends to you.
-• Restaurant Cheat Code — 44 chains pre-loaded with verified macros. Chipotle, Sweetgreen, Subway, Cava — tap a meal, log it, done.
-• Personalized Workouts — A 7-day split built around your training experience, available days, session length, and equipment. Beginner to advanced. Full gym to bodyweight.
-• Weekly + Monthly Wrapped — Look back on your week or month with the energy of a Spotify recap. Top foods, longest trail, training volume, patterns.
-• Honest Safety — Calorie targets clamp to safe minimums. Eating disorder helpline in the disclaimer. We will not gamify your body.
+• Photo and text food logging — Snap your plate or type "chicken bowl, extra rice". Ding! identifies the food, estimates the portion and breaks it into calories, protein, carbs and fat.
+• Barcode scanning — Packaged foods come straight from Open Food Facts and USDA product data.
+• You stay in control — Every result opens on a review screen first: change portions (½, 1, 1½, 2×), edit any number, or say "that's not it" and re-check one item. Nothing logs itself.
+• Eats — 44 restaurant chains with published menu macros. Chipotle, Sweetgreen, Chick-fil-A, Subway, Cava and more. Tap an item, log it.
+• Your day at a glance — Calories left, macros, water and a balance card that shows what you've eaten against what you've burned. Step back to any past day and fix it.
+• Progress — 7- and 30-day charts for calories against your target, eaten vs burned, macros and your weight trend, plus a monthly Wrapped.
+• Coach — Ask what to eat with what's left today, get ideas for eating out, cooking or snacks, or ask how your week went. The coach sees your logged food and targets, not your Apple Health data.
+• Apple Health (optional) — Bring in steps, active energy, workouts and weight so the balance card reflects your real day. Ding! only reads from Health and never writes to it.
+• Targets that make sense — Your daily calories and macros come from your stats, activity level and goal, with safe minimums built in. Log workouts as calories burned.
 
-Whats different:
+What's different:
 
-No social feed. No streak shame. No "you missed a day, here's guilt." Just a tracker that texts back like a friend who actually wants you to win.
+No social feed. No streak shame. No "you missed a day" guilt. Just a tracker that texts back like a friend who wants you to win.
 
-Built honoring the languages of the Three Affiliated Tribes — Hiraaciréʼ (Hidatsa), Numakiki (Mandan), Sáhniš (Arikara). Cultural vocabulary appears throughout the app, supported by the MHA Language Project.
+Built honoring the languages of the Three Affiliated Tribes — Hiraaciréʼ (Hidatsa), Numakiki (Mandan), Sáhniš (Arikara), supported by the MHA Language Project.
 
-Privacy is non-negotiable. Your data is yours. No selling, no sharing. Delete your account anytime — your data leaves with you.
+Privacy: your data is yours. No ads, no selling, no third-party analytics. AI features ask for your permission first, and you can delete your account and data any time from Profile.
 
-Get on the trail.
+Ding! is for adults 18 and over. It's a nutrition tool, not medical advice.
 ```
 
 ---
 
 ## 4. Keywords
 
-_(100 char total limit, comma-separated, no spaces after commas. Don't repeat words from the app name or description — Apple already indexes those.)_
+_(100 limit, comma-separated, no spaces. Don't repeat words from the name or subtitle; Apple indexes those.)_
 
 ```
-macros,calorie counter,meal tracker,nutrition,workout,split,gym,recomp,adaptive,ai food,protein
+calorie counter,food log,nutrition,protein,meal tracker,barcode scanner,diet,AI,restaurant,carbs
 ```
 
-That's 95 characters. Tight.
+96 characters.
 
 ---
 
 ## 5. What's New in This Version
 
-_(For v1.0 — first release. 4000 char limit but keep it short.)_
-
 ```
-First release. Welcome to your path.
+First release. Snap it, check it, log it.
 ```
-
-That's it. For a first release, less is more.
 
 ---
 
@@ -89,8 +92,8 @@ That's it. For a first release, less is more.
 | Field | URL |
 |---|---|
 | **Support URL** | https://dings.fitness |
-| **Marketing URL** *(optional)* | https://dings.fitness |
-| **Privacy Policy URL** *(required)* | https://dings.fitness/privacy/ |
+| **Marketing URL** _(optional)_ | https://dings.fitness |
+| **Privacy Policy URL** _(required)_ | https://dings.fitness/privacy/ |
 
 ---
 
@@ -99,166 +102,162 @@ That's it. For a first release, less is more.
 | Field | Value |
 |---|---|
 | **Primary** | Health & Fitness |
-| **Secondary** *(optional)* | Food & Drink |
+| **Secondary** _(optional)_ | Food & Drink |
 
 ---
 
-## 8. Age Rating questionnaire
+## 8. Age Rating (2025 questionnaire: 4+ / 9+ / 13+ / 16+ / 18+)
 
-_(App Store Connect → App Information → Age Rating → Edit. Click through these honestly.)_
+App Store Connect → App Information → Age Rating → Edit. Answer honestly,
+then **override to 18+**: the Terms of Service require users to be 18 or
+older (Gemini API terms bar apps likely to be used by under-18s), and Apple
+says that when your terms set a minimum age above the calculated rating you
+must override to it.
 
-Expected outcome: **4+**.
-
-| Question | Answer | Why |
-|---|---|---|
-| Cartoon or Fantasy Violence | None | |
-| Realistic Violence | None | |
-| Sexual Content or Nudity | None | |
-| Profanity or Crude Humor | **Infrequent / Mild** | The app's voice uses casual profanity ("damn," "the hell") in toasts/copy. Honest answer. Won't bump above 4+ on its own. |
-| Alcohol, Tobacco, or Drug Use or References | None | |
-| Mature/Suggestive Themes | None | |
-| Horror/Fear Themes | None | |
-| Medical/Treatment Information | **Infrequent/Mild** | The app tracks nutrition + provides a calorie target. Not diagnostic. Disclaimer in onboarding makes this clear. |
-| Gambling | None | |
-| Unrestricted Web Access | None | |
-| Made for Kids | **No** | |
-
----
-
-## 9. Privacy Nutrition Label
-
-_(App Store Connect → App Privacy → Get Started. This is what shows on your App Store page as "Data Linked to You" / "Data Not Linked.")_
-
-**Data we collect — what to declare:**
-
-| Data Type | Purpose | Linked to user? | Used for tracking? |
+| Section | Question | Answer | Why |
 |---|---|---|---|
-| Email Address | App Functionality, Account Management | **Yes — linked** | No |
-| Name | App Functionality | Yes — linked | No |
-| Health & Fitness data (weight, body fat, macros, workouts) | App Functionality, Product Personalization | Yes — linked | No |
-| Other Diagnostic Data (food log entries, AI usage counters) | Analytics, App Functionality | Yes — linked | No |
-| Photos | App Functionality (food scan, profile pic) | Yes — linked | No |
-| Fitness (Apple Health: active energy, workouts) | App Functionality | Yes — linked | No |
+| In-App Controls | Parental Controls | No | |
+| | Age Assurance | No | Age is self-declared at sign-up (18+ checkbox + onboarding check), not verified. |
+| Capabilities | Unrestricted Web Access | No | No in-app browser. Links open Safari/Mail. |
+| | User-Generated Content | No | Nothing a user writes is shown to other users. |
+| | Social Media | No | |
+| | Messaging and Chat | No | No user-to-user messaging. The AI coach is not a person. |
+| | Advertising | No | |
+| Mature Themes | Profanity or Crude Humor | **Infrequent** | Casual voice in toasts ("damn", "LETS GOOOO"). |
+| | Horror/Fear Themes | None | |
+| | Alcohol, Tobacco, or Drug Use or References | None | Drinks can be logged as food, nothing more. |
+| Medical or Wellness | Medical or Treatment Information | None | No diagnosis or treatment advice; a nutrition-tool disclaimer and an eating-disorder helpline are shown. |
+| | Health or Wellness Topics | **Yes** | Calorie targets, macros, weight trend. |
+| Sexuality or Nudity | all three | None | |
+| Violence | all four | None | |
+| Chance-Based Activities | Gambling, Simulated Gambling, Contests, Loot Boxes | None | |
+| Age Categories and Override | | **Override to Higher Age Rating → 18+** | Matches the Terms. Calculated rating would be 9+. |
+| | Made for Kids | No | |
 
-Health & Fitness must be declared because of HealthKit. Also answer **Yes** to "data shared with third parties" for Photos and Health & Fitness (food scan goes to OpenAI, coach to Google), purpose App Functionality.
+---
 
-**What we do NOT collect:**
-- Location
-- Contacts
-- Browsing history
-- Search history (outside the app)
-- Financial info
-- Sensitive info beyond what's in the health bucket
+## 9. App Privacy (nutrition label)
 
-**Third-party SDKs to disclose:**
-- Firebase (authentication, Firestore database, Cloud Functions, Analytics) — Google
-- Gemini API (via your own Cloud Function proxy, not direct from device) — Google
-- OpenAI API (food photo scan + restaurant web lookup, via the `callOpenAI` Cloud Function) — OpenAI
-- HealthKit (read-only: active energy, workouts, weight) — Apple, on-device; never sent to AI providers
-- USDA FoodData Central + Open Food Facts (server-side queries only)
+App Store Connect → App Privacy. This matches the code after the Oct 2026
+fixes **and** `ios/App/App/PrivacyInfo.xcprivacy`; change both together.
 
-**Key answer: "Used for tracking"** → **No** for everything. You don't have ads, don't share with data brokers, don't track across other apps/websites.
+**Tracking: No** for every type (no ads, no data brokers, no cross-app tracking, no analytics SDK).
+
+| Category → Data type | What it is in Ding! | Purposes | Linked to user |
+|---|---|---|---|
+| Contact Info → **Email Address** | Sign-in email | App Functionality | Yes |
+| Contact Info → **Name** | First name for greetings | App Functionality | Yes |
+| Health & Fitness → **Health** | Weight, body fat, height, food and nutrition logs, targets; Apple Health body weight when the user connects Health (saved as a weigh-in) | App Functionality, Product Personalization | Yes |
+| Health & Fitness → **Fitness** | Workouts the user logs as calories burned | App Functionality, Product Personalization | Yes |
+| User Content → **Photos or Videos** | Food photos (sent for analysis, deleted after the scan finishes or within 48 h), optional profile picture | App Functionality | Yes |
+| User Content → **Other User Content** | Coach chat messages, food notes and descriptions, saved notes | App Functionality | Yes |
+| Identifiers → **User ID** | Firebase account ID | App Functionality | Yes |
+| Usage Data → **Product Interaction** | AI usage records (which AI feature, when, token counts) used for quotas and cost monitoring | App Functionality, Analytics | Yes |
+| Other Data → **Other Data Types** | Age and biological sex (for calorie targets) | App Functionality, Product Personalization | Yes |
+
+**Not collected:** Location, Contacts, Browsing History, Search History,
+Financial Info, Purchases, Sensitive Info, Diagnostics (no crash reporting
+yet), Advertising Data, Device ID. Apple Health **steps, active energy and
+Health workouts stay on the device** (read for the balance card, never
+uploaded), so they are not "collected".
+
+**Who processes it (service providers, App Functionality only):**
+- Google Firebase — Authentication, Firestore, Cloud Functions, Cloud Storage. **No Google Analytics** (removed Oct 2026).
+- OpenAI — food photos and the user's note for the food scan (only after the in-app AI consent sheet).
+- Google Gemini — coach chat, Fuel Coach and Analyze Day: logged food, targets, goal and profile stats, **never Apple Health data** (only after the AI consent sheet).
+- USDA FoodData Central and Open Food Facts — food search words and barcodes, sent from our server, not linked to the user.
+- Apple HealthKit — read-only, on device.
 
 ---
 
 ## 10. Export Compliance
 
-For TestFlight + App Store submission, Apple asks if your app uses encryption.
-
-**Answer:** No — only standard HTTPS/TLS via Firebase. No proprietary cryptography. Saves you from filing the longer form.
+**No proprietary encryption** — standard HTTPS/TLS only.
+`ITSAppUsesNonExemptEncryption = false` is already in Info.plist.
 
 ---
 
-## 11. Screenshots — what to capture
+## 11. Screenshots
 
-Apple requires at least **3 screenshots** per device size. Take **6** for safety. Required device sizes for iPhone-only apps in 2026:
+The binary is **iPhone only** (`TARGETED_DEVICE_FAMILY = 1`), so no iPad
+screenshots are needed. Apple needs one iPhone set: **6.9" display**
+(1320 × 2868 or 1290 × 2796, portrait). Smaller sizes are scaled from it.
+Take **6** on a real iPhone with the current TestFlight build (after the
+Oct 2026 fixes), signed in with a demo account that has a week of food.
 
-| Size | Resolution | Device example |
-|---|---|---|
-| **6.9"** | 1290 × 2796 px | iPhone 16 Pro Max, 15 Pro Max |
-| **6.7"** *(or 6.5")* | 1284 × 2778 px | iPhone 14/13/12 Pro Max |
-| **6.1"** | 1179 × 2556 px | iPhone 16 Pro, 15 Pro |
+| # | Screen | How to get there | What it shows |
+|---|---|---|---|
+| 1 | **Home** | Home tab, today, after 3–4 meals | Calories-left ring, macros, balance card, the date bar |
+| 2 | **Add Food — scan** | Center **+** | Camera / photos / barcode / describe, Recent and Favorites |
+| 3 | **Review** | Scan a real plate, wait for the result | Dish name, items with ½ / 1 / 1½ / 2× portions, the "where this came from" line |
+| 4 | **Progress** | Progress tab, 7 days | Calories vs target chart, eaten vs burned, weight line |
+| 5 | **Coach** | Coach tab, ask "what should I eat with what's left?" | A reply that uses the real numbers |
+| 6 | **Eats** | + → Eats | Restaurant list with menu macros |
 
-If you only have one device on hand, capture at the largest size — Apple will downscale automatically for the smaller targets, *but* they'll show better quality if you submit native captures for each.
+Optional 7th: **Wrapped** (Progress → Wrapped).
 
-### The 6 shots to take, in order
+Do not reuse the old set in `app-store/screenshots/iphone-6-9/` — it shows
+the removed Train tab (`04-training-plan.png`) and old Reflect screen
+(`05-weekly-reflect.png`).
 
-These are the ones that tell your app's story. Take them in this order on a real device with TestFlight installed:
-
-1. **Dashboard / Daily Balance ring** (Fuel tab, after logging a few foods) — the hero shot. Shows the cream theme, the calorie ring, the tracking row, the quick-burn pills.
-2. **Eats tab — restaurant grid** with the "What fits your day" macro-fit card visible at top. Shows the restaurant DB is real.
-3. **Add Food → AI photo scan** mid-result. After Gemini returns macros for a real food photo. Shows the AI feature.
-4. **Reflect / Wrapped** — the inline view showing top foods + your trail. The Spotify-style moment.
-5. **Onboarding chat** — one of the questions mid-conversation. Shows the personality / voice from the start.
-6. **Workout split (Dings tab)** — one day expanded showing exercises with reps. Shows the workout generation is real.
-
-### Capturing technique
-
-- **Volume Up + Side button** on iPhone → screenshot.
-- Best lighting/state: scroll to top, no notifications dropped down, no banners. Aeroplane mode if you want to hide signal/wifi bars (battery + signal show on every shot anyway).
-- Don't add overlay text/marketing flair — Apple is fine with raw UI screenshots and they look more honest.
-
-### Pulling them off the phone (without a Mac)
-
-- AirDrop → can't on Windows.
-- iCloud Photos → install iCloud for Windows, photos sync to your PC.
-- Email yourself the screenshots.
-- Or use any cloud sync (Google Photos, Dropbox).
-
-Drop the 6 final screenshots into App Store Connect → App Information → Media Manager → Screenshots → 6.9" Display (drag in), repeat for 6.1".
+Capture: Volume Up + Side button. No notifications on screen. Move the
+files to the PC with iCloud Photos for Windows or by emailing them to
+yourself, then drag them into App Store Connect → the version → iPhone 6.9".
 
 ---
 
 ## 12. App Icon
 
-Must be **1024 × 1024 PNG, no alpha channel, no transparency.** App Store Connect → App Information → App Icon.
-
-If you don't have a polished icon ready, the bare-minimum acceptable one is the wordmark **DING!** on a cream background with the feather arrow above it. Simple, on-brand, faster than commissioning.
-
-You can also generate a clean version from your Mati-Watsā mockup if you have it as a vector.
+1024 × 1024 PNG, no alpha. Already in `ios/App/App/Assets.xcassets`; App
+Store Connect takes it from the build.
 
 ---
 
-## 13. Pre-submission checklist
+## 13. App Review Information
 
-Before hitting "Submit for Review":
+- **Sign-in required: Yes.** Make a demo account just for review (for
+  example `cuodibeltran+review@gmail.com`) with a week of logged food, a
+  weigh-in, and AI consent **not** yet accepted, so the reviewer sees the
+  consent sheet. Put the email and password in App Store Connect only.
+- **Notes for review** (paste):
 
-- [ ] App icon uploaded (1024×1024)
-- [ ] 6+ screenshots uploaded for at least 6.9" Display
-- [ ] App description pasted in (use the version above)
-- [ ] Subtitle pasted in
-- [ ] Promotional text pasted in
-- [ ] Keywords pasted in
-- [ ] What's New pasted in
-- [ ] Support URL filled in
-- [ ] Privacy Policy URL filled in
-- [ ] Category selected (Health & Fitness)
-- [ ] Age Rating questionnaire completed (should land at 4+)
-- [ ] App Privacy nutrition label filled in
-- [ ] Export Compliance answered (No proprietary crypto)
-- [ ] Build selected from TestFlight (the latest one with the voice + tour)
-- [ ] App Review Information filled in (your name, phone, email — Apple may contact you if review has questions)
-- [ ] Sign-in info provided for review (if your app requires login, give them a test account: cuodibeltran+review@gmail.com / their own password)
-- [ ] Notes for review (one paragraph: "Ding! is a personal fitness tracking app with AI food logging. No in-app purchases. Test account credentials provided. Camera permission requested for food photo scanning. No content moderation needed — no user-generated content shared between users.")
+```
+Ding! is a food-tracking app for adults (18+). Sign in with the demo account above.
+
+AI: the first time you use a food scan, the coach, Fuel Coach or Analyze Day, the app asks permission to send that data to OpenAI (food photos and notes) or Google Gemini (coach). Nothing is sent before you agree, and the server also checks this. Food can always be logged by hand.
+
+Apple Health is optional (the Connect Apple Health card on Home). Ding! only reads steps, active energy, workouts and body weight to show calories burned. Health data is never sent to AI providers and Ding! never writes to Health.
+
+Camera is used for food photos and barcodes. No in-app purchases, no ads, no user-to-user content. Account deletion: Profile > Settings > Delete Account.
+```
 
 ---
 
-## 14. After submission
+## 14. Pre-submission checklist
 
-- Apple usually reviews within **24–48 hours** for first submissions.
-- **Expect one rejection round.** It's normal. The reasons are usually one of:
-  - Missing privacy disclosure for a data type you forgot
-  - Unclear app description
-  - Camera/Photo permission strings not clear enough (yours are — already verified)
-  - Test account login didn't work
-- The rejection email cites the **specific Guideline number** (e.g. 2.1, 5.1.1). Search "App Store Review Guidelines [number]" — Apple's docs are clear.
-- Fix, resubmit, usually approved within another 24–48 hours.
+- [ ] Build from Codemagic after the Oct 2026 fixes selected for the version
+- [ ] 6+ iPhone 6.9" screenshots from that build (section 11)
+- [ ] Subtitle, promotional text, description, keywords, What's New (sections 1–5)
+- [ ] Support + Privacy Policy URLs (section 6)
+- [ ] Category: Health & Fitness / Food & Drink
+- [ ] Age rating questionnaire answered and **overridden to 18+** (section 8)
+- [ ] App Privacy label matches section 9
+- [ ] Export compliance: no proprietary encryption
+- [ ] App Review Information: demo account + notes (section 13)
+- [ ] Availability: decide countries (day keys are now locale-safe; see HANDOFF)
+- [ ] OpenAI and Google spend limits set; Gemini prepay confirmed
+- [ ] On-device pass in `audit/FUNCTIONAL_TEST_MATRIX.md` done
 
 ---
 
-## 15. After approval
+## 15. After submission
 
-- **Manual release** (recommended for first launch) — Apple approves but doesn't make it live until you press the button. Gives you control.
-- **Phased release** (optional) — Apple slowly rolls out to your existing users over 7 days. Doesn't apply on first launch since you have no existing users; turn on for v1.1+.
+- First reviews usually take 24–48 hours. One rejection round is normal.
+- Common reasons: a data type missing from the privacy label, a
+  description that promises something the build doesn't do, a demo account
+  that doesn't work. The email cites the guideline number.
 
-When you tap **Release**, it usually appears in the App Store search within 1–2 hours.
+## 16. After approval
+
+- **Manual release** for v1.0 (approve, then press Release yourself).
+- **Phased release** from v1.1 on.

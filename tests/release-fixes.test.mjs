@@ -542,3 +542,21 @@ test('SEC-01: App Check is wired on the AI callables but not enforced', () => {
   assert.match(src('functions/src/foodJobs.ts'), /enforceAppCheck: APP_CHECK_ENFORCED/);
   assert.match(src('functions/src/aiPolicy.ts'), /export const APP_CHECK_ENFORCED = false;/);
 });
+
+// ───────────────────────── STORE-01: listing matches the food-only binary ─────────────────────────
+
+test('STORE-01: listing copy fits Apple limits and promises no removed features', () => {
+  const md = src('APP_STORE_LISTING.md');
+  const blocks = [...md.matchAll(/```\n([\s\S]*?)\n```/g)].map((m) => m[1]);
+  const [promo, description, keywords] = blocks;
+  assert.ok(promo.length <= 170, `promo ${promo.length}`);
+  assert.ok(description.length <= 4000, `description ${description.length}`);
+  assert.ok(keywords.length <= 100 && !/, /.test(keywords), `keywords ${keywords.length}`);
+  const subtitle = /\*\*Subtitle\*\* \| ([^|]+) \|/.exec(md)[1].trim();
+  assert.ok(subtitle.length <= 30, subtitle);
+  const copy = [promo, description, keywords, subtitle].join('\n');
+  assert.ok(!/workout split|7-day split|training plan|training volume|recomp|Personalized Workouts|Fuel tab|Dings tab/i.test(copy));
+  assert.ok(!/\bReflect\b/.test(copy), 'the Reflect tab no longer exists');
+  assert.match(md, /Override to Higher Age Rating → 18\+/);
+  assert.match(md, /No Google Analytics/);
+});
