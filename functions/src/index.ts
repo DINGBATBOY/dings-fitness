@@ -1651,6 +1651,8 @@ export const foodWebLookup = onCall(
 export const createGptKey = onCall(async (req: CallableRequest): Promise<{ key: string }> => {
   const uid = req.auth?.uid;
   if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
+  // Admin-only until the GPT data path is in the privacy policy (FEAT-01).
+  if (!OPS_ADMIN_UIDS.has(uid)) throw new HttpsError("permission-denied", "Not available.");
   const db = getFirestore();
 
   // Revoke any previous keys — one active key per user.

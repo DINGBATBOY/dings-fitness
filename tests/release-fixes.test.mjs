@@ -176,3 +176,36 @@ test('PRIV-02: every client entry point that calls Gemini goes through requireAi
   }
   // Onboarding no longer calls any AI (NUT-02): checked in the NUT-02 tests.
 });
+
+// ───────────────────────── PRIV-03 / FEAT-01 ─────────────────────────
+
+import { readdirSync, statSync } from 'node:fs';
+const clientFiles = () => {
+  const outFiles = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(join(root, dir))) {
+      const rel = dir ? `${dir}/${name}` : name;
+      if (['node_modules', 'dist', '.git', 'functions', 'ios', 'audit', 'tests', 'plugins', 'app-store', '.firebase'].includes(rel)) continue;
+      const st = statSync(join(root, rel));
+      if (st.isDirectory()) walk(rel);
+      else if (/\.(tsx?|jsx?)$/.test(name)) outFiles.push(rel);
+    }
+  };
+  walk('');
+  return outFiles;
+};
+
+test('PRIV-03: no Google Analytics in the client (the privacy policy says there are no analytics)', () => {
+  const offenders = clientFiles().filter((f) => /firebase\/analytics|getAnalytics\(|gtag\(|MEASUREMENT_ID/.test(src(f)));
+  assert.deepEqual(offenders, []);
+});
+
+test('FEAT-01: the Fuel Coach GPT key is admin-only in the UI and on the server', () => {
+  const main = src('MainApp.tsx');
+  const btn = main.indexOf('Fuel Coach GPT key');
+  const gate = main.lastIndexOf('{isAdminUser(userId) && (', btn);
+  assert.ok(gate > 0 && btn - gate < 400, 'GPT key button must sit inside an isAdminUser block');
+  const index = src('functions/src/index.ts');
+  const fn = index.slice(index.indexOf('export const createGptKey'));
+  assert.match(fn.slice(0, 600), /OPS_ADMIN_UIDS\.has\(uid\)/);
+});

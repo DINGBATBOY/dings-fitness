@@ -2139,12 +2139,16 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               >
                   Log Out
               </button>
+              {/* Admin only: the GPT key lets an outside ChatGPT read this account's
+                  macros, a data path the privacy policy doesn't describe (FEAT-01). */}
+              {isAdminUser(userId) && (
               <button
                   onClick={handleCreateGptKey}
                   className="text-[10px] text-gray-500 underline underline-offset-4 hover:text-cyan-400 transition-colors uppercase tracking-widest"
               >
                   Fuel Coach GPT key
               </button>
+              )}
               <button
                   onClick={() => {
                       // Pre-fill a support email with app version + account context
