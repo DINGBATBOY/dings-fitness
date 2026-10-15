@@ -4,25 +4,104 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 (ops + deploy layers), `DEPLOY.md` (secrets/deploy), `ROADMAP.md` (what's next),
 `APP_STORE_LISTING.md` (submission copy), `CUSTOM_GPT_INSTRUCTIONS.md`.
 
-## Where things stand (Oct 14, 2026)
+## Where things stand (Oct 14, 2026, late)
 
-- **Live everywhere: `2c1ae5d`** — app shell v2 (next section) on top of
-  `c79e6fc` (ChatGPT's food flow / scan jobs). Later commits are docs only.
-  - **Web**: dings.fitness (Firebase Hosting behind Cloudflare), origin + edge
-    verified on `2c1ae5d`. Check https://dings.fitness/version.json.
-  - **Backend**: all Cloud Functions on Node 22 (Node 20 decommission Oct 30 is
-    handled). Firestore rules + `foodAnalysisJobs` index + Storage rules
-    deployed Oct 14.
-  - **iOS**: **Codemagic #72 green** (uploaded to App Store Connect, Oct 14).
-    v1.0 **not yet submitted**. ~9 users, all internal/TestFlight.
-- **Not yet verified by a human:** a real signed-in scan through the job
-  pipeline (no one has run one yet), steps on a real iPhone, HealthKit /
-  consent sheet / native barcode on device, light mode on every screen.
-- **Recent history:** Oct 13 one-call OpenAI scan + relevance-gated database
-  lookups (`9e433c2`); Codemagic #69/#70 failed on an expired Apple agreement
-  (see gotcha 9), #71 green; Oct 14 ChatGPT food-flow redesign + v2 shell.
+- **Pre-launch audit fixes shipped** (`audit/CRITICAL_ISSUES.md` has the
+  per-issue status): `71ecf99`..`207f1f4`, 11 commits. All "Must fix before
+  submission" code items are done except DATA-01 (deliberately deferred).
+  - **Functions** deployed from `207f1f4` (Oct 14, ~10:55 pm ET);
+    `callOpenAI` and `foodWebLookup` deleted from the project. Firestore and
+    Storage rules unchanged (no rules deploy needed).
+  - **Web**: `deploy.ps1` verified origin + Cloudflare edge on `207f1f4`.
+  - **iOS**: **Codemagic #74 green** on `207f1f4` (uploaded to App Store
+    Connect Oct 14, 22:56 ET): Capacitor 6.2.2, PrivacyInfo.xcprivacy,
+    iPhone-only portrait and every app fix. This is the build to test and
+    submit.
+  - v1.0 **not yet submitted**. ~9 users, all internal/TestFlight.
+- **What changed for users:** AI consent sheet now also gates Analyze Day
+  and Fuel Coach (and the server enforces it on every Gemini call);
+  onboarding targets are computed on the device (no AI) with the new
+  protein cap / fat floor; minimum age 18; past days' food can be edited
+  and deleted; day navigation works across DST and in non-US locales; the
+  day streak finally counts past today; Apple Health weight no longer
+  changes `profile.weight` (targets use the weight the user typed).
+- **Tests:** `node --test tests/release-fixes.test.mjs` (34 regression
+  tests for this round) plus the food-flow and audit suites. The audit's
+  remaining DEFECT failures are AI-02 (#20, #21) and NUT-03 (#26), both P2
+  and out of scope.
+- **Not yet verified by a human:** everything in
+  `audit/FUNCTIONAL_TEST_MATRIX.md` "Must be done by a human" (real scan
+  through the job pipeline, HealthKit + steps on a real iPhone, consent
+  sheet, barcode, PDF export, deletion, light mode).
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
   freshness, backend cost risk, and scans for code regressions.
+
+## Pre-launch fixes (Oct 14, 2026) — read before touching these areas
+
+- **Day keys** (`services/dayKey.ts`): every day key is `M/D/YYYY` built
+  from local calendar fields (`dayKey`, `todayKey`), parsed with
+  `parseDayKey`, shifted with `shiftDayKey`/`addDays`. **Never** use
+  `toLocaleDateString()` (locale-dependent) or `new Date(key)` or
+  `+ 86400000` for days. `services/foodCommit.ts` inlines the same format
+  because Node's type stripping (food-flow test) can't resolve
+  extensionless imports. Weigh-ins stay ISO `YYYY-MM-DD`.
+- **One rollover:** `rolloverDay` in `services/foodCommit.ts` (MainApp's
+  timer and `commitFood`). It merges into an existing archive; never drop
+  `todayLog`.
+- **Edit/delete any day:** `updateFoodOnDay` / `removeFoodFromDay` /
+  `restoreFoodToDay` (stored day totals move by the item's delta).
+- **AI privacy:** prompts get the profile through `profileForAi`
+  (`services/aiPrivacy.ts`); Health weigh-ins never reach `profile.weight`.
+  Every Gemini/OpenAI entry point goes through `requireAiConsent` on the
+  client and `requireAiConsent(uid)` on the server
+  (`functions/src/aiPolicy.ts`).
+- **Gemini is not a proxy any more:** `callGemini` accepts only
+  `sendChatMessage`, `analyzeDailyLog`, `fuelCoachIdeas`
+  (`GEMINI_FEATURES`); the server picks the model and the coach tools;
+  text only. **A new Gemini feature must be added to `GEMINI_FEATURES`**
+  or the server rejects it.
+- **Spend breaker:** `opsSpend/{UTC day}` (`calls`, `costUsd`,
+  `breakerTrips`). At $25 or 3,000 AI calls in a UTC day every AI feature
+  returns "paused for today". Change `GLOBAL_DAILY_SPEND_USD` /
+  `GLOBAL_DAILY_AI_CALLS` in `aiPolicy.ts` and redeploy functions.
+- **Targets:** onboarding = `computeProfileTargets`
+  (`services/starterTargets.ts`) = Edit Profile's formula. Protein basis =
+  min(weight, goal weight when losing, lean mass ÷ 0.75), capped at 40 %
+  of calories / 250 g; fat ≥ 25 %; carbs = remainder. Existing users keep
+  stored targets until they save Edit Profile.
+- **iOS project:** iPhone only (`TARGETED_DEVICE_FAMILY = 1`), portrait
+  only, `ios/App/App/PrivacyInfo.xcprivacy` is in the App target's
+  Resources phase. Keep its data types in step with the App Privacy label
+  (`APP_STORE_LISTING.md` §9).
+- **No Google Analytics** (privacy policy says so). Don't add it back
+  without a policy + label change.
+- **18+ only** (Gemini API terms). Age rating: override to 18+.
+
+## App Check — prepared, NOT enforced
+
+Code: `enforceAppCheck: APP_CHECK_ENFORCED` (false, `functions/src/aiPolicy.ts`)
+on `callGemini`, `startFoodAnalysis`, `searchNutrition`, `lookupBarcode`.
+Calls without a token are counted in `opsCounters/{day}.appCheckMissing`.
+Web initializes reCAPTCHA Enterprise only when `VITE_APPCHECK_RECAPTCHA_KEY`
+is set at build time. **iOS has no App Check client yet:** reCAPTCHA can't
+attest the `capacitor://` WebView, so App Attest needs a native plugin
+(`@capacitor-firebase/app-check` + `GoogleService-Info.plist` +
+`FirebaseApp.configure()`), which wasn't added blind because a missing plist
+crashes the app at launch. Order to turn it on:
+1. Console steps (Ding): Firebase Console → App Check → Apps → iOS app
+   `com.dings.fitness` → **App Attest** → Register (needs the Team ID from
+   developer.apple.com → Membership). In the Apple developer portal →
+   Identifiers → `com.dings.fitness`, enable the **App Attest** capability
+   (the code session then adds `com.apple.developer.devicecheck.appattest-environment`
+   = `production` to `App.entitlements`). Web app → **reCAPTCHA Enterprise** → create a key in
+   Google Cloud Console → Security → reCAPTCHA (website key, domains
+   `dings.fitness`, `dings-fitness.web.app`) → paste it into App Check and
+   into `.env` as `VITE_APPCHECK_RECAPTCHA_KEY`. Add a line about reCAPTCHA
+   to the privacy policy before shipping the web key.
+2. Code session: add the native plugin + plist, ship a Codemagic build.
+3. Watch `appCheckMissing` in `opsReport` for a week of real traffic, then
+   set `APP_CHECK_ENFORCED = true` and deploy functions. In the console,
+   leave Firestore/Storage enforcement off until the same numbers look clean.
 
 ## Food-only app (Oct 14 evening) — read first
 
@@ -118,10 +197,8 @@ were left alone — a full switch was built, tested and **reverted**
 
 | Path | Cloud Function | Model | tokenUsage feature |
 |---|---|---|---|
-| Gemini | `callGemini` | `gemini-2.5-flash` | the other 9 |
+| Gemini | `callGemini` | `gemini-2.5-flash` | `sendChatMessage`, `analyzeDailyLog`, `fuelCoachIdeas` (server allowlist) |
 | OpenAI | `processFoodAnalysis` (Firestore trigger) | `gpt-5.6-terra` + hosted `web_search`, Responses API, streamed | `analyzeFoodEntry` (`api: "responses"`, `webSearchCalls`) — **the live scan** |
-| OpenAI | `callOpenAI` | `gpt-5.6-terra` | not called by the current UI (one-call + legacy paths, kept for now) |
-| OpenAI | `foodWebLookup` | `gpt-5-search-api` | not called by the current UI (legacy pass 1) |
 | none | `lookupBarcode` | — | not logged (no AI) |
 | none | `searchNutrition` | — | not logged (USDA + Open Food Facts) |
 
@@ -165,8 +242,8 @@ Built by ChatGPT (`c79e6fc`); design notes in `design/IMPLEMENTATION.md`.
 - 12 regression tests: `node --experimental-strip-types --test tests/food-flow.test.mjs`
   (run `npm --prefix functions run build` first).
 - Known looseness: `startFoodAnalysis` accepts client-built messages, so an
-  authenticated user could send any prompt (quota-capped; same as the older
-  `callOpenAI`).
+  authenticated user could send any prompt (per-user quota + the global
+  spend breaker cap it; see Open items).
 
 ## Food scan accuracy overhaul (Oct 13, 2026) — why the prompt looks like it does
 
@@ -194,13 +271,11 @@ answer; the app gave nonsense. Causes, all fixed and still relevant to
 Cost: one model call per scan plus ~$0.01 per web search the model chooses
 (`WEB_SEARCH_CALL_USD`, an estimate). Searched answers are not cached.
 
-### Legacy two-pass scan (no longer called by the UI)
+### Legacy scan paths — deleted (Oct 14, 2026, SEC-01)
 
-`analyzeFoodEntry` / `analyzeFoodEntryLegacy` / `lookupFoodOnWeb` and the
-`foodWebLookup` function (gpt-5-search-api pass 1 + vision pass 2, shared
-`foodLookupCache`) remain in the code but nothing in the current UI calls
-them. Place detection (`detectIndieRestaurantIntent`) still feeds the job
-prompt. Delete the legacy path once the job pipeline has proven itself.
+The client-side scans (`analyzeFoodEntry*`, `lookupFoodOnWeb`), the
+`callOpenAI` proxy and the `foodWebLookup` function are gone. Old
+`foodLookupCache` docs are inert. The job pipeline is the only scan.
 
 ## Food lookup pipeline — order of truth
 
@@ -346,38 +421,42 @@ Don't "fix" that by adding them.
 
 Ordered by what blocks what. "Unconfirmed" = raised but never confirmed done.
 
-1. **Real-device + real-scan verification of `2c1ae5d` / build #72.** On
-   iPhone: Health permission prompt (incl. steps) and step counts on the
-   dashboard, AI consent sheet on first scan, native barcode scan, a photo
-   scan end to end through the job pipeline, Add Food drafts surviving an
-   app close, light mode + background tones. On web: one signed-in scan, then
-   check the newest `tokenUsage` doc (`api: "responses"`).
-2. **Gemini postpay → prepay billing — deadline was Oct 12, 2026.**
-   Unconfirmed. If it wasn't done, the nine Gemini features (coach chat,
-   onboarding macros, meal suggestions…) break.
-3. **OpenAI spend limit.** Unconfirmed. Every scan is a paid call plus web
-   searches.
-4. **App Privacy label** in App Store Connect per `APP_STORE_LISTING.md` §9
-   (Health & Fitness incl. steps, Photos; shared with third parties for App
-   Functionality). Unconfirmed.
-5. **Submit v1.0.** Already done (Sept 18): privacy policy / terms / in-app
-   legal name OpenAI, Gemini, USDA + Open Food Facts; one-time AI consent
-   sheet gates food scan + coach chat (`acceptedAiDataSharing`, Guideline
-   5.1.2(i)); `ITSAppUsesNonExemptEncryption=false`. Known gap: onboarding
-   sends body stats to Gemini *before* the consent sheet; it relies on the
-   sign-up terms checkbox.
-6. **Firestore subcollection migration** (gotcha 3) — more urgent now that
-   every food item carries `nutritionEvidence`.
-7. **iOS storage risks from the ChatGPT commit, check on device:** Firestore
-   `persistentLocalCache` and IndexedDB food drafts both rely on WKWebView
-   IndexedDB, which `services/firebase.ts` notes is unreliable for auth.
-8. Wire the Codemagic webhook so pushes build iOS automatically.
-9. Tech debt: unused `FuelHome`, `BowLoader`, `SpotlightTour`,
-   `WorkoutsHome`, `RecompVelocity`, `WeeklySummaryCard`, and the workout
-   split state/functions still in MainApp; legacy scan
-   path (`analyzeFoodEntry*`, `lookupFoodOnWeb`, `foodWebLookup`,
-   `callOpenAI`'s one-call mode); `firebase-functions` is flagged outdated by
-   the CLI (upgrade has breaking changes); main JS bundle ~1.8 MB.
+**Before submitting v1.0 (Ding):**
+1. **On-device pass** — `audit/FUNCTIONAL_TEST_MATRIX.md` "Must be done by a
+   human", on the Codemagic build from `207f1f4`+: real photo scan through
+   the job pipeline, barcode, AI consent sheet (now also on Analyze Day and
+   Fuel Coach), HealthKit prompt + steps, PDF export, past-day edit/delete,
+   account deletion, light mode. On web: one signed-in scan, then the
+   newest `tokenUsage` doc (`api: "responses"`).
+2. **Gemini prepay** (deadline was Oct 12) — unconfirmed. If it wasn't done,
+   coach chat, Fuel Coach and Analyze Day fail.
+3. **OpenAI + Google Cloud spend limits** — unconfirmed. The in-app breaker
+   ($25/day) is a backstop, not a replacement.
+4. **App Store Connect:** listing text, screenshots (6.9" iPhone only),
+   App Privacy label, age rating (override to 18+), availability, App
+   Review notes + demo account — all in `APP_STORE_LISTING.md`.
+5. **Codemagic upload emails**: check that #72's ITMS-91053 privacy-manifest
+   warning (if any) doesn't recur on the new build.
+
+**Engineering, next:**
+6. **Firestore subcollection migration** (DATA-01, gotcha 3) — its own
+   session, before public launch.
+7. **App Check**: native iOS plugin, then enforcement (section "App Check").
+8. **Scan prompt server-side**: `startFoodAnalysis` still accepts
+   client-built messages (quota + breaker capped). Move
+   `SEARCH_SCAN_INSTRUCTIONS` and the message assembly to the function.
+9. Remaining audit P2s: AI-02 plausibility guard, NUT-03 adaptive window,
+   DEL-01 complete deletion, DATA-03 multi-device writes, OBS-01 crash
+   reporting + error boundary, SAFE-01, NUT-04, A11Y-01/02, SEC-03
+   (`npm audit fix`; web still has grpc/protobufjs/ws/dompurify advisories),
+   FUNC-04, AGE-01 is covered by the listing.
+10. **iOS storage risks** (Firestore `persistentLocalCache`, IndexedDB
+    drafts in WKWebView) — check on device.
+11. Wire the Codemagic webhook so pushes build iOS automatically.
+12. Tech debt: unused `FuelHome`, `BowLoader`, `SpotlightTour`,
+    `WorkoutsHome`, `RecompVelocity`, and the workout split state still in
+    MainApp; `firebase-functions` is flagged outdated (breaking upgrade);
+    main JS bundle ~1.8 MB.
 
 ### Food-accuracy ideas not built yet
 

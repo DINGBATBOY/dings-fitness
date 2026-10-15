@@ -17,6 +17,7 @@ Evidence labels used throughout:
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `71ecf99`. Health weigh-ins no longer touch `profile.weight`; every prompt goes through `services/aiPrivacy.ts` (`aiSafeWeight`), which also drops pre-fix Health overwrites. Regression tests in `tests/release-fixes.test.mjs`. |
 | Severity | **P1** · blocks release: **Yes** |
 | Feature | Apple Health sync → AI coach / Analyze Day |
 | Files | `MainApp.tsx:1471` (`recordWeight(mass.lbs, 'health')`), `MainApp.tsx:1077` (overwrites `profile.weight`), `services/geminiService.ts:343` (coach), `:1764` (Analyze Day), `:1936` (vision roadmap) |
@@ -38,6 +39,7 @@ The privacy policy (public/privacy, LegalModal) says HealthKit data is "never di
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `b087da3` (Analyze Day, Fuel Coach, server check in `callGemini`) + `d501dd4` (onboarding no longer calls AI). |
 | Severity | **P1** · blocks release: **Yes** |
 | Feature | AI consent sheet (`acceptedAiDataSharing`) |
 | Files | `components/Journal.tsx:214–220` (Analyze Day), `components/FuelCoachSheet.tsx:91` ("What should I eat?"), `components/Onboarding.tsx:240` → `services/geminiService.ts:1817` (onboarding macros), `functions/src/index.ts:117` (`callGemini` never checks consent) |
@@ -55,6 +57,7 @@ Guideline 5.1.2(i) (revised Nov 2025) requires apps to "clearly disclose where p
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `127d537`. `getAnalytics` and the measurement ID removed; the production bundle no longer contains them. |
 | Severity | **P1** · blocks release: **Yes** (privacy policy and App Privacy label must be accurate) |
 | Files | `services/firebase.ts:87` (`getAnalytics(app)`), `.env` (`VITE_FIREBASE_MEASUREMENT_ID` set, 12 chars); `public/privacy/index.html` and `components/LegalModal.tsx:110,173` |
 | Evidence | [TEST] measurement ID `G-GN1…` found in the production bundle `dist/assets/index-*.js`; in the Playwright run the preview made Analytics network calls (`firebase_analytics.js … Failed to fetch`, see `evidence/ui-axe-report.json`). [UNVERIFIED] whether Codemagic's env group also sets the measurement ID for iOS. |
@@ -69,6 +72,7 @@ Guideline 5.1.2(i) (revised Nov 2025) requires apps to "clearly disclose where p
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed (listing text)** — `207f1f4`. `APP_STORE_LISTING.md` rewritten (copy, keywords, screenshot plan, 2025 age-rating answers with 18+ override, privacy label). **Screenshots and the App Store Connect entry are Ding's to do.** |
 | Severity | **P1** · blocks release: **Yes**, if submitted as written |
 | Files | `APP_STORE_LISTING.md:46` ("Personalized Workouts — A 7-day split…"), promo text ("Workouts built around your gym"), keywords (`workout,split,gym,recomp`), screenshot plan #6 "Workout split"; `app-store/screenshots/iphone-6-9/04-training-plan.png`, `05-weekly-reflect.png` |
 | Evidence | [SRC] listing file; [UNVERIFIED] what is currently entered in App Store Connect |
@@ -83,6 +87,7 @@ Guideline 5.1.2(i) (revised Nov 2025) requires apps to "clearly disclose where p
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `8cd116c`. `TARGETED_DEVICE_FAMILY = 1`, portrait only. |
 | Severity | **P1** · blocks release: **Yes** (App Store Connect requires 13" iPad screenshots for iPad-capable builds) |
 | Files | `ios/App/App.xcodeproj/project.pbxproj:362,382` `TARGETED_DEVICE_FAMILY = "1,2"`; `Info.plist` `UISupportedInterfaceOrientations~ipad` (all four) |
 | Evidence | [SRC]; [TEST] 1024×1366 screenshot `evidence/home-ipad-1024.png` shows a 448 px column with empty sides |
@@ -95,6 +100,7 @@ Guideline 5.1.2(i) (revised Nov 2025) requires apps to "clearly disclose where p
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `8cd116c`. `ios/App/App/PrivacyInfo.xcprivacy` (C617.1, tracking false, data types) added to the App target's Resources phase. |
 | Severity | **P1** · blocks release: **Likely** |
 | Files | none found: `find . -name PrivacyInfo.xcprivacy` returns only Capacitor's own (empty) manifests in `node_modules/@capacitor/ios`; `node_modules/@capacitor/filesystem/ios/Sources/FilesystemPlugin/FilesystemPlugin.swift:214,218,256,260` (`.creationDate`, `.modificationDate`), `Filesystem.swift:109` (`attributesOfItem`) |
 | Evidence | [SRC]; [UNVERIFIED] whether App Store Connect already emailed ITMS-91053 warnings for builds #71/#72 |
@@ -109,6 +115,7 @@ Guideline 5.1.2(i) (revised Nov 2025) requires apps to "clearly disclose where p
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `3c27f59`. 18+ in onboarding, the sign-up checkbox, Terms, Privacy and `LegalModal.tsx`. Age rating: override to 18+ in App Store Connect (Ding). |
 | Severity | **P1** · blocks release: **Yes** (third-party terms + ED-safety exposure) |
 | Files | `components/Onboarding.tsx:139` (`age < 13 \|\| age > 100`), `public/terms` §Eligibility ("at least thirteen (13)… 13 to 17 must…"), `constants.tsx` `CALCULATE_MACROS` (−600 kcal for Weight Loss, no age branch) |
 | Evidence | [SRC]; Gemini API Additional Terms: "You must be 18 years of age or older to use the APIs" and you "will not use the Services as part of a website, application, or other service … directed towards or is likely to be accessed by individuals under the age of 18." |
@@ -121,6 +128,7 @@ Guideline 5.1.2(i) (revised Nov 2025) requires apps to "clearly disclose where p
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `d501dd4`. Onboarding uses `computeProfileTargets` (= `CALCULATE_MACROS`); `generateOnboardingMacros` deleted. Existing users keep their stored targets until they save Edit Profile. |
 | Severity | **P1** (materially inconsistent targets) · blocks release: **Yes** |
 | Files | `services/geminiService.ts:1817–1932` (`generateOnboardingMacros`: "Calculate a personalized macro plan…"), `components/Onboarding.tsx:240`, `App.tsx:164` (saved as `nutritionTargets`), `MainApp.tsx:922` (stored targets win), `constants.tsx:466+` (`CALCULATE_MACROS`) |
 | Evidence | [SRC]; the rule mismatch is deterministic (below). The LLM output itself was not executed (no network to Gemini). |
@@ -145,6 +153,7 @@ So the same person gets different targets depending on whether the Gemini call s
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `d501dd4`. Protein on goal weight / lean mass ÷ 0.75, capped at 40 % of calories and 250 g; fat floor 25 %; carbs get the remainder. DEFECT tests #5 and #6 pass. |
 | Severity | **P1** (materially incorrect macros for a large user segment) · blocks release: **Yes** |
 | File | `constants.tsx:555` `const protein = Math.round(weightLbs * proteinRatio)` (ratio 0.85–1.15) |
 | Evidence | [TEST] `audit/tests/nutrition-audit.test.mjs` #5, #6 (fail as expected) |
@@ -168,6 +177,7 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Not fixed** — out of scope for this session by decision (subcollection migration is its own session). |
 | Severity | **P1** (major data/sync failure for engaged users; launch-scale blocker rather than review blocker) |
 | Files | `MainApp.tsx:483` (`setDoc(users/{uid}, …, {merge:true})`), `services/foodCommit.ts` (`dailyLogs[].foodItems[]` with `nutritionEvidence`, `foodHistory` ≤ 50 entries with full items); HANDOFF gotcha 3 |
 | Evidence | [TEST] size model (`node`, realistic items incl. evidence/ingredients): scan item with 8 sources + 5 ingredients = 2,515 B; with 3 sources = 1,109 B; simple item = 279 B. Per day: light 2.4 KB → **~380 days**; typical 5.9 KB → **~157 days**; heavy 13.8 KB → **~67 days** to the cap (after ~93 KB of `foodHistory`). |
@@ -182,6 +192,7 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `fa98a03`. `rolloverDay` in `services/foodCommit.ts` is the only rollover (MainApp + `commitFood`); merges into an existing archive, de-duplicated by id. DEFECT test #24 runs the real code and passes. |
 | Severity | **P1** (silent data loss; edge-case trigger) |
 | File | `MainApp.tsx:544, 562–583` (`alreadyArchived` → reset `todayLog` without archiving) |
 | Evidence | [TEST] #24 (verbatim replica of the rollover data path) fails; #25 shows `commitFood`'s rollover merges correctly |
@@ -196,6 +207,7 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `fa98a03`. Day keys come from `services/dayKey.ts` (locale-independent `M/D/YYYY`, same as existing US keys, so no migration was needed) and are parsed explicitly as local dates; legacy en-GB/de-DE/ISO keys are normalized. DEFECT test #23 passes. All-country availability is no longer blocked by this. |
 | Severity | **P1** if the app is distributed outside the US (App Store Connect defaults to all countries); P2 if availability is US-only |
 | Files | `components/Dashboard.tsx:64–66` (`new Date(localeString)`), same pattern in `Journal.tsx`, `CalorieCalendar.tsx:29`, `ProgressCharts.tsx:60`, `adaptiveTDEE.ts:126`, `FoodComposer.tsx:268`, `MainApp.tsx:1799`; all date keys are `toLocaleDateString()` |
 | Evidence | [TEST] #23; [TEST] Playwright on the real Dashboard (`evidence/locale-en-GB.png`): **en-GB / de-DE** week strip renders "Invalid Date NaN" ×7, "Previous day" gets stuck on "Yesterday", and yesterday shows 0 eaten although it has data; **en-CA** "Previous day" from Yesterday jumps to **Friday, Oct 9** (5 days) because `YYYY-MM-DD` parses as UTC |
@@ -208,6 +220,7 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed in code** — `421e0ff`: `callGemini` feature allowlist with server-owned model/tools, text-only + size caps; `callOpenAI` and `foodWebLookup` deleted; global daily spend breaker ($25 / 3,000 calls per UTC day); App Check wired but **not enforced**. **Still Ding's:** OpenAI/Google spend limits, Gemini prepay check, App Check console setup. Remaining looseness: `startFoodAnalysis` still accepts client-built scan messages (quota + breaker capped). |
 | Severity | **P1** (production-incident / bill risk) |
 | Files | `functions/src/index.ts:117–229` (`callGemini` forwards client `contents` and `config` — incl. any `tools`, e.g. Google Search grounding, and arbitrary system instructions), `functions/src/foodJobs.ts:53` (`startFoodAnalysis` accepts client-built `messages` with up to 4 images, then runs gpt-5.6-terra + web_search), `callOpenAI` still deployed; no App Check anywhere (`grep appCheck` = 0); `Auth.tsx` email/password with no verification |
 | Evidence | [SRC]; HANDOFF open items 2–3 (Gemini prepay, OpenAI spend limit) unconfirmed |
@@ -222,6 +235,7 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `4ebb2f7`. `@capacitor/ios`, `core`, `cli` 6.2.2; `npx cap sync ios`. Needs the Codemagic build to ship. |
 | Severity | **P1** (critical CVE in the shipped native shell; one-line fix) |
 | Evidence | [TEST] `npm audit --omit=dev`: GHSA-rvm3-566m-v7fv "remote content can be loaded at the app origin via the internal HTTP proxy path", range `>=6.0.0 <6.2.2`; installed `@capacitor/ios@6.2.1`; `npm view @capacitor/ios@6` lists 6.2.2 |
 
@@ -233,6 +247,7 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 
 | | |
 |---|---|
+| **Status (Oct 14, 2026)** | **Fixed** — `fa98a03`. `updateFoodOnDay` / `removeFoodFromDay` / `restoreFoodToDay`: one path for today and archived days, stored totals follow; sheets editable on any day; undo returns to the right day (also FUNC-05). |
 | Severity | **P1** (broken correction of historical entries; affects totals permanently) |
 | Files | `MainApp.tsx:1806–1817` (`readOnly={!detailFood?.editable}`, edit/delete only touch `todayLog`), `components/Dashboard.tsx:412` (`onOpenFood(f, isToday)`), `components/Journal.tsx:975` (`readOnly={!isToday …}`), `MainApp.tsx:1576` (`deleteLog` filters `todayLog` only) |
 | Evidence | [SRC] |
@@ -242,6 +257,13 @@ The calories reconcile (macros sum within ±4 kcal), so the problem is the distr
 **Fix.** Make edit/delete operate on `dailyLogs[date].foodItems` and recompute that day's totals, sharing one code path with `todayLog`. Add tests: edit and delete on a past day update the stored totals.
 
 ---
+
+## Fix status for the "Must fix" P2 items (Oct 14, 2026)
+
+- **DATE-01 — Fixed** in `fa98a03`: all day arithmetic uses calendar fields (`shiftDayKey` / `addDays`); Dashboard, `coachContext.ts` and `ProgressCharts.tsx` no longer add 86,400,000 ms. DEFECT test #22 passes (walks across Nov 1, 2026 and Mar 14, 2027 in America/New_York).
+- **FEAT-01 — Fixed** in `58ae420`: the GPT key button renders only for admins and `createGptKey` rejects non-admins.
+- Adjacent one-liners fixed while there: PROMPT-01 and SEC-04 (`71ecf99`), UX-03 landscape (`8cd116c`), FUNC-05 undo after midnight (`fa98a03`), and the day streak, which never counted past today (`fa98a03`).
+- Still open (out of scope): AI-02 (DEFECT tests #20/#21 still fail by design), NUT-03 (#26), DEL-01, DATA-03, OBS-01 and the other P2/P3 items.
 
 ## Not P1, but release-relevant (see other reports)
 
