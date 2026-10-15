@@ -386,3 +386,34 @@ test('FUNC-01: past-day food sheets are no longer read-only', () => {
   assert.match(main, /onOpenFood=\{\(item, date\) => setDetailFood\(\{ item, date \}\)\}/);
   assert.ok(!/readOnly=\{!isToday/.test(src('components/Journal.tsx')));
 });
+
+// ───────────────────────── STORE-02 / STORE-03: iOS project ─────────────────────────
+
+test('STORE-02: iPhone-only binary, portrait only', () => {
+  const pbx = src('ios/App/App.xcodeproj/project.pbxproj');
+  const families = pbx.match(/TARGETED_DEVICE_FAMILY = [^;]+;/g);
+  assert.ok(families.length >= 2);
+  for (const f of families) assert.equal(f, 'TARGETED_DEVICE_FAMILY = 1;');
+  const plist = src('ios/App/App/Info.plist');
+  const orient = (key) => plist.split(`<key>${key}</key>`)[1].split('</array>')[0];
+  assert.ok(!/Landscape|UpsideDown/.test(orient('UISupportedInterfaceOrientations')));
+  assert.ok(!/Landscape|UpsideDown/.test(orient('UISupportedInterfaceOrientations~ipad')));
+});
+
+test('STORE-03: PrivacyInfo.xcprivacy exists, declares C617.1 and no tracking, and ships in the App target', () => {
+  const manifest = src('ios/App/App/PrivacyInfo.xcprivacy');
+  assert.match(manifest, /<key>NSPrivacyTracking<\/key>\s*<false\/>/);
+  assert.match(manifest, /NSPrivacyAccessedAPICategoryFileTimestamp<\/string>\s*<key>NSPrivacyAccessedAPITypeReasons<\/key>\s*<array>\s*<string>C617\.1<\/string>/);
+  for (const t of ['EmailAddress', 'Name', 'UserID', 'Health', 'Fitness', 'PhotosorVideos', 'OtherUserContent', 'ProductInteraction']) {
+    assert.ok(manifest.includes(`NSPrivacyCollectedDataType${t}</string>`), `manifest should declare ${t}`);
+  }
+  assert.ok(!/<true\/>\s*<key>NSPrivacyCollectedDataTypePurposes/.test(manifest.replace(/NSPrivacyCollectedDataTypeLinked<\/key>\s*<true\/>/g, '')),
+    'no data type may be used for tracking');
+  const pbx = src('ios/App/App.xcodeproj/project.pbxproj');
+  const ref = /(\w{24}) \/\* PrivacyInfo\.xcprivacy \*\/ = \{isa = PBXFileReference;/.exec(pbx);
+  assert.ok(ref, 'file reference missing');
+  const build = new RegExp(`(\\w{24}) \\/\\* PrivacyInfo\\.xcprivacy in Resources \\*\\/ = \\{isa = PBXBuildFile; fileRef = ${ref[1]}`).exec(pbx);
+  assert.ok(build, 'build file missing');
+  const resources = pbx.split('/* Begin PBXResourcesBuildPhase section */')[1].split('/* End PBXResourcesBuildPhase section */')[0];
+  assert.ok(resources.includes(build[1]), 'not in the App target Resources phase, so it would not ship');
+});

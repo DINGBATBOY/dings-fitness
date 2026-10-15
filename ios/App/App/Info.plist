@@ -30,18 +30,16 @@
 	<array>
 		<string>armv7</string>
 	</array>
+	<!-- Portrait only: the layout is a phone column (audit STORE-02 / UX-03).
+	     The app is iPhone-only (TARGETED_DEVICE_FAMILY = 1); iPads run it in
+	     iPhone compatibility mode. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
