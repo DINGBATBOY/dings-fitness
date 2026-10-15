@@ -417,3 +417,15 @@ test('STORE-03: PrivacyInfo.xcprivacy exists, declares C617.1 and no tracking, a
   const resources = pbx.split('/* Begin PBXResourcesBuildPhase section */')[1].split('/* End PBXResourcesBuildPhase section */')[0];
   assert.ok(resources.includes(build[1]), 'not in the App target Resources phase, so it would not ship');
 });
+
+// ───────────────────────── SEC-02: Capacitor iOS advisory ─────────────────────────
+
+test('SEC-02: @capacitor/ios and @capacitor/core are 6.2.2+ (GHSA-rvm3-566m-v7fv fixed)', () => {
+  const lock = JSON.parse(src('package-lock.json'));
+  const ver = (name) => lock.packages[`node_modules/${name}`].version.split('.').map(Number);
+  for (const name of ['@capacitor/ios', '@capacitor/core']) {
+    const [maj, min, patch] = ver(name);
+    assert.ok(maj > 6 || (maj === 6 && (min > 2 || (min === 2 && patch >= 2))), `${name} ${ver(name).join('.')}`);
+  }
+  assert.deepEqual(ver('@capacitor/ios'), ver('@capacitor/core'), 'keep core and ios in step');
+});
