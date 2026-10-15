@@ -10,7 +10,6 @@ import {
   Auth,
 } from 'firebase/auth';
 import { getFunctions, Functions, connectFunctionsEmulator } from 'firebase/functions';
-import { getAnalytics, Analytics } from 'firebase/analytics';
 
 // Values come from .env (copy .env.example -> .env and fill in your project's keys).
 // NEVER hardcode credentials here.
@@ -24,7 +23,6 @@ const firebaseConfig = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const isConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
@@ -33,7 +31,6 @@ let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
 let auth: Auth | undefined;
 let functions: Functions | undefined;
-let analytics: Analytics | undefined;
 
 if (isConfigured) {
     app = initializeApp(firebaseConfig);
@@ -82,15 +79,11 @@ if (isConfigured) {
         }
     }
 
-    if (typeof window !== 'undefined') {
-        try {
-            analytics = getAnalytics(app);
-        } catch {
-            // Analytics may not be available in all environments; safe to ignore.
-        }
-    }
+    // No Google Analytics: the privacy policy promises no third-party
+    // analytics, and nothing read it (audit PRIV-03). Don't add it back
+    // without updating the policy and the App Privacy label.
 } else {
     console.warn("Firebase not configured: copy .env.example to .env and fill in your keys.");
 }
 
-export { db, auth, functions, isConfigured, analytics };
+export { db, auth, functions, isConfigured };
