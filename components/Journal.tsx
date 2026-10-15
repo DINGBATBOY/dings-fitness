@@ -52,6 +52,8 @@ interface JournalProps {
   waterIntake: number;
   activityBurn?: number;
   profile: UserProfile;
+  /** Profile as it may be sent to AI (no Apple Health weight; services/aiPrivacy.ts). */
+  aiProfile?: UserProfile;
   targets: NutritionTargets;
   onDeleteLog?: (id: string) => void;
   /** Persist edits made in the FoodDetailSheet drill-in view.
@@ -70,6 +72,7 @@ export const Journal: React.FC<JournalProps> = ({
   waterIntake,
   activityBurn = 0,
   profile,
+  aiProfile,
   targets,
   onDeleteLog,
   onUpdateFood,
@@ -217,7 +220,7 @@ export const Journal: React.FC<JournalProps> = ({
     setIsAnalyzing(true);
     setError(null);
     try {
-      const result = await analyzeDailyLog(currentLog, profile, targets);
+      const result = await analyzeDailyLog(currentLog, aiProfile ?? { ...profile, weight: undefined as unknown as number }, targets);
       setAnalysis(result);
     } catch (err) {
       console.error("Analysis failed:", err);

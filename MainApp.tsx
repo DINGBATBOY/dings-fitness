@@ -46,7 +46,8 @@ import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
 import { UserProfile, DailyLog, AppState, Location, PhysiqueGoal, SavedNote, Meal, FoodItem, BodyStats, BodyPartStats, WorkoutExercise, VisionRoadmap, ActivityLevel, NutritionTargets, HistoryEntry, WeightEntry } from './types';
 import { CALCULATE_TDEE, CALCULATE_MACROS, DAYS_OF_WEEK, INITIAL_BODY_STATS, GET_AFFECTED_MUSCLES, XP_PER_LEVEL_BASE, isAdminUser, calculateTDEEDetailed } from './constants';
-import { generateMealSuggestion, generateSmartSplit, sendChatMessage } from './services/geminiService';
+import { sendChatMessage } from './services/geminiService';
+import { profileForAi } from './services/aiPrivacy';
 import { db, auth, functions, isConfigured } from './services/firebase';
 import { httpsCallable } from 'firebase/functions';
 import { doc, onSnapshot, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
@@ -844,39 +845,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       return () => clearTimeout(t);
   }, [userId, appState.profile, appState.dailyLogs]);
 
-  const generateSplitForUser = async () => {
-      setIsGeneratingSplit(true);
-      try {
-          if (!appState.profile) throw new Error("No profile");
-          const split = await generateSmartSplit(appState.profile.goal, appState.profile.busyDays, appState.profile.highEnergyDays, {
-              age: appState.profile.age || 30,
-              weight: appState.profile.weight || 150,
-              activityLevel: appState.profile.activityLevel || ActivityLevel.Light,
-              // Pass workout-personalization answers from onboarding. Legacy
-              // profiles without these get sensible defaults inside the prompt.
-              workoutPreferences: appState.profile.workoutPreferences,
-              // Onboarding v2 fields — if the profile has them, feed them
-              // to the AI so injuries are avoided and motivation can flavor
-              // tone. Both optional; legacy profiles skip.
-              injuries: appState.profile.injuries,
-              motivation: appState.profile.motivation,
-          });
-          if (split && Array.isArray(split) && split.length > 0) {
-              setWorkoutSplit(split);
-              saveWorkoutToCloud(split, weeklyCompletedWorkouts);
-          } else {
-              throw new Error("Empty split generated");
-          }
-      } catch (e) {
-          console.error("Split gen failed, using fallback", e);
-          setWorkoutSplit(FALLBACK_SPLIT);
-          saveWorkoutToCloud(FALLBACK_SPLIT, weeklyCompletedWorkouts);
-          triggerToast("Used a simple starter split");
-      } finally {
-          setIsGeneratingSplit(false);
-      }
-  }
-
   // Pick a random voice line from a list. Used so the same toast feels less
   // robotic on repeat exposure — see VOICE.md for the source samples.
   const pickVoice = (lines: string[]) => lines[Math.floor(Math.random() * lines.length)];
@@ -1074,7 +1042,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       return {
         ...prev,
         weighIns,
-        profile: prev.profile ? { ...prev.profile, weight: entry.weight } : prev.profile,
+        // Apple Health samples stay in weighIns only. profile.weight goes into
+        // AI prompts, and HealthKit data must never reach an AI provider
+        // (privacy policy, Guideline 5.1.3; audit PRIV-01).
+        profile: prev.profile && source !== 'health' ? { ...prev.profile, weight: entry.weight } : prev.profile,
       };
     });
     setVisionRoadmap(null);
@@ -1614,7 +1585,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         const context = buildCoachContext({
             appState, targets: targetMacros, consumed: consumedMacros, streak,
         });
-        const response = await sendChatMessage(chatHistory, appState.profile, userMsg, context);
+        const response = await sendChatMessage(chatHistory, profileForAi(appState.profile, appState.weighIns), userMsg, context);
         
         if (response.text) {
              setChatHistory(prev => [...prev, { role: 'model', text: response.text }]);
@@ -1659,8 +1630,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                      const { metric, value } = tool.args;
                      if (metric === 'weight' && appState.profile) {
                           recordWeight(Number(value), 'chat');
-                    } else if (metric === 'bodyFat' && appState.profile) {
-                         const newProfile = { ...appState.profile, bodyFat: value };
+                    } else if (metric === 'bodyFat' && appState.profile && Number(value) >= 3 && Number(value) <= 70) {
+                         const newProfile = { ...appState.profile, bodyFat: Number(value) };
                          handleUpdateAppState(prev => ({
                              ...prev,
                              profile: newProfile
@@ -1891,7 +1862,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             carbs: Math.max(0, Math.round(targetMacros.carbs - consumedMacros.carbs)),
             fat: Math.max(0, Math.round(targetMacros.fat - consumedMacros.fat)),
           }}
-          profile={appState.profile}
+          profile={appState.profile ? profileForAi(appState.profile, appState.weighIns) : null}
           onClose={() => setShowFuelCoach(false)}
           onLogItem={(item) => {
             // Fuel Coach macros are AI estimates (except DB-grounded eat-out
@@ -2082,6 +2053,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             waterIntake={appState.waterIntake}
             activityBurn={appState.activityBurn}
             profile={appState.profile}
+            aiProfile={profileForAi(appState.profile, appState.weighIns)}
             targets={targetMacros}
             onDeleteLog={deleteLog}
             onUpdateFood={(updated) => {

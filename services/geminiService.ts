@@ -278,21 +278,6 @@ const saveInsightTool: FunctionDeclaration = {
   },
 };
 
-const addToWorkoutTool: FunctionDeclaration = {
-  name: "addExerciseToSplit",
-  description: "Add a specific exercise to a specific day of the workout split.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      day: { type: Type.STRING, description: "The day of the week (e.g., Monday)" },
-      exerciseName: { type: Type.STRING },
-      sets: { type: Type.NUMBER },
-      reps: { type: Type.STRING },
-    },
-    required: ["day", "exerciseName", "sets", "reps"],
-  },
-};
-
 const updateUserMetricTool: FunctionDeclaration = {
   name: "updateUserMetric",
   description: "Update the users physical metrics (current weight or body fat percentage) when they report a change.",
@@ -332,7 +317,7 @@ export const sendChatMessage = async (
   training, answer briefly and generally and bring it back to food.
 
   You can see the user's live data below. Use it: refer to what they actually ate, what's left
-  today, their week, steps and burn. Do the arithmetic from these numbers rather than guessing,
+  today, their week and logged workouts. Do the arithmetic from these numbers rather than guessing,
   and never invent foods or numbers that aren't there. If something isn't in the data, say so.
 
   ${appContext ? `USER DATA (live from the app):\n${sanitize(appContext, 8000)}` : ''}
@@ -340,7 +325,7 @@ export const sendChatMessage = async (
   User Profile:
   Name: ${profile.name}
   Age: ${profile.age}
-  Weight: ${profile.weight} lbs
+  Weight: ${profile.weight ? `${profile.weight} lbs` : 'not shared'}
   Height: ${profile.height} inches
   PBF: ${profile.bodyFat || "N/A"}%
   Goal: ${profile.goal}
@@ -353,7 +338,6 @@ export const sendChatMessage = async (
   When the user reports a weight change:
   1. Call the tool.
   2. Congratulate them or offer encouragement based on their goal (${profile.goal}).
-  3. Mention that you are adjusting their Path/Protocol to match this new data.
   `;
 
   const contents = history.map((msg) => ({
@@ -383,268 +367,6 @@ export const sendChatMessage = async (
         : "I didn't catch that."),
     toolCalls: response.functionCalls ?? undefined,
   };
-};
-
-export const generateMealSuggestion = async (
-  remainingMacros: { calories: number; protein: number; carbs: number; fat: number },
-  time: string,
-  vibe: string,
-) => {
-  const prompt = `Create a single specific meal recipe for these macros: ${remainingMacros.calories}kcal, ${remainingMacros.protein}g protein. Time: ${sanitize(time, 100)}. Vibe: ${sanitize(vibe, 200)}.`;
-
-  const response = await callGeminiProxy({
-    feature: 'generateMealSuggestion',
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          calories: { type: Type.NUMBER },
-          protein: { type: Type.NUMBER },
-          carbs: { type: Type.NUMBER },
-          fat: { type: Type.NUMBER },
-          timeEstimate: { type: Type.STRING },
-          ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-          instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
-        required: [
-          "name",
-          "calories",
-          "protein",
-          "carbs",
-          "fat",
-          "timeEstimate",
-          "ingredients",
-          "instructions",
-        ],
-      },
-    },
-  });
-
-  return JSON.parse(response.text);
-};
-
-export const generateSmartSplit = async (
-  goal: string,
-  busyDays: string[],
-  highEnergyDays: string[],
-  profile: {
-    age: number;
-    weight: number;
-    activityLevel: string;
-    workoutPreferences?: {
-      experience?: 'beginner' | 'intermediate' | 'advanced';
-      daysPerWeek?: 3 | 4 | 5 | 6;
-      sessionMinutes?: 30 | 45 | 60 | 90;
-      equipment?: 'full-gym' | 'home-weights' | 'bodyweight';
-    };
-    // New — flagged during onboarding, fed into the prompt so the AI
-    // avoids or substitutes exercises that stress these joints.
-    injuries?: string[];
-    // Free-form "why now" — not mathematically used, but included so the
-    // AI can tune the tone of exercise labels/notes when relevant.
-    motivation?: string;
-  },
-) => {
-  // Defaults for legacy profiles that pre-date these onboarding questions.
-  const prefs = profile.workoutPreferences || {};
-  const experience = prefs.experience || 'intermediate';
-  const daysPerWeek = prefs.daysPerWeek || 4;
-  const sessionMinutes = prefs.sessionMinutes || 60;
-  const equipment = prefs.equipment || 'full-gym';
-  // Injuries: 'None' selection is treated as no restrictions. Everything
-  // else lands in a substitution guide block.
-  const activeInjuries = (profile.injuries || []).filter(i => i && i.toLowerCase() !== 'none');
-  const injuryGuide = activeInjuries.length ? `
-INJURY / LIMITATION SUBSTITUTIONS — NON-NEGOTIABLE:
-The user has flagged: ${activeInjuries.join(', ')}.
-Apply these substitutions across the entire week:
-${activeInjuries.map(i => {
-  const key = i.toLowerCase();
-  if (key.includes('knee'))    return "  • Knees: avoid deep barbell back squat, jump squats, box jumps, lunges with heavy load. Substitute leg press (limited depth), goblet squat to box, hip thrust, step-ups, sled work.";
-  if (key.includes('shoulder')) return "  • Shoulders: avoid overhead barbell press, upright rows, behind-the-neck movements, dips. Substitute landmine press, incline dumbbell press, cable lateral raise, chest-supported row.";
-  if (key.includes('back'))     return "  • Back (lumbar): avoid loaded deadlift from floor, barbell row, jump exercises, weighted good mornings. Substitute trap bar deadlift from blocks, chest-supported row, hip thrust, back extensions with control.";
-  if (key.includes('wrist'))    return "  • Wrists: avoid barbell curls, straight-bar pressing that forces wrist extension, push-ups on flat palms. Substitute dumbbell/hammer curls, football-bar press, push-ups on parallettes.";
-  if (key.includes('ankle'))    return "  • Ankles: avoid deep squats to full depth, plyometrics, sprinting. Substitute leg press with heel elevation, sled push, cycling for conditioning.";
-  if (key.includes('elbow'))    return "  • Elbows: avoid heavy barbell curls, close-grip bench press, dips, skullcrushers. Substitute hammer curls, incline dumbbell press, cable pushdowns with EZ-bar.";
-  if (key.includes('hip'))      return "  • Hips: avoid deep squats, weighted lunges, sumo deadlift. Substitute leg press, single-leg press, cable pull-through, hip thrust from bench.";
-  return `  • ${i}: substitute any movement that directly loads this joint. Prefer machine or supported variants.`;
-}).join('\n')}
-Under no circumstance should the split include a movement from the AVOID list above.` : '';
-  // Motivation is passed through only as an optional tone hint. Nothing
-  // in the workout math depends on it.
-  const motivationLine = profile.motivation
-    ? `- Motivation: "${profile.motivation}" (tune exercise notes to reference this only if it feels natural — not required.)`
-    : '';
-
-  // Derive prescription from preferences. These rules are what make the
-  // generated split actually personalized — beginners get compound-focused
-  // simple sessions, advanced get higher volume with isolations, etc.
-  const experienceGuide: Record<typeof experience, string> = {
-    beginner:
-      "BEGINNER: Stick to fundamental compound movements (squat variants, hinge variants, push, pull). " +
-      "3 sets × 8-12 reps. AVOID complex movements (Olympic lifts, advanced isolations). Focus on form & consistency.",
-    intermediate:
-      "INTERMEDIATE: Mix compounds and isolations. Use rep ranges 6-15 (heavy compounds 6-8, accessories 10-15). " +
-      "3-4 sets per exercise. Include progressive overload cues.",
-    advanced:
-      "ADVANCED: Higher volume — 4-5 sets per exercise. Include advanced techniques (drop sets, rest-pause, tempo work) " +
-      "where appropriate. More isolation work and specialization lifts allowed.",
-  };
-
-  // Exercises per session scales with session length.
-  const exerciseCount: Record<number, string> = {
-    30: "4-5 exercises (compound-focused, time-efficient)",
-    45: "5-6 exercises",
-    60: "6-7 exercises",
-    90: "7-9 exercises (room for thorough warm-up + accessory work)",
-  };
-
-  // Equipment determines the exercise pool.
-  const equipmentGuide: Record<typeof equipment, string> = {
-    'full-gym':
-      "User has FULL GYM access: barbells, dumbbells, machines, cables, racks all available. " +
-      "Use whatever fits the goal best.",
-    'home-weights':
-      "User has HOME with SOME WEIGHTS: dumbbells, bands, possibly a bench. " +
-      "NO barbells, NO machines, NO cables. Substitute accordingly (e.g. goblet squat instead of back squat).",
-    'bodyweight':
-      "User has BODYWEIGHT ONLY: no equipment. Build the split entirely from " +
-      "bodyweight exercises (push-ups, pull-ups if a bar exists, dips, lunges, planks, etc.). " +
-      "Use unilateral and tempo variations for progression.",
-  };
-
-  // Pairing template by daysPerWeek — proven splits used across the lifting
-  // literature. Gemini gets the template as a STRONG suggestion (not a rigid
-  // rule) so it shapes a coherent week rather than improvising six different
-  // "upper body" days.
-  const pairingTemplate: Record<number, string> = {
-    3: "Full-body 3x: each session hits squat-pattern, hinge-pattern, push, pull, and a core/conditioning finisher. 48hrs rest between sessions ideal.",
-    4: "Upper/Lower 4x: Upper A (horizontal push + vertical pull focus) / Lower A (squat focus) / Upper B (vertical push + horizontal pull focus) / Lower B (hinge focus).",
-    5: "Push/Pull/Legs/Upper/Lower OR Bro split: Mon=Chest, Tue=Back, Wed=Legs, Thu=Shoulders+arms, Fri=Posterior chain. Pick whichever fits the user's goal — PPL for general, bro for hypertrophy bias.",
-    6: "Push/Pull/Legs 2x: PPL Mon-Wed (heavy), PPL Thu-Sat (volume), Sunday rest. Lower volume per session but each muscle hits twice weekly.",
-  };
-
-  // Rest periods by intensity, in seconds — for the rest_seconds hint we ask
-  // Gemini to set per exercise.
-  const restPeriodGuide = `
-Rest periods (mandatory hint per exercise):
-  • Heavy compound (squat, deadlift, bench, OHP) — 120-180s
-  • Moderate compound (rows, presses, pulldowns) — 90-120s
-  • Isolation (curls, lateral raises, leg curls) — 60-90s
-  • Cardio/conditioning intervals — 30-60s or as prescribed`;
-
-  const periodizationGuide = `
-Periodization — week 1 of a 4-week mesocycle:
-  • Volume: at the lower end of the prescription range (e.g. 3 sets, not 5)
-  • Intensity: leave 2-3 reps in reserve (RIR) per working set
-  • This baseline lets the user progress weight/reps over weeks 2-4 before deloading on week 5.
-  • Mention RIR in the exercise notes field so users see it.`;
-
-  const exerciseVarietyRules = `
-Exercise variety rules — non-negotiable:
-  1. Do NOT repeat the exact same exercise within the same training week.
-     (Variation is fine: "Barbell Back Squat" Monday and "Front Squat" Friday is OK; same exercise twice is not.)
-  2. Each training day must include AT LEAST ONE compound (multi-joint) movement.
-  3. Avoid more than 3 isolation exercises per session — if you find yourself
-     prescribing 4+, drop one and add a compound.
-  4. For 5- or 6-day splits, vary the rep ranges across the week:
-     some days low-rep heavy (4-6), some moderate (8-12), some high (12-20).
-  5. ALWAYS include at least one posterior-chain exercise per week
-     (hinge, row, face-pull, reverse-fly, RDL, hip thrust, etc.) — this is
-     the most common gap in self-generated programs.`;
-
-  const prompt = `Generate a 7-day workout split (Monday-Sunday) tailored to this user.
-
-GOAL: ${sanitize(goal, 200)}
-
-USER CONTEXT:
-- Age: ${profile.age}, Weight: ${profile.weight} lbs, Daily activity: ${profile.activityLevel}
-- Training experience: ${experience}
-- Available training days per week: ${daysPerWeek}
-- Typical session length: ${sessionMinutes} minutes
-- Equipment access: ${equipment}
-- High-energy days (plan hardest sessions here): ${highEnergyDays.join(", ") || "Not specified"}
-- Busy days (plan rest or short sessions here): ${busyDays.join(", ") || "Not specified"}
-${motivationLine}
-${injuryGuide}
-
-EXPERIENCE PRESCRIPTION:
-${experienceGuide[experience]}
-
-VOLUME PER SESSION (${sessionMinutes} min):
-Aim for ${exerciseCount[sessionMinutes]} per workout day.
-
-EQUIPMENT CONSTRAINTS:
-${equipmentGuide[equipment]}
-
-PAIRING TEMPLATE — start here, then adapt to the user's goal:
-${pairingTemplate[daysPerWeek]}
-
-${exerciseVarietyRules}
-
-${restPeriodGuide}
-
-${periodizationGuide}
-
-REQUIREMENTS:
-1. Schedule exactly ${daysPerWeek} TRAINING days and ${7 - daysPerWeek} REST days across the week.
-2. Put training days on high-energy days when possible; rest/light on busy days.
-3. Monday MUST be day 1 of the array.
-4. Use specific exercise names (e.g. "Goblet Squat" not just "Legs").
-5. Match exercises to the equipment constraint above — do NOT prescribe equipment the user doesn't have.
-6. For each training day, set "intensity" to one of: "Light", "Moderate", "High".
-   Pair intensity with the user's high-energy days (High goes on those days).
-7. For each training day, set "label" descriptively — name the focus AND the
-   pattern: e.g. "Upper Push · Heavy Bench", "Lower · Squat Focus", "Pull Day
-   · Vertical & Horizontal". Don't write generic "Upper Day".
-8. For rest days, set "exercises" to an empty array [] and "label" to "Rest"
-   (or "Active Recovery: walk / mobility" if user is Very/Extra active).
-9. For each exercise, provide both a gymAlternative AND a homeAlternative
-   so users can adapt if their equipment situation changes.
-10. End each session with a SHORT compound finisher when there's time
-    (carry, sled, jump rope, plank, hill sprint) for goals other than pure
-    hypertrophy bulking.
-11. ${goal?.toLowerCase().includes('bulk') ? 'BULK: bias toward 8-12 rep hypertrophy range, longer rest, more isolation work in the back half of the week.' : goal?.toLowerCase().includes('weight loss') || goal?.toLowerCase().includes('lean') ? 'CUT/LEAN: keep working sets to 3-4, add short conditioning finishers to 4 of the training days, avoid grinding singles.' : goal?.toLowerCase().includes('recomp') ? 'RECOMP: heavy compound work early week (4-6 reps), volume isolations late week, one conditioning day.' : goal?.toLowerCase().includes('performance') ? 'PERFORMANCE: prioritize power output (3-5 reps on main lifts) and movement quality. Include sport-specific carry-over.' : 'GENERAL: balanced mix of strength, hypertrophy, and conditioning across the week.'}
-`;
-
-  const response = await callGeminiProxy({
-    feature: 'generateSmartSplit',
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            day: { type: Type.STRING },
-            label: { type: Type.STRING },
-            intensity: { type: Type.STRING },
-            exercises: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  sets: { type: Type.NUMBER },
-                  reps: { type: Type.STRING },
-                  gymAlternative: { type: Type.STRING },
-                  homeAlternative: { type: Type.STRING },
-                },
-                required: ["name", "sets", "reps", "gymAlternative", "homeAlternative"],
-              },
-            },
-          },
-          required: ["day", "label", "intensity", "exercises"],
-        },
-      },
-    },
-  });
-
-  return JSON.parse(response.text);
 };
 
 // ============================================================================
@@ -1761,7 +1483,7 @@ export const analyzeDailyLog = async (
 
   User Profile:
   - Goal: ${profile.goal}
-  - Current Weight: ${profile.weight} lbs
+  - Current Weight: ${profile.weight ? `${profile.weight} lbs` : 'not shared'}
   - Target Calories: ${targets.calories} kcal
   - Target Protein: ${targets.protein}g
   - Target Carbs: ${targets.carbs}g
@@ -1927,77 +1649,6 @@ Also write a SHORT 1-sentence message (max 20 words) explaining WHY these are th
         parsed.fat = Math.max(0, Math.round((remaining * 0.45) / 9));
       }
     }
-  }
-
-  return parsed;
-};
-
-export const generateVisionRoadmap = async (profile: any) => {
-  const prompt = `Based on User Data: Weight: ${profile.weight}lbs, Height: ${profile.height}, Goal: ${profile.goal}.
-
-  Calculate SPECIFIC DAILY TARGETS based on this CURRENT WEIGHT:
-  1. Exact Daily Calories.
-  2. Exact Daily Protein.
-  3. Exact Calorie Deficit amount needed.
-
-  IMPORTANT SAFETY FLOORS — never recommend less than:
-  - 1,500 kcal/day for Male users
-  - 1,200 kcal/day for Female users
-  If the math would produce something lower, set it at the floor.
-
-  Create 3 distinct steps/milestones to get from ${profile.weight}lbs to their goal.
-  For each step, provide a list of 3 concrete "actionItems" (short, checkbox-style tasks).`;
-
-  const response = await callGeminiProxy({
-    feature: 'generateVisionRoadmap',
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          visionStatement: { type: Type.STRING },
-          nutritionTargets: {
-            type: Type.OBJECT,
-            properties: {
-              dailyCalories: { type: Type.NUMBER },
-              dailyProtein: { type: Type.NUMBER },
-              dailyDeficit: { type: Type.NUMBER },
-              strategySummary: { type: Type.STRING },
-            },
-            required: ["dailyCalories", "dailyProtein", "dailyDeficit", "strategySummary"],
-          },
-          steps: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                description: { type: Type.STRING },
-                milestone: { type: Type.STRING },
-                actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
-              },
-              required: ["title", "description", "milestone", "actionItems"],
-            },
-          },
-        },
-        required: ["visionStatement", "nutritionTargets", "steps"],
-      },
-    },
-  });
-
-  const parsed = JSON.parse(response.text);
-
-  // SAFETY FLOOR (defense in depth): clamp dailyCalories to the per-sex floor
-  // even if the model ignores the prompt. We don't have TDEE here, so we use
-  // only the absolute floor.
-  const minSafe = getMinSafeCalories(profile.sex);
-  if (
-    parsed?.nutritionTargets &&
-    typeof parsed.nutritionTargets.dailyCalories === "number" &&
-    parsed.nutritionTargets.dailyCalories < minSafe
-  ) {
-    parsed.nutritionTargets.dailyCalories = minSafe;
   }
 
   return parsed;

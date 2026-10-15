@@ -7,6 +7,7 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "test:food": "npm --prefix functions run build && node --experimental-strip-types --test tests/food-flow.test.mjs",
+    "test:release": "npm --prefix functions run build && node --test tests/release-fixes.test.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "cap:sync": "vite build && npx cap sync",
