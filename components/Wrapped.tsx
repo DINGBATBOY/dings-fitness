@@ -423,7 +423,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
               )}
       </>
     ) },
-    { id: 'training', show: true, node: (
+    { id: 'training', show: false, node: (
       <>
               <FadeIn delay={0.1}>
                 <SectionHeading icon={<Dumbbell className="w-3.5 h-3.5" />} label="Training" />
@@ -531,12 +531,6 @@ export const Wrapped: React.FC<WrappedProps> = ({
                       label="Most active day"
                       date={stats.bestBurn.date}
                       value={`${round(stats.bestBurn.caloriesBurned || 0)} kcal`} />
-                  )}
-                  {stats.bestVolume && (stats.bestVolume.workoutVolume || 0) > 0 && (
-                    <StandoutRow icon={<Dumbbell className="w-4 h-4 text-blue-400" />}
-                      label="Heaviest workout"
-                      date={stats.bestVolume.date}
-                      value={`${round(stats.bestVolume.workoutVolume || 0).toLocaleString()} lb`} />
                   )}
                 </div>
               </FadeIn>
@@ -716,7 +710,7 @@ export const Wrapped: React.FC<WrappedProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-bold text-white">Slide through your story</div>
                     <div className="text-[11px] text-gray-400 mt-0.5">
-                      {storySlides.length} cards · consistency, fuel, training, and more
+                      {storySlides.length} cards · consistency, fuel, your foods, and more
                     </div>
                   </div>
                   <ChevronRight className="w-4 h-4 text-orange-300 shrink-0" />
@@ -730,9 +724,9 @@ export const Wrapped: React.FC<WrappedProps> = ({
                   <GlanceCard label="Avg calories" value={stats.averages.calories.toLocaleString()} unit="kcal / day" />
                   <GlanceCard label="Avg protein" value={String(stats.averages.protein)} unit="g / day" />
                   <GlanceCard
-                    label="Workouts"
-                    value={String(period === 'week' ? stats.workoutsThisWeek : stats.totals.workouts)}
-                    unit={period === 'week' ? 'this week' : 'this month'}
+                    label="Avg water"
+                    value={String(Math.round(stats.averages.water || 0))}
+                    unit="oz / day"
                   />
                   <GlanceCard
                     label="Weight"

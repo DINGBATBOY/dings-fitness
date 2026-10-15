@@ -266,7 +266,13 @@ export function FoodComposer({ uid, open, onClose, onOpen, seed, onSeedConsumed,
   const progress = event && (pending || event.type === 'failed' || event.type === 'cancelled');
   const todayStr = new Date().toLocaleDateString();
   const draftDateLabel = draft.logDate === todayStr ? 'Today' : new Date(draft.logDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  return <FoodDialog open={open} onClose={onClose} resetKey={!loaded ? 'loading' : progress ? 'analysis' : view} dateLabel={hasDraft ? draftDateLabel : (dateLabel || draftDateLabel)}>
+  // Review / editor / barcode remember where you were; the header's Back goes
+  // to the scan screen (camera, photos, describe) and keeps everything.
+  const backToStart = loaded && !progress && view !== 'entry' && !(seed && hasDraft)
+    ? () => { if (view === 'editor') setDraft(d => ({ ...d, editor: undefined })); setError(''); setView('entry'); }
+    : undefined;
+  return <FoodDialog open={open} onClose={onClose} resetKey={!loaded ? 'loading' : progress ? 'analysis' : view} dateLabel={hasDraft ? draftDateLabel : (dateLabel || draftDateLabel)}
+    onBack={backToStart} backLabel="Back to the scan screen">
     {!loaded ? <p role="status">Getting your food ready…</p> : <>
       {storageError && <p role="alert" className="mb-4 text-sm text-[#e8a85a]">{storageError}</p>}
       {error && <p role="alert" className="mb-4 rounded-xl border border-[#e8a85a]/50 p-3 text-base text-[var(--ink)]">{error}</p>}
@@ -305,7 +311,7 @@ export function FoodComposer({ uid, open, onClose, onOpen, seed, onSeedConsumed,
               setDraft(next); setView('entry'); setEvent(null); setError(''); onClose();
             }} />
         </> : <>
-          {draft.items.length > 0 && <button type="button" className={`${action} mb-4 w-full text-[var(--ink)]`} onClick={() => setView('review')}>Back to your meal · {draft.items.length} items</button>}
+          {draft.items.length > 0 && <button type="button" className="tap mb-4 flex min-h-14 w-full items-center justify-between rounded-2xl bg-[var(--primary)] px-4 text-base font-semibold text-[var(--on-primary)]" onClick={() => setView('review')}><span>Your meal · {draft.items.length} item{draft.items.length > 1 ? 's' : ''}</span><span>Review →</span></button>}
           <FoodEntry draft={draft} onText={text => setDraft(d => ({ ...beginInput(d), request: undefined, text }))} onCamera={() => void camera()} onLibrary={() => upload.current?.click()} onBarcode={() => void scanBarcode()}
             onRemovePhoto={id => setDraft(d => ({ ...d, request: undefined, photos: d.photos.filter(p => p.id !== id) }))}
             onAnalyze={async () => { requireConsent(() => { onOpen(); void analyze(); }); }}

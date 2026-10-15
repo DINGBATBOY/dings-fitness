@@ -94,7 +94,7 @@ const MOTIVATIONS = [
 
 // Total steps used to compute the progress bar. Kept in one place so
 // changes to the flow update the bar automatically.
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 6; // food-only app (Oct 2026): training steps removed
 
 export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [phase, setPhase] = useState<'disclaimer' | 'form' | 'result'>('disclaimer');
@@ -349,7 +349,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
             <div className="space-y-4 mt-6 text-sm leading-relaxed" style={{ color: C.inkMid }}>
               <p>
                 Ding! is a <span className="font-semibold" style={{ color: C.ink }}>fitness tracking tool</span>, not
-                a medical device or a substitute for professional advice. The calorie targets, workouts, and
+                a medical device or a substitute for professional advice. The calorie targets and
                 suggestions you'll see are estimates — a starting point, not a prescription.
               </p>
               <p>
@@ -687,124 +687,6 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
               </StepShell>
             )}
 
-            {step === 7 && (
-              <StepShell
-                title="Anything hurting?"
-                subtitle="Pick what you'd rather not stress. We'll steer the AI split around these — nothing gets recommended blindly."
-              >
-                <div className="flex flex-wrap gap-2">
-                  {INJURIES.map(i => {
-                    const selected = draft.injuries.includes(i);
-                    return (
-                      <ChipButton
-                        key={i}
-                        label={i}
-                        selected={selected}
-                        onClick={() => {
-                          if (i === 'None') {
-                            setField('injuries', selected ? [] : ['None']);
-                          } else {
-                            const next = selected
-                              ? draft.injuries.filter(x => x !== i)
-                              : [...draft.injuries.filter(x => x !== 'None'), i];
-                            setField('injuries', next);
-                          }
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </StepShell>
-            )}
-
-            {step === 8 && (
-              <StepShell
-                title="How you train."
-                subtitle="This shapes the workout split — no wrong answer."
-              >
-                <div>
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>Experience</span>
-                  <div className="grid grid-cols-3 gap-2 mt-2">
-                    {(['beginner', 'intermediate', 'advanced'] as const).map(e => (
-                      <ChoiceButton
-                        key={e}
-                        label={e[0].toUpperCase() + e.slice(1)}
-                        selected={draft.workoutExperience === e}
-                        onClick={() => setField('workoutExperience', e)}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-5">
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>Days per week</span>
-                  <div className="grid grid-cols-4 gap-2 mt-2">
-                    {[3, 4, 5, 6].map(d => (
-                      <ChoiceButton
-                        key={d}
-                        label={`${d}`}
-                        selected={draft.workoutDaysPerWeek === d}
-                        onClick={() => setField('workoutDaysPerWeek', d as 3 | 4 | 5 | 6)}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-5">
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>Session length (minutes)</span>
-                  <div className="grid grid-cols-4 gap-2 mt-2">
-                    {[30, 45, 60, 90].map(m => (
-                      <ChoiceButton
-                        key={m}
-                        label={`${m}m`}
-                        selected={draft.workoutSessionMinutes === m}
-                        onClick={() => setField('workoutSessionMinutes', m as 30 | 45 | 60 | 90)}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-5">
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.inkLight }}>Where you train</span>
-                  <div className="space-y-2 mt-2">
-                    <ChoiceButton label="Full gym"                 selected={draft.workoutEquipment === 'full-gym'}     onClick={() => setField('workoutEquipment', 'full-gym')} />
-                    <ChoiceButton label="Home with some weights"  selected={draft.workoutEquipment === 'home-weights'} onClick={() => setField('workoutEquipment', 'home-weights')} />
-                    <ChoiceButton label="Bodyweight only"          selected={draft.workoutEquipment === 'bodyweight'}    onClick={() => setField('workoutEquipment', 'bodyweight')} />
-                  </div>
-                </div>
-              </StepShell>
-            )}
-
-            {step === 9 && (
-              <StepShell
-                title="Your week at a glance."
-                subtitle="Both optional. Helps the AI put hard days when you have energy and rest days when you don't."
-              >
-                <div>
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.emerald }}>Days you have the most energy</span>
-                  <DaysPicker
-                    selected={draft.highEnergyDays}
-                    onToggle={d => {
-                      const next = draft.highEnergyDays.includes(d)
-                        ? draft.highEnergyDays.filter(x => x !== d)
-                        : [...draft.highEnergyDays, d];
-                      setField('highEnergyDays', next);
-                    }}
-                    color={C.emerald}
-                  />
-                </div>
-                <div className="mt-5">
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold" style={{ color: C.protein }}>Days that are usually your busiest</span>
-                  <DaysPicker
-                    selected={draft.busyDays}
-                    onToggle={d => {
-                      const next = draft.busyDays.includes(d)
-                        ? draft.busyDays.filter(x => x !== d)
-                        : [...draft.busyDays, d];
-                      setField('busyDays', next);
-                    }}
-                    color={C.protein}
-                  />
-                </div>
-              </StepShell>
-            )}
           </motion.div>
         </AnimatePresence>
       </div>

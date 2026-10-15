@@ -1,5 +1,5 @@
 import React from 'react';
-import { House, Dumbbell, MessageCircle, Plus } from 'lucide-react';
+import { House, ChartNoAxesColumnIncreasing, MessageCircle, Plus } from 'lucide-react';
 import type { UserProfile } from '../types';
 import type { FoodStatus } from './food/FoodComposer';
 
@@ -17,19 +17,19 @@ interface LayoutProps {
 
 /**
  * App shell: content + a MacroFactor-style tab bar with a raised center +.
- *   Home · Train · (+) · Coach · Profile
+ *   Home · Coach · (+) · Progress · Profile   (food-only, Oct 2026)
  * The + is the app's signature action — adding food — so it is bigger,
  * brighter and animated; it rotates into an × while Add Food is open.
  */
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, onAdd, addOpen = false, foodStatus = 'empty', profile }) => {
   const left = [
     { id: 'dashboard', label: 'Home', Icon: House },
-    { id: 'workouts', label: 'Train', Icon: Dumbbell },
-  ];
-  const right = [
     { id: 'coach', label: 'Coach', Icon: MessageCircle },
   ];
-  const profileSelected = activeTab === 'profile' || activeTab === 'reflect' || activeTab === 'journal';
+  const right = [
+    { id: 'progress', label: 'Progress', Icon: ChartNoAxesColumnIncreasing },
+  ];
+  const profileSelected = activeTab === 'profile' || activeTab === 'journal';
   const tab = ({ id, label, Icon }: { id: string; label: string; Icon: typeof House }) => {
     const selected = id === activeTab || (id === 'dashboard' && activeTab === 'restaurants');
     return (

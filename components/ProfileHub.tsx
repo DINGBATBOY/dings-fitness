@@ -1,17 +1,17 @@
 /**
- * ProfileHub — Profile tab. Reflect and the old Log page live here now.
+ * ProfileHub — Profile tab. The old Log page lives here; Reflect is the Progress tab.
  *
  *   Header: photo, name, goal
- *   Stat tiles: day streak, days logged, most eaten, 7-day avg, weight change, meals logged
- *   Sections: Overview (the old Reflect) · History (the old Log page) · Settings
+ *   Stat tiles: day streak, days logged, most eaten, 7-day avg, weight change, foods logged, water
+ *   Sections: History (the old Log page) · Settings (Reflect moved to the Progress tab)
  *   Settings starts with Appearance (light/dark + background tone).
  */
 import React, { useMemo, useState } from 'react';
-import { Flame, CalendarCheck, Utensils, Gauge, Scale, ListChecks, Pencil, Sun, Moon, Check, Dumbbell } from 'lucide-react';
+import { Flame, CalendarCheck, Utensils, Gauge, Scale, ListChecks, Pencil, Sun, Moon, Check, Droplets } from 'lucide-react';
 import type { DailyLog, FoodItem, HistoryEntry, UserProfile, WeightEntry } from '../types';
 import { TONES, type Appearance } from '../services/theme';
 
-export type ProfileSection = 'overview' | 'history' | 'settings';
+export type ProfileSection = 'history' | 'settings';
 
 interface ProfileHubProps {
   profile: UserProfile;
@@ -26,20 +26,18 @@ interface ProfileHubProps {
   onSection: (s: ProfileSection) => void;
   appearance: Appearance;
   onAppearance: (a: Appearance) => void;
-  overview: React.ReactNode;
   history: React.ReactNode;
   settings: React.ReactNode;
 }
 
 const SECTIONS: { id: ProfileSection; label: string }[] = [
-  { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'History' },
   { id: 'settings', label: 'Settings' },
 ];
 
 export const ProfileHub: React.FC<ProfileHubProps> = ({
   profile, avatar, streak, dailyLogs, todayLog, foodHistory, weighIns, onEdit,
-  section, onSection, appearance, onAppearance, overview, history, settings,
+  section, onSection, appearance, onAppearance, history, settings,
 }) => {
   const stats = useMemo(() => {
     const days = (dailyLogs || []).filter(l => (l.caloriesConsumed || 0) > 0 || (l.foodItems?.length || 0) > 0);
@@ -66,8 +64,9 @@ export const ProfileHub: React.FC<ProfileHubProps> = ({
     const start = profile.initialWeight || sorted[0]?.weight;
     const latest = sorted[sorted.length - 1]?.weight ?? profile.weight;
     const change = start && latest ? latest - start : undefined;
-    const workouts = (dailyLogs || []).filter(l => l.workoutCompleted).length;
-    return { daysLogged, meals, most, avg7, change, workouts };
+    const waterDays = days.filter(l => (l.waterIntake || 0) > 0);
+    const avgWater = waterDays.length ? waterDays.reduce((s, l) => s + (l.waterIntake || 0), 0) / waterDays.length : 0;
+    return { daysLogged, meals, most, avg7, change, avgWater };
   }, [dailyLogs, todayLog, foodHistory, weighIns, profile.initialWeight, profile.weight]);
 
   const tiles: { Icon: typeof Flame; label: string; value: string; sub?: string; tone?: string }[] = [
@@ -76,7 +75,7 @@ export const ProfileHub: React.FC<ProfileHubProps> = ({
     { Icon: Gauge, label: '7-day average', value: stats.avg7 ? Math.round(stats.avg7).toLocaleString() : '—', sub: 'kcal', tone: 'var(--accent)' },
     { Icon: Scale, label: 'Weight change', value: stats.change === undefined ? '—' : `${stats.change > 0 ? '+' : stats.change < 0 ? '−' : ''}${Math.abs(stats.change).toFixed(1)}`, sub: 'lbs since start', tone: '#6fa8c4' },
     { Icon: ListChecks, label: 'Foods logged', value: stats.meals.toLocaleString(), tone: '#a48ec7' },
-    { Icon: Dumbbell, label: 'Workouts done', value: stats.workouts.toLocaleString(), tone: 'var(--ink-mid)' },
+    { Icon: Droplets, label: 'Avg water', value: stats.avgWater ? String(Math.round(stats.avgWater)) : '—', sub: 'oz / day', tone: '#6fa8c4' },
   ];
 
   return (
@@ -119,9 +118,9 @@ export const ProfileHub: React.FC<ProfileHubProps> = ({
 
       {/* Section switcher */}
       <div role="tablist" aria-label="Profile sections" className="sticky top-0 z-30 -mx-4 bg-[var(--bg-dark)]/95 px-4 py-2 backdrop-blur-md">
-        <div className="relative grid grid-cols-3 rounded-2xl border border-[var(--line)] bg-[var(--bg-card)] p-1">
+        <div className="relative grid grid-cols-2 rounded-2xl border border-[var(--line)] bg-[var(--bg-card)] p-1">
           <span aria-hidden="true" className="absolute inset-y-1 rounded-xl bg-[var(--ink)] transition-transform duration-300 ease-out"
-            style={{ width: 'calc((100% - 0.5rem) / 3)', left: '0.25rem', transform: `translateX(${SECTIONS.findIndex(s => s.id === section) * 100}%)` }} />
+            style={{ width: 'calc((100% - 0.5rem) / 2)', left: '0.25rem', transform: `translateX(${SECTIONS.findIndex(s => s.id === section) * 100}%)` }} />
           {SECTIONS.map(s => (
             <button key={s.id} type="button" role="tab" aria-selected={section === s.id} onClick={() => onSection(s.id)}
               className={`relative z-10 min-h-11 rounded-xl text-sm font-semibold transition-colors duration-300 ${section === s.id ? 'text-[var(--bg-dark)]' : 'text-[var(--ink-mid)]'}`}>
@@ -132,7 +131,6 @@ export const ProfileHub: React.FC<ProfileHubProps> = ({
       </div>
 
       <div key={section} className="rise-in">
-        {section === 'overview' && overview}
         {section === 'history' && history}
         {section === 'settings' && (
           <div className="space-y-5">

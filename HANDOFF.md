@@ -24,12 +24,56 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
   freshness, backend cost risk, and scans for code regressions.
 
+## Food-only app (Oct 14 evening) — read first
+
+Ding decided Ding! is **strictly a food-tracking app**. Removed: the Train tab
+(WorkoutsHome / AI workout split), Recomp Velocity, onboarding steps 7–9
+(injuries, workout preferences, energy/busy days — onboarding is 6 steps),
+the edit-profile workout preferences, the coach's `addExerciseToSplit` tool,
+the Monday split reset. Workout data in `user_workouts` is left untouched.
+
+**Kept on purpose:** logging workouts as **calories burned** ("Log a
+workout" on Home → activity modal → `activityBurn`), and Apple Health
+workouts/steps/active energy.
+
+- **Tabs:** Home · Coach · **(+)** · Progress · Profile. Old ids still
+  resolve in `switchTab`: `workouts` → Home, `reflect`/`recomp` → Progress,
+  `journal` → Profile/History, `restaurants` → Add Food's Eats.
+- **Progress** (`components/ProgressCharts.tsx` + Wrapped + calorie calendar):
+  7/30-day calories vs target, eaten-vs-burned diverging bars, macros stacked
+  by calories, weight line, "See the numbers" table. Chart colors are the
+  `--viz-*` tokens in index.css, validated with the dataviz palette checker
+  on every background tone (the old macro colors failed it — don't reuse
+  them for charts).
+- **Home balance card:** "Todays balance so far" = eaten − (resting +
+  active + extra + digestion) via `computeEnergyBalance`. Steps are **not**
+  added: Apple Health's active energy already includes walking. New
+  `healthWorkoutKcal` input: logged workouts beyond what Health itself
+  recorded today count as extra burn on top of Health (no watch, gym
+  machine). Past days keep the old rule (logged = inside Health's number).
+- **Steps fix:** connected users were never re-asked for the new `stepCount`
+  type, so steps were always empty. `HEALTH_READ_VERSION` (MainApp) re-runs
+  `requestAuthorization` once when the read set grows; iOS only prompts for
+  new types. Bump it whenever `plugins/ding-health` reads a new type.
+  Nothing on the Apple Developer site is needed per data type.
+- **Coach knows the app:** `services/coachContext.ts` builds a capped
+  (~1–7 KB) text snapshot per message — today's foods/macros/left, water,
+  logged workouts, last 7 days per day, 30-day averages, weight check-ins,
+  usual foods — passed into `sendChatMessage`. Nothing new is stored.
+  **Apple Health data is excluded** (steps, Health burn/workouts,
+  Health-sourced weigh-ins): the privacy policy promises HealthKit data is
+  never disclosed to AI providers. Changing that needs an explicit opt-in and
+  a policy update. The privacy policy now says coach messages include the
+  logged-data summary.
+- **Add Food back button:** any sub-view (review, editor, barcode) shows
+  "← Back" (to the scan screen, draft kept) + ✕ close in the header.
+
 ## App shell v2 (Oct 14, 2026) — read before touching navigation
 
 Ding's direction (spec: `design/V2_SPEC.md`). Built on top of ChatGPT's
 food-flow commit (`c79e6fc`: durable scan jobs, drafts, review, evidence).
 
-- **Tabs:** Home · Train · **(+)** · Coach · Profile (`components/Layout.tsx`).
+- **Tabs (superseded above):** Home · Train · **(+)** · Coach · Profile (`components/Layout.tsx`).
   The raised center + opens **Add Food**, a full-page `<dialog>`
   (`FoodDialog` + `.food-dialog` in index.css). Old tab ids still resolve:
   `journal` → Profile/History, `reflect`/`recomp` → Profile/Overview,
@@ -46,9 +90,9 @@ food-flow commit (`c79e6fc`: durable scan jobs, drafts, review, evidence).
 - **HealthKit:** new native method `getDailySummaries({days})` +
   `stepCount` read type. **Needs a Codemagic build** — older builds simply
   show no steps. Privacy policy + Info.plist usage string mention steps.
-- **Profile** (`components/ProfileHub.tsx`): stats, then Overview (old
-  Reflect + calorie calendar), History (old Journal), Settings (Appearance +
-  everything the old profile tab had).
+- **Profile** (`components/ProfileHub.tsx`): stats, then History (old
+  Journal) and Settings (Appearance + everything the old profile tab had).
+  The old Overview/Reflect moved to the Progress tab.
 - **Appearance** (`services/theme.ts`): `data-theme` (dark/light) and
   `data-tone` (charcoal/midnight/forest/plum/black) on `<html>`. All surface
   and ink colors are CSS variables (`--bg-dark`, `--bg-card`, `--ink`,
@@ -291,9 +335,9 @@ Don't "fix" that by adding them.
 - **One food entry point.** The center **+**, the dashboard's Add button,
   Fuel Coach picks and restaurant items all open the same Add Food page and
   save through `commitFood`.
-- **Ding's navigation (Oct 14):** Home · Train · (+) · Coach · Profile. No
-  Log tab — the dashboard's date bar replaces it, and full history lives in
-  Profile → History. Reflect lives in Profile → Overview.
+- **Ding's navigation (Oct 14):** Home · Coach · (+) · Progress · Profile.
+  Food-only: no workout planner. No Log tab — the dashboard's date bar
+  replaces it; full history is Profile → History.
 - **Voice:** `VOICE.md` (Cuodi's texting voice). Hidatsa words only from
   `MHA_LANGUAGE.md`; never invent new ones.
 - Minimum-calorie safety floors exist on purpose (`getMinSafeCalories`).
@@ -328,7 +372,9 @@ Ordered by what blocks what. "Unconfirmed" = raised but never confirmed done.
    `persistentLocalCache` and IndexedDB food drafts both rely on WKWebView
    IndexedDB, which `services/firebase.ts` notes is unreliable for auth.
 8. Wire the Codemagic webhook so pushes build iOS automatically.
-9. Tech debt: unused `FuelHome`, `BowLoader`, `SpotlightTour`; legacy scan
+9. Tech debt: unused `FuelHome`, `BowLoader`, `SpotlightTour`,
+   `WorkoutsHome`, `RecompVelocity`, `WeeklySummaryCard`, and the workout
+   split state/functions still in MainApp; legacy scan
    path (`analyzeFoodEntry*`, `lookupFoodOnWeb`, `foodWebLookup`,
    `callOpenAI`'s one-call mode); `firebase-functions` is flagged outdated by
    the CLI (upgrade has breaking changes); main JS bundle ~1.8 MB.

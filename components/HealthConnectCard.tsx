@@ -55,7 +55,8 @@ export const HealthConnectCard: React.FC<HealthConnectCardProps> = ({ onConnect,
           </div>
           <p className="text-[12px] mt-1 leading-snug" style={{ color: C.inkMid }}>
             Stop logging activity by hand. With your permission, Ding reads your{' '}
-            <span style={{ color: C.ink }}>active energy</span>, today's{' '}
+            <span style={{ color: C.ink }}>active energy</span>,{' '}
+            <span style={{ color: C.ink }}>steps</span>, today's{' '}
             <span style={{ color: C.ink }}>workouts</span>, and your latest{' '}
             <span style={{ color: C.ink }}>weight</span> to keep your energy balance
             and check-ins accurate automatically.

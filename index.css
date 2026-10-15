@@ -101,6 +101,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
     --fire: #d97757;           /* ember CTA */
     --sage: #7ab896;           /* emerald sage */
     --on-primary: #161210;
+    /* Chart series (validated with the dataviz palette checker on every
+       surface tone: CVD + normal-vision separation, contrast). */
+    --viz-protein: #199e70;
+    --viz-carbs: #3987e5;
+    --viz-fat: #d95926;
+    --viz-deficit: #199e70;
+    --viz-surplus: #d95926;
     color-scheme: dark;
 }
 :root[data-tone="midnight"] { --bg-dark: #0f1218; --bg-card: #171b23; --bg-card-soft: #1d222c; --bg-glass: rgba(15,18,24,0.92); --ink-mid: #b9bfcb; --ink-light: #7d8494; }
@@ -112,6 +119,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
     --ink: #2b211b; --ink-mid: #66574a; --ink-light: #8a7a6b;
     --line: rgba(43,33,27,0.09); --line-strong: rgba(43,33,27,0.16); --wash: rgba(43,33,27,0.045);
     --on-primary: #1f1712;
+    --viz-protein: #1baf7a; --viz-carbs: #2a78d6; --viz-fat: #eb6834;
+    --viz-deficit: #1baf7a; --viz-surplus: #eb6834;
     color-scheme: light;
 }
 

@@ -6,12 +6,13 @@ import { CalorieCalendar } from './components/CalorieCalendar';
 import { Journal } from './components/Journal';
 import { Auth } from './components/Auth';
 import { Onboarding } from './components/Onboarding';
-import { RecompVelocity } from './components/RecompVelocity';
 import { RestaurantHub } from './components/RestaurantHub';
 import { FuelCoachSheet } from './components/FuelCoachSheet';
 import { FoodComposer, type FoodSeed, type FoodStatus } from './components/food/FoodComposer';
 import { Dashboard, type DaySummary } from './components/Dashboard';
 import { ProfileHub, type ProfileSection } from './components/ProfileHub';
+import { ProgressCharts } from './components/ProgressCharts';
+import { buildCoachContext } from './services/coachContext';
 import { FoodDetailSheet } from './components/FoodDetailSheet';
 import { readAppearance, applyAppearance, isValidAppearance, type Appearance } from './services/theme';
 import { FoodDialog } from './components/food/FoodDialog';
@@ -21,7 +22,6 @@ import { UsageDashboard } from './components/UsageDashboard';
 import { Wrapped } from './components/Wrapped';
 
 
-import { WorkoutsHome } from './components/WorkoutsHome';
 import { SafeMarkdown } from './components/SafeMarkdown';
 import { HealthConnectCard } from './components/HealthConnectCard';
 import {
@@ -29,10 +29,18 @@ import {
   healthAvailable,
   requestHealthPermissions,
   fetchTodayActiveEnergy,
-  fetchTodayWorkouts,
   fetchLatestBodyMass,
   fetchDailySummaries,
+  fetchTodayWorkouts,
+  type HealthWorkout,
 } from './services/health';
+
+// Bump when plugins/ding-health reads a NEW HealthKit type. iOS only shows the
+// permission sheet when asked, and only for types it hasn't asked about, so
+// already-connected users must be re-asked once or the new type (v2: steps)
+// silently returns nothing.
+const HEALTH_READ_VERSION = 2;
+const HEALTH_READ_KEY = 'ding-health-read-version';
 import { App as CapApp } from '@capacitor/app';
 import { computeAdaptiveTDEE } from './src/utils/adaptiveTDEE';
 import { detectRestaurantsInText, findMenuItemMatches, type MenuItem } from './data/restaurants';
@@ -294,9 +302,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   // Home shows ONE day at a time; the date bar switches it. New food logs to it.
   const [selectedDate, setSelectedDate] = useState(() => new Date().toLocaleDateString());
-  const [profileSection, setProfileSection] = useState<ProfileSection>('overview');
+  const [profileSection, setProfileSection] = useState<ProfileSection>('history');
   const [appearance, setAppearanceState] = useState<Appearance>(() => readAppearance());
   const [healthByDate, setHealthByDate] = useState<Record<string, DaySummary>>({});
+  const [healthWorkouts, setHealthWorkouts] = useState<HealthWorkout[]>([]);
   const [detailFood, setDetailFood] = useState<{ item: FoodItem; editable: boolean } | null>(null);
   const [showFuelCoach, setShowFuelCoach] = useState(false);
 
@@ -309,14 +318,16 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
   // Direction of the page-turn transition. Positive when moving to a
   // later tab (forward), negative when going back. Recomputed inside the
   // tab-switch handler below. Default forward feels right on first paint.
-  const TAB_ORDER = ['dashboard', 'workouts', 'coach', 'profile'];
+  const TAB_ORDER = ['dashboard', 'coach', 'progress', 'profile'];
   const [pageTurnDirection, setPageTurnDirection] = useState<1 | -1>(1);
   const switchTab = useCallback((requested: string) => {
-    // Old destinations now live elsewhere: Log + Reflect are Profile
-    // sections, Eats is a section of the Add Food page.
+    // Old destinations now live elsewhere: Log is Profile → History, Reflect
+    // is the Progress tab, Eats is a section of the Add Food page, and the
+    // Train tab is gone (food-only app, Oct 2026).
     let next = requested;
     if (requested === 'journal') { setProfileSection('history'); next = 'profile'; }
-    if (requested === 'reflect' || requested === 'recomp') { setProfileSection('overview'); next = 'profile'; }
+    if (requested === 'reflect' || requested === 'recomp') next = 'progress';
+    if (requested === 'workouts') next = 'dashboard';
     if (requested === 'restaurants') {
       try { sessionStorage.setItem('ding-add-section', 'eats'); } catch { /* ignore */ }
       setShowAddFood(true);
@@ -600,19 +611,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       if (archivedJustNow) {
         const dayOfWeek = new Date().getDay();
         isMonday = dayOfWeek === 1;
-        if (isMonday) {
-          setWeeklyCompletedWorkouts([]);
-          if (user && db) saveWorkoutToCloud(workoutSplit, []);
-          const resetSplit = workoutSplit.map(day => ({
-            ...day,
-            exercises: day.exercises.map((ex: any) => ({ ...ex, completed: false })),
-          }));
-          setWorkoutSplit(resetSplit);
-          saveWorkoutToCloud(resetSplit, []);
-          triggerToast("New Week: Workouts Reset");
-        } else {
-          triggerToast("New Day: Food & Water Reset");
-        }
+        // Food-only app (Oct 2026): the Monday workout-split reset is gone.
+        triggerToast("New Day: Food & Water Reset");
       }
     };
 
@@ -1437,8 +1437,20 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
       // 1) Active energy — EPHEMERAL. Never persisted, so it cannot grow the
       //    user doc. null => the card falls back to the estimated model.
+      // New read types (steps) need one more permission prompt for people who
+      // connected before they existed. iOS skips types already answered.
+      try {
+          if (Number(localStorage.getItem(HEALTH_READ_KEY) || '0') < HEALTH_READ_VERSION) {
+              await requestHealthPermissions();
+              localStorage.setItem(HEALTH_READ_KEY, String(HEALTH_READ_VERSION));
+          }
+      } catch { /* best-effort */ }
+
       const kcal = await fetchTodayActiveEnergy();
       setHealthActiveEnergy(kcal);
+      // Today's workouts as Apple Health recorded them (watch sessions etc.).
+      // Shown on Home and used to avoid double-counting logged workouts.
+      fetchTodayWorkouts().then(setHealthWorkouts).catch(() => undefined);
       // Steps + active energy per day for the dashboard's day switcher.
       // Ephemeral like active energy: never written to the user doc.
       fetchDailySummaries(30).then(setHealthByDate).catch(() => undefined);
@@ -1457,28 +1469,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
               const hasTodayWeighIn = (appState.weighIns || []).some(w => w.date === todayKey);
               if (!hasTodayWeighIn) {
                   recordWeight(mass.lbs, 'health');
-              }
-          }
-      } catch { /* best-effort */ }
-
-      // 3) Today's workouts — auto-complete the scheduled split day. We do NOT
-      //    add workout calories anywhere: Apple's active energy already
-      //    includes workouts, and completeWorkoutDay only marks the day +
-      //    awards XP (it never touches the calorie target). The idempotency
-      //    guard inside completeWorkoutDay prevents double-counting across
-      //    repeated syncs and against a manual completion.
-      try {
-          const workouts = await fetchTodayWorkouts();
-          const meaningful = workouts.some(w => (w.durationMin || 0) >= 10);
-          if (meaningful) {
-              const todayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-              const idx = workoutSplit.findIndex((d: any) => d?.day === todayName);
-              if (idx >= 0) {
-                  const label = String(workoutSplit[idx]?.label || '');
-                  const isRestDay = /rest/i.test(label);
-                  if (!isRestDay && !weeklyCompletedWorkouts.includes(todayName)) {
-                      completeWorkoutDay(idx);
-                  }
               }
           }
       } catch { /* best-effort */ }
@@ -1524,6 +1514,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       setHealthConnecting(true);
       try {
           const granted = await requestHealthPermissions();
+          try { localStorage.setItem(HEALTH_READ_KEY, String(HEALTH_READ_VERSION)); } catch { /* ignore */ }
           // Mark enabled regardless of the (opaque) read-status flag: if the
           // user actually denied, queries just return null and we quietly stay
           // in estimated mode. This also dismisses the prompt.
@@ -1549,6 +1540,8 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
 
   const disconnectHealth = () => {
       setHealthActiveEnergy(null);
+      setHealthWorkouts([]);
+      setHealthByDate({});
       handleUpdateAppState(prev => ({
           ...prev,
           profile: prev.profile ? { ...prev.profile, healthSyncEnabled: false } : prev.profile,
@@ -1618,7 +1611,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
     setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
     setIsChatLoading(true);
     try {
-        const response = await sendChatMessage(chatHistory, appState.profile, userMsg);
+        const context = buildCoachContext({
+            appState, targets: targetMacros, consumed: consumedMacros, streak,
+        });
+        const response = await sendChatMessage(chatHistory, appState.profile, userMsg, context);
         
         if (response.text) {
              setChatHistory(prev => [...prev, { role: 'model', text: response.text }]);
@@ -1867,16 +1863,17 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           energyBaseline={energyBaseline}
           healthActiveEnergy={healthActiveEnergy}
           healthByDate={healthByDate}
+          healthWorkouts={healthWorkouts}
+          onLogActivity={() => {
+            setActivityModalForm({ kind: 'running', intensity: 'moderate', minutes: 30, manualKcal: '' });
+            setShowActivityModal(true);
+          }}
           healthConnected={!!appState.profile?.healthSyncEnabled}
           onConnectHealth={isHealthSupported() && healthDeviceAvailable && !appState.profile?.healthSyncEnabled ? connectHealth : undefined}
           onAddFood={openAddFood}
           onOpenFood={(item, editable) => setDetailFood({ item, editable })}
           onLogWater={updateWater}
           onLogWeight={(weight) => recordWeight(weight)}
-          onLogActivity={() => {
-            setActivityModalForm({ kind: 'running', intensity: 'moderate', minutes: 30, manualKcal: '' });
-            setShowActivityModal(true);
-          }}
           onOpenFuelCoach={() => setShowFuelCoach(true)}
           onAskCoach={() => switchTab('coach')}
           adaptiveSuggestion={adaptiveSuggestion}
@@ -1922,54 +1919,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       )}
 
 
-      {activeTab === 'workouts' && (
-        <WorkoutsHome
-          workoutSplit={workoutSplit}
-          weeklyCompletedWorkouts={weeklyCompletedWorkouts}
-          currentDayName={currentDayName}
-          profile={appState.profile}
-          isGeneratingSplit={isGeneratingSplit}
-          onToggleExerciseComplete={toggleExerciseComplete}
-          onUpdateExerciseWeight={updateExerciseWeight}
-          onDeleteExercise={deleteExercise}
-          onAddExercise={(dayIndex, ex) => {
-            // Inline add — WorkoutsHome owns its own draft state, so we
-            // don't route through the legacy addExerciseToSplit (which
-            // reads from module-level manualExercise state). Cleaner path.
-            if (!ex.name.trim()) return;
-            const newSplit = [...workoutSplit];
-            newSplit[dayIndex] = {
-              ...newSplit[dayIndex],
-              exercises: [
-                ...newSplit[dayIndex].exercises,
-                {
-                  name: ex.name,
-                  sets: ex.sets,
-                  reps: ex.reps,
-                  completed: false,
-                  gymAlternative: '',
-                  homeAlternative: '',
-                },
-              ],
-            };
-            setWorkoutSplit(newSplit);
-            saveWorkoutToCloud(newSplit, weeklyCompletedWorkouts);
-            triggerToast("Exercise added");
-          }}
-          onCompleteWorkoutDay={completeWorkoutDay}
-          onRegenerateSplit={generateSplitForUser}
-          onOpenPersonalize={() => {
-            setEditProfileData({
-              weight: appState.profile?.weight,
-              bodyFat: appState.profile?.bodyFat,
-              goal: appState.profile?.goal,
-              activityLevel: appState.profile?.activityLevel,
-              workoutPreferences: appState.profile?.workoutPreferences,
-            });
-            setIsEditingProfile(true);
-          }}
-        />
-      )}
 
 
       {activeTab === 'coach' && (
@@ -2034,6 +1983,44 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
         </div>
       )}
 
+      {activeTab === 'progress' && appState.profile && (
+        <div className="space-y-5 pb-6">
+          <div className="rise-in">
+            <p className="text-sm text-[var(--ink-mid)]">Your food, over time</p>
+            <h1 className="text-[1.65rem] font-bold leading-tight tracking-tight">Progress</h1>
+          </div>
+          <ProgressCharts
+            profile={appState.profile}
+            targets={targetMacros}
+            dailyLogs={appState.dailyLogs || []}
+            todayLog={appState.todayLog || []}
+            todayConsumed={consumedMacros}
+            todayActivityBurn={appState.activityBurn || 0}
+            weighIns={appState.weighIns || []}
+            energyBaseline={energyBaseline}
+            healthActiveEnergy={healthActiveEnergy}
+            healthByDate={healthByDate}
+          />
+          <p className="pt-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink-light)]">Your story</p>
+          <Wrapped
+            inline
+            profile={appState.profile}
+            dailyLogs={appState.dailyLogs || []}
+            weighIns={appState.weighIns || []}
+            todayLog={appState.todayLog || []}
+            todayActivityBurn={appState.activityBurn || 0}
+            todayWaterIntake={appState.waterIntake || 0}
+            foodHistory={appState.foodHistory || []}
+            bodyStats={appState.bodyStats}
+            targets={targetMacros}
+            initialPeriod="week"
+          />
+          <div className="rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5">
+            <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
+          </div>
+        </div>
+      )}
+
       {activeTab === 'profile' && appState.profile && (
         <ProfileHub
           profile={appState.profile}
@@ -2087,40 +2074,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
           onSection={setProfileSection}
           appearance={appearance}
           onAppearance={changeAppearance}
-          overview={(
-            <div className="space-y-6">
-           {/* CALORIE CALENDAR */}
-           <div className="glass-panel p-6 rounded-3xl">
-              <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
-           </div>
-        <div className="space-y-6">
-          <Wrapped
-            inline
-            profile={appState.profile}
-            dailyLogs={appState.dailyLogs || []}
-            weighIns={appState.weighIns || []}
-            todayLog={appState.todayLog || []}
-            todayActivityBurn={appState.activityBurn || 0}
-            todayWaterIntake={appState.waterIntake || 0}
-            foodHistory={appState.foodHistory || []}
-            bodyStats={appState.bodyStats}
-            targets={targetMacros}
-            weeklyCompletedWorkouts={weeklyCompletedWorkouts}
-            initialPeriod="week"
-          />
-
-          {/* RECOMP VELOCITY — deeper-dive trend analysis. Lives under
-              Wrapped so users who want the harder numbers can scroll to them. */}
-          <div className="pt-2 border-t border-white/5">
-            <div className="flex items-center gap-1.5 px-1 mb-3">
-              <span className="text-gray-500">🪶</span>
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.25em] text-gray-400">Deeper read</h3>
-            </div>
-            <RecompVelocity appState={appState} workoutSplit={workoutSplit} />
-          </div>
-        </div>
-            </div>
-          )}
           history={(
             <div>
               <Journal
@@ -2165,7 +2118,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                        <p className="text-[9px] text-gray-500 font-bold uppercase mb-1 tracking-widest">Apple Health</p>
                        <p className="text-sm text-white leading-snug">
                           {appState.profile?.healthSyncEnabled
-                             ? 'Connected — active energy, workouts and weight sync automatically.'
+                             ? 'Connected — active energy, steps, workouts and weight sync automatically.'
                              : 'Not connected. Pull activity from Apple Health instead of logging by hand.'}
                        </p>
                        <p className="text-[10px] text-gray-500 mt-1">Read-only. Never used for ads and never sold.</p>
@@ -2412,74 +2365,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         )}
                     </div>
 
-                    {/* WORKOUT PREFERENCES — drives the AI-generated workout split.
-                        Existing users (onboarded before this section existed) can
-                        fill these in here without going through full onboarding. */}
-                    <div className="pt-2 border-t border-white/5">
-                        <h4 className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                            <span>⚡</span>
-                            <span>Workout Preferences</span>
-                        </h4>
-
-                        {/* Helper renders a button-group selector for one field. */}
-                        {([
-                            { field: 'experience' as const,     label: 'Experience',     options: [
-                                { value: 'beginner' as const,     display: 'Beginner' },
-                                { value: 'intermediate' as const, display: 'Intermediate' },
-                                { value: 'advanced' as const,     display: 'Advanced' },
-                            ]},
-                            { field: 'daysPerWeek' as const,    label: 'Days per week',  options: [
-                                { value: 3 as const, display: '3' },
-                                { value: 4 as const, display: '4' },
-                                { value: 5 as const, display: '5' },
-                                { value: 6 as const, display: '6' },
-                            ]},
-                            { field: 'sessionMinutes' as const, label: 'Session length', options: [
-                                { value: 30 as const, display: '30 min' },
-                                { value: 45 as const, display: '45 min' },
-                                { value: 60 as const, display: '60 min' },
-                                { value: 90 as const, display: '90 min' },
-                            ]},
-                            { field: 'equipment' as const,      label: 'Equipment',      options: [
-                                { value: 'full-gym' as const,      display: 'Full gym' },
-                                { value: 'home-weights' as const,  display: 'Home weights' },
-                                { value: 'bodyweight' as const,    display: 'Bodyweight' },
-                            ]},
-                        ] as const).map(({ field, label, options }) => {
-                            const current = editProfileData.workoutPreferences?.[field];
-                            return (
-                                <div key={field} className="mb-3">
-                                    <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1.5">{label}</label>
-                                    <div className="flex gap-1.5 flex-wrap">
-                                        {options.map(opt => {
-                                            const selected = current === opt.value;
-                                            return (
-                                                <button
-                                                    key={String(opt.value)}
-                                                    onClick={() => {
-                                                        setEditProfileData(prev => ({
-                                                            ...prev,
-                                                            workoutPreferences: {
-                                                                ...(prev.workoutPreferences || {}),
-                                                                [field]: opt.value,
-                                                            } as any,
-                                                        }));
-                                                    }}
-                                                    className={`flex-1 min-w-[64px] px-3 py-2 rounded-lg border text-[11px] font-bold uppercase tracking-widest transition-all ${
-                                                        selected
-                                                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40'
-                                                            : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'
-                                                    }`}
-                                                >
-                                                    {opt.display}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
 
                     {/* AUTO-FAVORITE TOGGLE — controls whether meals logged 5+
                         times automatically get starred in food history. Default
@@ -2552,11 +2437,6 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                                 fat: macroResult.fat,
                               };
 
-                        // Detect whether workout preferences changed so we can hint at
-                        // regenerating the split.
-                        const prevPrefs = JSON.stringify(appState.profile?.workoutPreferences || {});
-                        const nextPrefs = JSON.stringify(newProfile.workoutPreferences || {});
-                        const workoutPrefsChanged = prevPrefs !== nextPrefs;
 
                         handleUpdateAppState(prev => ({
                             ...prev,
@@ -2569,9 +2449,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                             ? "Saved with your custom targets."
                             : macroResult.floorApplied
                             ? "Profile updated. Calories capped at safety minimum."
-                            : workoutPrefsChanged
-                              ? "Saved. Refresh your plan to apply your new preferences."
-                              : "Yep saved that, you are here forever(okay legally not actually..chill)"
+                            : "Yep saved that, you are here forever(okay legally not actually..chill)"
                         );
                     }} className="flex-1 py-3 rounded-xl bg-cyan-500 text-black font-bold uppercase tracking-widest text-xs">Save</button>
                 </div>

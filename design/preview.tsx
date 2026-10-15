@@ -9,6 +9,7 @@ import { Dashboard } from '../components/Dashboard';
 import { ProfileHub, type ProfileSection } from '../components/ProfileHub';
 import { FoodComposer, type FoodStatus } from '../components/food/FoodComposer';
 import { Journal } from '../components/Journal';
+import { ProgressCharts } from '../components/ProgressCharts';
 import { Wrapped } from '../components/Wrapped';
 import { applyAppearance, readAppearance, type Appearance } from '../services/theme';
 import { ActivityLevel, PhysiqueGoal, type DailyLog, type FoodItem, type HistoryEntry, type UserProfile, type WeightEntry } from '../types';
@@ -38,7 +39,7 @@ function Preview() {
   const [open, setOpen] = useState(params.get('add') === '1');
   const [status, setStatus] = useState<FoodStatus>('empty');
   const [date, setDate] = useState(new Date().toLocaleDateString());
-  const [section, setSection] = useState<ProfileSection>((params.get('section') as ProfileSection) || 'overview');
+  const [section, setSection] = useState<ProfileSection>((params.get('section') as ProfileSection) || 'history');
   const [appearance, setAppearance] = useState<Appearance>(() => {
     const m = params.get('mode'); const t = params.get('tone');
     return m || t ? { mode: (m as Appearance['mode']) || 'dark', tone: (t as Appearance['tone']) || 'charcoal' } : readAppearance();
@@ -48,15 +49,15 @@ function Preview() {
   return <Layout activeTab={tab} onTabChange={setTab} onAdd={() => setOpen(o => !o)} addOpen={open} foodStatus={status} profile={profile}>
     {tab === 'dashboard' && <Dashboard profile={profile} targets={targets} selectedDate={date} onSelectDate={setDate} todayLog={todayLog} todayConsumed={consumed}
       todayWater={32} todayActivityBurn={0} dailyLogs={dailyLogs} weighIns={weighIns} streak={12} greeting="Evening" energyBaseline={{ bmr: 1780, tdee: 2350 }}
-      healthActiveEnergy={null} healthByDate={health} healthConnected onAddFood={() => setOpen(true)} onOpenFood={() => {}} onLogWater={() => {}} onLogWeight={() => true}
-      onLogActivity={() => {}} onOpenFuelCoach={() => {}} onAskCoach={() => setTab('coach')} />}
+      healthActiveEnergy={null} healthByDate={health} healthWorkouts={[{ uuid: 'w1', activityType: 'Strength Training', activityTypeRaw: 50, durationMin: 52, kcal: 310, start: '', end: '' }]} healthConnected onLogActivity={() => {}} onAddFood={() => setOpen(true)} onOpenFood={() => {}} onLogWater={() => {}} onLogWeight={() => true}
+      onOpenFuelCoach={() => {}} onAskCoach={() => setTab('coach')} />}
     {tab === 'profile' && <ProfileHub profile={profile} avatar={<div className="flex h-20 w-20 items-center justify-center rounded-full border-[3px] border-[var(--primary)] text-3xl font-bold text-[var(--primary)]">D</div>}
       streak={12} dailyLogs={dailyLogs} todayLog={todayLog} foodHistory={history} weighIns={weighIns} onEdit={() => {}} section={section} onSection={setSection}
       appearance={appearance} onAppearance={setAppearance}
-      overview={<Wrapped inline profile={profile} dailyLogs={dailyLogs} weighIns={weighIns} todayLog={todayLog} todayActivityBurn={0} todayWaterIntake={32} foodHistory={history} bodyStats={undefined as any} targets={targets} weeklyCompletedWorkouts={[]} initialPeriod="week" />}
       history={<Journal dailyLogs={dailyLogs} todayLog={todayLog} waterIntake={32} activityBurn={0} profile={profile} targets={targets} onDeleteLog={() => {}} onUpdateFood={() => {}} />}
       settings={<div className="rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5 text-white">Apple Health, targets, account…</div>} />}
-    {(tab === 'workouts' || tab === 'coach') && <p className="pt-10 text-center text-[var(--ink-mid)]">{tab} screen</p>}
+    {tab === 'progress' && <div className="space-y-5"><h1 className="text-[1.65rem] font-bold">Progress</h1><ProgressCharts profile={profile} targets={targets} dailyLogs={dailyLogs} todayLog={todayLog} todayConsumed={consumed} todayActivityBurn={0} weighIns={weighIns} energyBaseline={{ bmr: 1780, tdee: 2350 }} healthActiveEnergy={null} healthByDate={health} /><Wrapped inline profile={profile} dailyLogs={dailyLogs} weighIns={weighIns} todayLog={todayLog} todayActivityBurn={0} todayWaterIntake={32} foodHistory={history} bodyStats={undefined as any} targets={targets} initialPeriod="week" /></div>}
+    {tab === 'coach' && <p className="pt-10 text-center text-[var(--ink-mid)]">{tab} screen</p>}
     <FoodComposer uid="design-preview" open={open} onClose={() => setOpen(false)} onOpen={() => setOpen(true)} seed={null} onSeedConsumed={() => {}} onStatus={setStatus}
       onSave={async () => { setOpen(false); }} history={history} onFavorite={() => {}} onRemoveHistory={() => {}} targets={targets} consumed={consumed}
       requireConsent={() => {}} logDate={date} dateLabel={date === new Date().toLocaleDateString() ? 'Today' : new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} />

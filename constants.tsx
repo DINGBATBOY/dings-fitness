@@ -316,6 +316,14 @@ export interface EnergyBalanceInput {
    * treated as a component of it rather than additional calories.
    */
   healthActiveEnergy?: number | null;
+  /**
+   * Calories of the day's workouts as recorded BY Apple Health (e.g. an Apple
+   * Watch session). When given alongside healthActiveEnergy, any logged
+   * workout calories beyond this are treated as EXTRA activity Health didn't
+   * see (no watch, gym machine) and added on top. When omitted, logged
+   * workouts are assumed to be inside Health's number (the safe default).
+   */
+  healthWorkoutKcal?: number | null;
   /** Include the thermic effect of food. Default true. */
   includeTef?: boolean;
 }
@@ -329,6 +337,8 @@ export interface EnergyBalance {
   neat: number;
   /** Workout portion. A COMPONENT of activeBurn, never added to it. */
   workouts: number;
+  /** Logged activity Apple Health didn't record, added on top of Health's number. */
+  extra: number;
   tef: number;
   totalBurn: number;
   eaten: number;
@@ -346,12 +356,16 @@ export const computeEnergyBalance = (input: EnergyBalanceInput): EnergyBalance =
   let neat: number;
   let activeSource: 'health' | 'estimated';
 
+  let extra = 0;
   if (typeof health === 'number' && health > 0) {
-    // Health data already contains workouts. Do NOT add them again.
+    // Health data already contains workouts it recorded (and all walking —
+    // steps are inside active energy, never added separately).
     activeSource = 'health';
-    activeBurn = Math.round(health);
+    const seen = input.healthWorkoutKcal;
+    extra = typeof seen === 'number' ? Math.max(0, workouts - Math.round(seen)) : 0;
+    activeBurn = Math.round(health) + extra;
     // Whatever isn't attributable to logged workouts is everyday movement.
-    neat = Math.max(0, activeBurn - workouts);
+    neat = Math.max(0, Math.round(health) - Math.max(0, workouts - extra));
   } else {
     // No wearable data: estimate everyday movement, then add logged workouts,
     // which nothing else is capturing.
@@ -363,7 +377,7 @@ export const computeEnergyBalance = (input: EnergyBalanceInput): EnergyBalance =
   const tef = input.includeTef === false ? 0 : Math.round(eaten * TEF_FRACTION);
   const totalBurn = bmr + activeBurn + tef;
 
-  return { bmr, activeBurn, activeSource, neat, workouts, tef, totalBurn, eaten, net: eaten - totalBurn };
+  return { bmr, activeBurn, activeSource, neat, workouts, extra, tef, totalBurn, eaten, net: eaten - totalBurn };
 };
 
 export const getMinSafeCalories = (sex?: string, tdee?: number): number => {

@@ -18,9 +18,10 @@
  * energy is informational and never moves the target.
  */
 import React, { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Flame, Footprints, Droplets, Scale, TrendingDown, TrendingUp, Minus, Plus, Sparkles, MessageCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Flame, Footprints, Droplets, Scale, TrendingDown, TrendingUp, Minus, Plus, Sparkles, MessageCircle, Dumbbell, Info } from 'lucide-react';
 import type { DailyLog, FoodItem, NutritionTargets, UserProfile, WeightEntry } from '../types';
 import { computeEnergyBalance } from '../constants';
+import type { HealthWorkout } from '../services/health';
 
 export type DaySummary = { steps?: number | null; activeKcal?: number | null };
 
@@ -40,6 +41,8 @@ interface DashboardProps {
   energyBaseline?: { bmr: number; tdee: number } | null;
   healthActiveEnergy?: number | null;
   healthByDate?: Record<string, DaySummary>;
+  /** Today's workouts as Apple Health recorded them. */
+  healthWorkouts?: HealthWorkout[];
   healthConnected?: boolean;
   onConnectHealth?: () => void;
   onAddFood: () => void;
@@ -66,7 +69,7 @@ const n0 = (v: number) => Math.round(v).toLocaleString();
 export const Dashboard: React.FC<DashboardProps> = (props) => {
   const {
     profile, targets, selectedDate, onSelectDate, todayLog, todayConsumed, todayWater, todayActivityBurn,
-    dailyLogs, weighIns, streak, greeting, energyBaseline, healthActiveEnergy, healthByDate = {}, healthConnected,
+    dailyLogs, weighIns, streak, greeting, energyBaseline, healthActiveEnergy, healthByDate = {}, healthWorkouts = [], healthConnected,
     onConnectHealth, onAddFood, onOpenFood, onLogWater, onLogWeight, onLogActivity, onOpenFuelCoach, onAskCoach,
     adaptiveSuggestion, onAcceptAdaptiveSuggestion,
   } = props;
@@ -125,7 +128,11 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const energy = energyBaseline ? computeEnergyBalance({
     bmr: energyBaseline.bmr, activityLevel: profile.activityLevel, caloriesEaten: day.calories,
     loggedWorkoutKcal: day.burned, healthActiveEnergy: activeFromHealth,
+    // Only today knows which workouts Health itself recorded; logged workouts
+    // beyond those count as extra burn on top of Health's number.
+    healthWorkoutKcal: isToday ? healthWorkouts.reduce((t, w) => t + (w.kcal || 0), 0) : undefined,
   }) : null;
+  const [showBalanceInfo, setShowBalanceInfo] = useState(false);
   const steps = health?.steps ?? null;
   const stepGoal = 8000;
 
@@ -238,31 +245,62 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
           {left < 0 && <p className="mt-3 text-sm text-[var(--ink-mid)]">{n0(-left)} above {isToday ? 'todays' : 'that days'} target. Thats information, not a verdict.</p>}
         </section>
 
-        {/* ─── 3. Energy + steps ─── */}
-        <section className={card} aria-label="Energy and steps">
-          <div className="grid grid-cols-2 gap-4">
+        {/* ─── 3. Balance: eaten vs burned (deficit) + steps + workouts ─── */}
+        <section className={card} aria-label="Calorie balance">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className={label}><Flame size={12} className="mr-1 inline text-[var(--primary)]" aria-hidden="true" />Burned</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">{energy ? n0(energy.totalBurn) : '—'}<span className="ml-1 text-sm font-medium text-[var(--ink-mid)]">kcal</span></p>
-              {energy && <p className="mt-0.5 text-xs text-[var(--ink-mid)]">{n0(energy.bmr)} resting · {n0(energy.activeBurn)} active{energy.activeSource === 'health' ? '' : ' (est.)'}</p>}
+              <p className={label}>{isToday ? 'Todays balance so far' : 'Balance'}</p>
+              {energy ? (
+                <p className="mt-1 text-[2rem] font-bold leading-none tabular-nums" style={{ color: energy.net <= 0 ? 'var(--sage)' : 'var(--accent)' }}>
+                  {energy.net <= 0 ? '−' : '+'}{n0(Math.abs(energy.net))}
+                  <span className="ml-1.5 text-base font-semibold">{energy.net <= 0 ? 'deficit' : 'surplus'}</span>
+                </p>
+              ) : <p className="mt-1 text-base text-[var(--ink-mid)]">Add your weight and height in Profile to estimate burn.</p>}
             </div>
+            <button type="button" onClick={() => setShowBalanceInfo(v => !v)} aria-expanded={showBalanceInfo} aria-label="How this is worked out" className="tap flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--ink-light)]"><Info size={18} /></button>
+          </div>
+          {energy && (
+            <dl className="mt-4 space-y-1.5 text-sm">
+              <div className="flex justify-between"><dt className="text-[var(--ink-mid)]">Eaten</dt><dd className="font-semibold tabular-nums">{n0(energy.eaten)}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--ink-mid)]">Resting burn</dt><dd className="tabular-nums">−{n0(energy.bmr)}</dd></div>
+              <div className="flex justify-between"><dt className="text-[var(--ink-mid)]">{energy.activeSource === 'health' ? 'Active (Apple Health)' : 'Daily movement (est.)'}</dt><dd className="tabular-nums">−{n0(energy.activeBurn - energy.extra)}</dd></div>
+              {energy.activeSource === 'estimated' && energy.workouts > 0 && <div className="flex justify-between pl-3 text-xs"><dt className="text-[var(--ink-light)]">incl. logged workouts</dt><dd className="tabular-nums text-[var(--ink-light)]">{n0(energy.workouts)}</dd></div>}
+              {energy.extra > 0 && <div className="flex justify-between"><dt className="text-[var(--ink-mid)]">Logged, not in Health</dt><dd className="tabular-nums">−{n0(energy.extra)}</dd></div>}
+              <div className="flex justify-between"><dt className="text-[var(--ink-mid)]">Digesting food</dt><dd className="tabular-nums">−{n0(energy.tef)}</dd></div>
+              <div className="flex justify-between border-t border-[var(--line)] pt-1.5"><dt className="font-semibold">Burned</dt><dd className="font-semibold tabular-nums">{n0(energy.totalBurn)}</dd></div>
+            </dl>
+          )}
+          {showBalanceInfo && (
+            <p className="mt-3 rounded-2xl bg-[var(--wash)] p-3 text-xs leading-relaxed text-[var(--ink-mid)]">
+              Burned = resting burn (from your stats) + active energy + a little for digesting food. With Apple Health,
+              active energy is your iPhone/Watch number — it already counts your <b>steps</b> and any workout Health recorded,
+              so steps arent added again. Workouts you log here that Health didnt record are added on top. Without Health,
+              Ding estimates daily movement from your activity level. Your calories-left target never moves with this.
+            </p>
+          )}
+          <div className="mt-4 grid grid-cols-2 gap-4 border-t border-[var(--line)] pt-4">
             <div>
               <p className={label}><Footprints size={12} className="mr-1 inline text-[var(--sage)]" aria-hidden="true" />Steps</p>
               {steps != null ? <>
-                <p className="mt-1 text-2xl font-bold tabular-nums">{n0(steps)}</p>
+                <p className="mt-1 text-xl font-bold tabular-nums">{n0(steps)}</p>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--line-strong)]"><div className="h-full rounded-full bg-[var(--sage)]" style={{ width: `${Math.min(100, (steps / stepGoal) * 100)}%`, transition: 'width 0.8s ease' }} /></div>
                 <p className="mt-1 text-xs text-[var(--ink-mid)]">of {n0(stepGoal)}</p>
-              </> : healthConnected ? <p className="mt-1 text-sm text-[var(--ink-mid)]">No steps from Apple Health for this day yet.</p>
+              </> : healthConnected ? <p className="mt-1 text-sm text-[var(--ink-mid)]">No steps from Apple Health for this day.</p>
                 : onConnectHealth ? <button type="button" onClick={onConnectHealth} className="tap mt-1 min-h-11 rounded-xl border border-[var(--line-strong)] px-3 text-sm font-semibold">Connect Apple Health</button>
                 : <p className="mt-1 text-sm text-[var(--ink-mid)]">Steps sync from Apple Health on iPhone.</p>}
             </div>
-          </div>
-          {(day.workout || (isToday && onLogActivity)) && (
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--line)] pt-3">
-              <p className="text-sm text-[var(--ink-mid)]">{day.workout ? 'Workout done' : day.burned > 0 ? `${n0(day.burned)} kcal logged from workouts` : 'No workout logged'}</p>
-              {isToday && onLogActivity && <button type="button" onClick={onLogActivity} className="tap min-h-11 rounded-xl border border-[var(--line-strong)] px-3 text-sm font-semibold">Log activity</button>}
+            <div>
+              <p className={label}><Dumbbell size={12} className="mr-1 inline text-[var(--primary)]" aria-hidden="true" />Workouts</p>
+              {isToday && healthWorkouts.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {healthWorkouts.slice(0, 3).map(w => <li key={w.uuid} className="text-sm"><span className="font-semibold">{w.activityType}</span> <span className="text-[var(--ink-mid)]">{w.durationMin} min{w.kcal ? ` · ${n0(w.kcal)}` : ''}</span></li>)}
+                </ul>
+              )}
+              {day.burned > 0 && <p className="mt-1 text-sm"><span className="font-semibold tabular-nums">{n0(day.burned)}</span> <span className="text-[var(--ink-mid)]">kcal logged</span></p>}
+              {!(isToday && healthWorkouts.length) && !day.burned && <p className="mt-1 text-sm text-[var(--ink-mid)]">{day.workout ? 'Workout done' : 'None logged'}</p>}
+              {isToday && onLogActivity && <button type="button" onClick={onLogActivity} className="tap mt-2 min-h-11 w-full rounded-xl border border-[var(--line-strong)] px-3 text-sm font-semibold">Log a workout</button>}
             </div>
-          )}
+          </div>
         </section>
 
         {/* ─── 4. Week ─── */}
