@@ -429,3 +429,17 @@ test('SEC-02: @capacitor/ios and @capacitor/core are 6.2.2+ (GHSA-rvm3-566m-v7fv
   }
   assert.deepEqual(ver('@capacitor/ios'), ver('@capacitor/core'), 'keep core and ios in step');
 });
+
+// ───────────────────────── LEGAL-01: 18+ ─────────────────────────
+
+test('LEGAL-01: minimum age is 18 in onboarding, sign-up, Terms, Privacy and the in-app legal text', () => {
+  const onboarding = src('components/Onboarding.tsx');
+  assert.match(onboarding, /draft\.age < 18/);
+  assert.match(onboarding, /min=\{18\}/);
+  assert.match(src('components/Auth.tsx'), /18 years of age or older/);
+  for (const f of ['public/terms/index.html', 'public/privacy/index.html', 'components/LegalModal.tsx']) {
+    const text = src(f);
+    assert.match(text, /eighteen \(18\)/, f);
+    assert.ok(!/thirteen|13 to 17|under 13/i.test(text), `${f} still mentions 13-17 year olds`);
+  }
+});

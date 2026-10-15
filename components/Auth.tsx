@@ -223,7 +223,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                       </div>
                     </div>
                     <span className="text-[11px] text-gray-400 leading-snug">
-                      I confirm I am <strong className="text-white">13 years of age or older</strong>
+                      I confirm I am <strong className="text-white">18 years of age or older</strong>
                     </span>
                   </label>
 

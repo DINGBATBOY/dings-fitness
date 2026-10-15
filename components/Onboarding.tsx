@@ -134,7 +134,10 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
         return '';
       case 2:
         if (!draft.age) return "Enter your age.";
-        if (draft.age < 13 || draft.age > 100) return "Age must be between 13 and 100.";
+        // 18+: Gemini's API terms bar apps used by under-18s, and the deficit
+        // tables are adult references (audit LEGAL-01).
+        if (draft.age < 18) return "Ding! is for adults 18 and over.";
+        if (draft.age > 100) return "Age must be between 18 and 100.";
         if (!draft.sex) return "Pick your biological sex — we need it to estimate your metabolism.";
         return '';
       case 3:
@@ -498,7 +501,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                     value={draft.age}
                     onChange={v => setField('age', v)}
                     placeholder="Your age"
-                    min={13}
+                    min={18}
                     max={100}
                   />
                 </label>

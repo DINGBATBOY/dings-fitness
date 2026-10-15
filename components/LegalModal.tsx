@@ -20,7 +20,7 @@ const PUBLISHER_DBA = 'Ding! Fitness';
 const PUBLISHER_FULL = `${PUBLISHER_LEGAL_NAME}, doing business as ${PUBLISHER_DBA}`;
 const CONTACT_EMAIL = 'support@dings.fitness';
 const GOVERNING_STATE = 'Florida';
-const EFFECTIVE_DATE = 'October 12, 2026';
+const EFFECTIVE_DATE = 'October 14, 2026';
 
 const sections: { id: Tab; label: string }[] = [
   { id: 'privacy', label: 'Privacy Policy' },
@@ -235,10 +235,9 @@ function PrivacyPolicy() {
 
       <H2>Children&rsquo;s Privacy</H2>
       <P>
-        {APP_NAME} is not directed at children under thirteen (13) years of age. We do not knowingly
-        collect personal information from children under 13. Users aged 13 to 17 must have
-        verifiable consent from a parent or legal guardian to create an account. If you believe a
-        child under 13 has provided us information, please contact us at{' '}
+        {APP_NAME} is for adults. You must be at least eighteen (18) years old to use it, and we do
+        not knowingly collect personal information from anyone under 18. If you believe someone
+        under 18 has provided us information, please contact us at{' '}
         <strong className="text-white">{CONTACT_EMAIL}</strong> and we will delete the account
         promptly.
       </P>
@@ -296,9 +295,8 @@ function TermsOfService() {
 
       <H2>Eligibility</H2>
       <P>
-        You must be at least thirteen (13) years old to use {APP_NAME}. Users aged 13 to 17 must
-        have permission from a parent or legal guardian. By creating an account, you represent
-        that you meet these requirements and that all information you provide is accurate.
+        You must be at least eighteen (18) years old to use {APP_NAME}. By creating an account, you
+        represent that you are 18 or older and that all information you provide is accurate.
       </P>
 
       <H2>Your Account</H2>
