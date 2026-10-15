@@ -458,6 +458,12 @@ export interface GoalTimeline {
   targetDate?: string; // YYYY-MM-DD
 }
 
+// Macro guard rails (audit NUT-01): protein at most 40% of calories and
+// 250 g/day; fat at least 25% of calories. Carbs get the remainder.
+export const PROTEIN_MAX_SHARE = 0.40;
+export const PROTEIN_MAX_G = 250;
+export const FAT_MIN_SHARE = 0.25;
+
 // 1 lb of body fat ≈ 3500 kcal — the well-worn conversion. Correct enough
 // for planning; the adaptive TDEE system corrects the rest empirically.
 const KCAL_PER_LB = 3500;
@@ -469,6 +475,8 @@ export const CALCULATE_MACROS = (
   sex?: string,
   splitMode: MacroSplitMode = 'balanced',
   timeline?: GoalTimeline,
+  /** Body fat % (InBody or manual). Used only to size protein. */
+  bodyFat?: number,
 ): MacroResult => {
   let targetCalories = tdee;
   let proteinRatio = 0.85;
@@ -552,12 +560,32 @@ export const CALCULATE_MACROS = (
   const floorApplied = originalCalories < minSafeCalories;
   const finalCalories = floorApplied ? minSafeCalories : originalCalories;
 
-  const protein = Math.round(weightLbs * proteinRatio);
+  // Protein (audit NUT-01). Total body weight overshoots for anyone carrying
+  // extra fat (a 420 lb user got 483 g/day). Size it on a reference weight:
+  //   • the goal weight, when the user is losing toward one, and
+  //   • with a known body fat %, lean mass / 0.75 (weight at 25% fat),
+  // whichever is lower, never above current weight. Then cap it.
+  let proteinBasis = weightLbs;
+  const goalWeight = timeline?.targetWeightLbs;
+  if (goalWeight && Number.isFinite(goalWeight) && goalWeight >= weightLbs * 0.5 && goalWeight < weightLbs) {
+    proteinBasis = goalWeight;
+  }
+  if (bodyFat && Number.isFinite(bodyFat) && bodyFat >= 5 && bodyFat <= 60) {
+    proteinBasis = Math.min(proteinBasis, (weightLbs * (1 - bodyFat / 100)) / 0.75);
+  }
+  const proteinCap = Math.min(PROTEIN_MAX_G, Math.floor((finalCalories * PROTEIN_MAX_SHARE) / 4));
+  const protein = Math.max(0, Math.min(Math.round(proteinBasis * proteinRatio), proteinCap));
   const proteinCalories = protein * 4;
   const remainingCalories = Math.max(0, finalCalories - proteinCalories);
 
-  const carbs = Math.max(0, Math.round((remainingCalories * rules.carbFraction) / 4));
-  const fat = Math.max(0, Math.round((remainingCalories * rules.fatFraction) / 9));
+  // Fat from the split, but never below the floor (hormonal health, fat-
+  // soluble vitamins). Carbs take whatever is left, so the macros add up.
+  const fatFloor = Math.ceil((finalCalories * FAT_MIN_SHARE) / 9);
+  const fat = Math.min(
+    Math.floor(remainingCalories / 9),
+    Math.max(fatFloor, Math.round((remainingCalories * rules.fatFraction) / 9)),
+  );
+  const carbs = Math.max(0, Math.round((finalCalories - proteinCalories - fat * 9) / 4));
 
   return {
     calories: finalCalories,

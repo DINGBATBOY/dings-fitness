@@ -906,9 +906,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.weight,
       appState.profile.sex,
       appState.profile.macroSplit,
-      (appState.profile.goalTargetWeight && appState.profile.goalTargetDate)
+      appState.profile.goalTargetWeight
         ? { targetWeightLbs: appState.profile.goalTargetWeight, targetDate: appState.profile.goalTargetDate }
         : undefined,
+      bf,
     );
   }, [appState.profile, appState.nutritionTargets]);
 
@@ -960,9 +961,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.weight,
       appState.profile.sex,
       appState.profile.macroSplit,
-      (appState.profile.goalTargetWeight && appState.profile.goalTargetDate)
+      appState.profile.goalTargetWeight
         ? { targetWeightLbs: appState.profile.goalTargetWeight, targetDate: appState.profile.goalTargetDate }
         : undefined,
+      appState.profile.inBodyData?.pbf ?? appState.profile.bodyFat,
     );
     const newTargets = {
       calories: newMacros.calories,
@@ -2395,9 +2397,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                           newProfile.weight,
                           newProfile.sex,
                           newProfile.macroSplit,
-                          (newProfile.goalTargetWeight && newProfile.goalTargetDate)
+                          newProfile.goalTargetWeight
                             ? { targetWeightLbs: newProfile.goalTargetWeight, targetDate: newProfile.goalTargetDate }
                             : undefined,
+                          bf,
                         );
                         // Custom targets win verbatim; otherwise strip MacroResult
                         // to NutritionTargets shape (drop floor metadata).

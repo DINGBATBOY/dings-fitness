@@ -18,13 +18,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { PhysiqueGoal, ActivityLevel, UserProfile } from '../types';
 import {
   DAYS_OF_WEEK,
-  CALCULATE_TDEE,
-  CALCULATE_MACROS,
   getBMI,
   getBMICategory,
   type BMICategory,
 } from '../constants';
-import { generateOnboardingMacros } from '../services/geminiService';
+import { computeProfileTargets, starterCoachMessage } from '../services/starterTargets';
 import {
   AlertTriangle,
   Heart,
@@ -236,49 +234,18 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
       highEnergyDays: draft.highEnergyDays,
       busyDays: draft.busyDays,
     };
+    // Targets are computed on the device with the same formula Edit Profile
+    // uses (audit NUT-02). Nothing is sent to an AI provider here: the user
+    // hasn't seen the AI consent sheet yet (PRIV-02).
     try {
-      const result = await generateOnboardingMacros(finalProfile);
+      const t = computeProfileTargets(finalProfile);
       setMacroResult({
-        dailyCalories: result.dailyCalories ?? result.calories,
-        protein: result.protein,
-        carbs: result.carbs,
-        fat: result.fat,
-        protocolName: result.protocolName,
-        coachMessage: result.coachMessage,
-        floorApplied: result.floorApplied === true,
-        finalProfile,
-      });
-    } catch (e) {
-      // Fallback — local formulas so a network flake doesn't stall
-      // onboarding. Same shape as the Gemini result.
-      console.error("Gemini onboarding failed, using local macros:", e);
-      const bf = finalProfile.inBodyData?.pbf ?? finalProfile.bodyFat;
-      const tdee = CALCULATE_TDEE(
-        finalProfile.weight || 150,
-        finalProfile.height || 70,
-        finalProfile.age || 30,
-        finalProfile.activityLevel || ActivityLevel.Light,
-        finalProfile.sex || 'Male',
-        bf,
-      );
-      const macros = CALCULATE_MACROS(
-        tdee,
-        finalProfile.goal || PhysiqueGoal.Lean,
-        finalProfile.weight || 150,
-        finalProfile.sex || 'Male',
-        'balanced',
-        // Timeline-aware deficit — same formula the AI is instructed to use,
-        // so the local fallback produces the same shape of answer.
-        (finalProfile.goalTargetWeight && finalProfile.goalTargetDate)
-          ? { targetWeightLbs: finalProfile.goalTargetWeight, targetDate: finalProfile.goalTargetDate }
-          : undefined,
-      );
-      setMacroResult({
-        dailyCalories: macros.calories,
-        protein: macros.protein,
-        carbs: macros.carbs,
-        fat: macros.fat,
-        floorApplied: macros.floorApplied,
+        dailyCalories: t.calories,
+        protein: t.protein,
+        carbs: t.carbs,
+        fat: t.fat,
+        coachMessage: starterCoachMessage(finalProfile.goal, t),
+        floorApplied: t.floorApplied,
         finalProfile,
       });
     } finally {

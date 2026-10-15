@@ -48,7 +48,7 @@ const stubFirebase = {
 
 const out = mkdtempSync(join(tmpdir(), 'ding-release-'));
 const entry = join(out, 'entry.ts');
-const mods = ['services/aiPrivacy.ts', 'services/geminiService.ts', 'constants.tsx'];
+const mods = ['services/aiPrivacy.ts', 'services/geminiService.ts', 'constants.tsx', 'services/starterTargets.ts'];
 writeFileSync(entry, mods.map((m) => `export * from ${JSON.stringify(join(root, m))};`).join('\n'));
 await esbuild.build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: join(out, 'app.mjs'),
   jsx: 'automatic', logLevel: 'silent', nodePaths: [join(root, 'node_modules')], plugins: [stubFirebase] });
@@ -208,4 +208,54 @@ test('FEAT-01: the Fuel Coach GPT key is admin-only in the UI and on the server'
   const index = src('functions/src/index.ts');
   const fn = index.slice(index.indexOf('export const createGptKey'));
   assert.match(fn.slice(0, 600), /OPS_ADMIN_UIDS\.has\(uid\)/);
+});
+
+// ───────────────────────── NUT-02: onboarding targets are local ─────────────────────────
+
+test('NUT-02: onboarding targets equal CALCULATE_MACROS for the same profile (no LLM arithmetic)', () => {
+  const p = { name: 'A', weight: 180, height: 70, age: 30, sex: 'Male', activityLevel: 'Moderately Active',
+    goal: 'Weight Loss', bodyFat: 18 };
+  const t = app.computeProfileTargets(p);
+  const tdee = app.CALCULATE_TDEE(180, 70, 30, 'Moderately Active', 'Male', 18);
+  const m = app.CALCULATE_MACROS(tdee, 'Weight Loss', 180, 'Male', 'balanced', undefined, 18);
+  assert.deepEqual({ c: t.calories, p: t.protein, cb: t.carbs, f: t.fat }, { c: m.calories, p: m.protein, cb: m.carbs, f: m.fat });
+  // Same profile through the Edit Profile path gives the same numbers (no jump on first Save).
+  const again = app.computeProfileTargets({ ...p });
+  assert.equal(again.calories, t.calories);
+  assert.ok(typeof app.starterCoachMessage(p.goal, t) === 'string');
+});
+
+test('NUT-02: onboarding sends nothing to an AI provider', () => {
+  const onboarding = src('components/Onboarding.tsx');
+  assert.ok(!/geminiService|httpsCallable|callGemini/.test(onboarding));
+  assert.ok(!/generateOnboardingMacros/.test(src('services/geminiService.ts')));
+});
+
+// ───────────────────────── NUT-01: protein basis, cap and fat floor ─────────────────────────
+
+test('NUT-01: across weights, goals and splits protein ≤ 40% / 250 g, fat ≥ 25%, macros add up', () => {
+  const goals = ['Weight Loss', 'Body Recomposition', 'Lean/Athletic', 'Bulk/Hypertrophy', 'Performance'];
+  for (const w of [110, 150, 200, 250, 320, 420]) for (const sex of ['Male', 'Female']) for (const goal of goals)
+    for (const split of ['balanced', 'low-carb', 'high-protein', 'keto']) {
+      const tdee = app.CALCULATE_TDEE(w, 66, 45, 'Sedentary', sex);
+      const m = app.CALCULATE_MACROS(tdee, goal, w, sex, split);
+      const label = `${w} lb ${sex} ${goal} ${split}`;
+      assert.ok(m.protein * 4 <= m.calories * 0.40 + 0.5, `${label}: protein ${m.protein} g`);
+      assert.ok(m.protein <= 250, `${label}: protein ${m.protein} g`);
+      assert.ok(m.fat * 9 >= m.calories * 0.25 - 9, `${label}: fat ${m.fat} g of ${m.calories}`);
+      assert.ok(m.carbs >= 0);
+      assert.ok(Math.abs(m.protein * 4 + m.carbs * 4 + m.fat * 9 - m.calories) <= 6, `${label}: macros don't add up`);
+    }
+});
+
+test('NUT-01: protein follows goal weight and lean mass, not total weight', () => {
+  const tdee = app.CALCULATE_TDEE(300, 66, 40, 'Very Active', 'Female');
+  const plain = app.CALCULATE_MACROS(tdee, 'Weight Loss', 300, 'Female');
+  const withGoal = app.CALCULATE_MACROS(tdee, 'Weight Loss', 300, 'Female', 'balanced', { targetWeightLbs: 180 });
+  const withBf = app.CALCULATE_MACROS(tdee, 'Weight Loss', 300, 'Female', 'balanced', undefined, 45);
+  assert.equal(withGoal.protein, Math.min(Math.round(180 * 0.85), Math.floor(withGoal.calories * 0.4 / 4)));
+  assert.ok(withBf.protein < plain.protein);
+  // A lean, typical user is unchanged by the guard rails: 180 lb man, 0.85 g/lb.
+  const lean = app.CALCULATE_MACROS(app.CALCULATE_TDEE(180, 70, 30, 'Moderately Active', 'Male'), 'Weight Loss', 180, 'Male');
+  assert.equal(lean.protein, 153);
 });

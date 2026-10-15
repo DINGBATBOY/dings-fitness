@@ -12,7 +12,6 @@ import { Type, FunctionDeclaration } from "@google/genai";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
 import { ChatResponse, DailyLog, UserProfile, NutritionTargets } from "../types";
-import { getMinSafeCalories } from "../constants";
 import { detectRestaurantsInText, findMenuItemMatches, getEffectiveMenuItems, type Restaurant, type MenuItem } from "../data/restaurants";
 
 // ---------------------------------------------------------------------------
@@ -1537,124 +1536,6 @@ export const analyzeDailyLog = async (
   });
 
   return JSON.parse(response.text);
-};
-
-export const generateOnboardingMacros = async (userAnswers: any) => {
-  // Timeline is optional. When present, we compute a rate-based deficit
-  // instead of the flat lookup. Same math the local fallback uses.
-  const hasTimeline = !!(userAnswers.goalTargetWeight && userAnswers.goalTargetDate);
-  const timelineBlock = hasTimeline
-    ? `
-- Target weight: ${userAnswers.goalTargetWeight} lbs
-- Target date: ${userAnswers.goalTargetDate} (today is ${new Date().toISOString().slice(0, 10)})`
-    : '';
-
-  const rateInstruction = hasTimeline ? `
-RATE-BASED DEFICIT (use this INSTEAD of the flat lookup below when timeline is present):
-1. Compute days_to_target = target_date − today, in whole days.
-2. Compute lb_delta = current_weight − target_weight (positive = losing, negative = gaining).
-3. Compute raw_daily_delta = (lb_delta × 3500) / days_to_target.  (1 lb of fat ≈ 3500 kcal.)
-4. Clamp to safe rate:
-   • Max loss:    1% of current bodyweight per week = (weight × 0.01 × 3500) / 7 kcal/day.
-   • Max surplus: 0.5 lb/week clean bulk = 250 kcal/day.
-5. dailyCalories = TDEE − clamped_daily_delta.
-6. If the timeline forces a rate above the safety cap, still use the CAPPED rate and mention in the coachMessage that their timeline is aggressive and will be extended if they stick with the safe pace.
-
-If timeline is NOT present, fall back to the flat goal-based deficits below.` : '';
-
-  const prompt = `Calculate a personalized macro plan for this athlete:
-- Name: ${sanitize(userAnswers.name, 100)}
-- Age: ${userAnswers.age}
-- Sex: ${userAnswers.sex}
-- Height: ${userAnswers.height}
-- Weight: ${userAnswers.weight} lbs
-- Body Fat: ${userAnswers.bodyFat || "unknown"}%
-- Goal: ${userAnswers.goal}
-- Activity Level: ${userAnswers.activityLevel}${timelineBlock}
-
-For BMR calculation:
-- If body fat % is provided AND between 5% and 60%, USE THE KATCH-MCARDLE EQUATION:
-  LBM_kg = (weight_lbs × (1 − bodyFat/100)) / 2.20462
-  BMR = 370 + (21.6 × LBM_kg)
-  Katch-McArdle is lean-mass-based and produces more accurate, non-discouraging targets for users with high body fat or athletic builds. PREFER IT when BF% is available.
-- Otherwise (BF% unknown or out of range), use the Mifflin-St Jeor equation adjusted for their sex.
-
-Apply an appropriate activity multiplier (Sedentary 1.2, Light 1.375, Moderate 1.55, Very 1.725, Extra 1.9) to get TDEE.
-${rateInstruction}
-
-Flat goal-based deficits (fallback when no timeline):
-- Weight Loss: 500 calorie deficit
-- Lean/Athletic or Recomposition: at maintenance or slight deficit (-200)
-- Muscle Building: 300 calorie surplus
-- Performance: at maintenance
-
-Set protein at 0.8-1g per lb of bodyweight (higher end for muscle building and recomp). Fill remaining calories with carbs (45-55%) and fat (25-35%).
-
-IMPORTANT SAFETY FLOORS — never recommend less than:
-- 1,500 kcal/day for Male users
-- 1,200 kcal/day for Female users
-If the math would produce something lower, set it at the floor and explain why in the coach message.
-
-Also write a SHORT 1-sentence message (max 20 words) explaining WHY these are their numbers in a motivating coach voice. If the user set a timeline, briefly acknowledge the pace (e.g. "on pace for your June goal" or "gently paced for your window"). Keep it tight.`;
-
-  const systemInstruction = `You are an expert sports nutritionist and fitness coach. A user has completed their assessment. Calculate their personalized nutrition protocol and provide it in the exact JSON format requested. Be precise with numbers. Show your reasoning briefly.`;
-
-  const response = await callGeminiProxy({
-    feature: 'generateOnboardingMacros',
-    contents: prompt,
-    config: {
-      systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          dailyCalories: { type: Type.NUMBER },
-          protein: { type: Type.NUMBER },
-          carbs: { type: Type.NUMBER },
-          fat: { type: Type.NUMBER },
-          tdee: { type: Type.NUMBER },
-          deficit: { type: Type.NUMBER },
-          coachMessage: { type: Type.STRING },
-          protocolName: { type: Type.STRING },
-        },
-        required: [
-          "dailyCalories",
-          "protein",
-          "carbs",
-          "fat",
-          "tdee",
-          "deficit",
-          "coachMessage",
-          "protocolName",
-        ],
-      },
-    },
-  });
-
-  const parsed = JSON.parse(response.text || "{}");
-
-  // SAFETY FLOOR (defense in depth): we already tell the model not to go below
-  // the floor in the prompt, but never trust an LLM for safety-critical limits.
-  // We re-clamp on the client AND in the goal-math, so the floor holds even if
-  // the model hallucinates or the schema lets a low number through.
-  const tdee = typeof parsed.tdee === "number" ? parsed.tdee : undefined;
-  const minSafe = getMinSafeCalories(userAnswers.sex, tdee);
-  if (typeof parsed.dailyCalories !== "number" || parsed.dailyCalories < minSafe) {
-    const original = parsed.dailyCalories;
-    parsed.dailyCalories = minSafe;
-    parsed.floorApplied = true;
-    parsed.originalCalories = original;
-    // Recompute carbs/fat if the AI returned them based on an unsafe target.
-    if (typeof parsed.protein === "number") {
-      const remaining = minSafe - parsed.protein * 4;
-      if (remaining > 0) {
-        parsed.carbs = Math.max(0, Math.round((remaining * 0.55) / 4));
-        parsed.fat = Math.max(0, Math.round((remaining * 0.45) / 9));
-      }
-    }
-  }
-
-  return parsed;
 };
 
 // ─────────────────────── Weekly calorie analysis ───────────────────────
