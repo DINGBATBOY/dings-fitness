@@ -10,6 +10,8 @@ import {
   Auth,
 } from 'firebase/auth';
 import { getFunctions, Functions, connectFunctionsEmulator } from 'firebase/functions';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { Capacitor } from '@capacitor/core';
 
 // Values come from .env (copy .env.example -> .env and fill in your project's keys).
 // NEVER hardcode credentials here.
@@ -76,6 +78,23 @@ if (isConfigured) {
             connectFunctionsEmulator(functions, '127.0.0.1', 5001);
         } catch (e) {
             console.warn('Failed to connect to Functions emulator', e);
+        }
+    }
+
+    // App Check (audit SEC-01) — prepared, NOT enforced. Off until
+    // VITE_APPCHECK_RECAPTCHA_KEY is set at build time. Web only: reCAPTCHA
+    // can't attest the iOS WebView (capacitor://localhost); iOS needs App
+    // Attest through a native plugin (HANDOFF "App Check"). The server
+    // counts calls without a token (opsCounters.appCheckMissing) until
+    // enforcement is switched on in functions/src/aiPolicy.ts.
+    const appCheckKey = import.meta.env.VITE_APPCHECK_RECAPTCHA_KEY as string | undefined;
+    if (appCheckKey && typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
+        try {
+            const debugToken = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN as string | undefined;
+            if (debugToken) (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string }).FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
+            initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(appCheckKey), isTokenAutoRefreshEnabled: true });
+        } catch (e) {
+            console.warn('App Check init failed (not enforced yet)', e);
         }
     }
 

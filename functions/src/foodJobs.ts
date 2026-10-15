@@ -5,7 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { defineSecret } from 'firebase-functions/params';
 import OpenAI from 'openai';
-import { requireAiConsent } from './aiPolicy';
+import { requireAiConsent, APP_CHECK_ENFORCED } from './aiPolicy';
 
 type JobState = 'queued' | 'running' | 'ready' | 'failed' | 'cancelled';
 const terminal = (state: JobState) => ['ready', 'failed', 'cancelled'].includes(state);
@@ -40,11 +40,14 @@ export function registerFoodJobs(config: {
   apiKey: ReturnType<typeof defineSecret>;
   model: string;
   consumeQuota: (uid: string) => Promise<unknown>;
+  /** Counts calls without an App Check token while enforcement is off. */
+  noteAppCheck?: (req: any) => void;
   recordUsage: (uid: string, response: any, elapsed: number) => Promise<void>;
 }) {
-  const startFoodAnalysis = onCall({ secrets: [config.apiKey], timeoutSeconds: 60, memory: '512MiB', cors: true }, async req => {
+  const startFoodAnalysis = onCall({ secrets: [config.apiKey], timeoutSeconds: 60, memory: '512MiB', cors: true, enforceAppCheck: APP_CHECK_ENFORCED }, async req => {
     if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in again to check your food.');
     const uid = req.auth.uid;
+    config.noteAppCheck?.(req);
     const id = req.data?.jobId;
     const ref = getFirestore().collection('foodAnalysisJobs').doc(jobKey(uid, id));
     const existing = await ref.get();

@@ -11,14 +11,14 @@
  *
  * To set the secrets once:
  *   firebase functions:secrets:set GEMINI_API_KEY
- *   firebase functions:secrets:set OPENAI_API_KEY  (food scan; callOpenAI)
+ *   firebase functions:secrets:set OPENAI_API_KEY  (food scan job)
  *   firebase functions:secrets:set USDA_API_KEY    (optional)
  * Then deploy:
  *   firebase deploy --only functions
  */
 
 import { onCall, onRequest, HttpsError, CallableRequest } from "firebase-functions/v2/https";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes } from "crypto";
 import { defineSecret } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { initializeApp } from "firebase-admin/app";
@@ -26,9 +26,8 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { GoogleGenAI } from "@google/genai";
-import OpenAI from "openai";
 import { registerFoodJobs } from './foodJobs';
-import { requireAiConsent } from './aiPolicy';
+import { requireAiConsent, buildGeminiRequest, checkGlobalSpend, recordGlobalSpend, APP_CHECK_ENFORCED } from './aiPolicy';
 
 initializeApp();
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
@@ -40,31 +39,16 @@ const USDA_API_KEY = defineSecret("USDA_API_KEY");
 
 // ----- Tunables -----
 const DAILY_LIMIT_PER_USER = 50;          // AI calls/user/day
-const ALLOWED_MODELS = new Set([
-  "gemini-2.5-flash",
-  // Add others here as needed. Keep this tight to prevent users
-  // from switching to a more expensive model client-side.
-]);
-const DEFAULT_MODEL = "gemini-2.5-flash";
+// Gemini model, allowed features and tools: functions/src/aiPolicy.ts.
 
-// ----- OpenAI (food scan only; see callOpenAI below) -----
+// ----- OpenAI (food scan only: startFoodAnalysis / processFoodAnalysis) -----
 // Vision is required for photo analysis, which rules out GPT-6 Astra (no
-// vision). Terra is the accuracy/cost balance; Sol is allowlisted if food
-// scans need more.
-//
-// Oct 2026: the scan now runs on the RESPONSES API (`api: "responses"`),
-// where gpt-5.6-terra takes the photo AND has the hosted web_search tool in
-// the same call — the way ChatGPT itself answers "what is this?". The old
-// claim that search and vision can't be combined is only true of Chat
-// Completions (search there needs gpt-5-search-api, which has no vision).
-// gpt-5-search-api stays allowlisted for the legacy two-pass fallback.
-const ALLOWED_OPENAI_MODELS = new Set([
-  "gpt-5.6-terra",     // default for vision + macros
-  "gpt-5.6-sol",       // stronger, pricier
-  "gpt-5-search-api",  // text-only search pass
-]);
+// vision). gpt-5.6-terra on the Responses API takes the photo AND has the
+// hosted web_search tool in the same call. The generic callOpenAI proxy and
+// the gpt-5-search-api foodWebLookup were deleted in Oct 2026 (SEC-01).
 const DEFAULT_OPENAI_MODEL = "gpt-5.6-terra";
-const MAX_REQUEST_BYTES = 9 * 1024 * 1024;  // ~9 MB (onCall hard cap is 10 MB)
+// Gemini features are text only; 9 MB was the old (image) limit.
+const MAX_GEMINI_REQUEST_BYTES = 512 * 1024;
 
 // ----- Token pricing (USD per 1M tokens) -----
 // Update these if Google adjusts Gemini pricing.
@@ -88,6 +72,7 @@ export const { startFoodAnalysis, cancelFoodAnalysis, processFoodAnalysis, clean
   apiKey: OPENAI_API_KEY,
   model: DEFAULT_OPENAI_MODEL,
   consumeQuota,
+  noteAppCheck,
   recordUsage: async (uid, response, durationMs) => {
     const usage = response.usage ?? {};
     const promptTokens = Number(usage.input_tokens) || 0;
@@ -121,6 +106,7 @@ export const callGemini = onCall(
     secrets: [GEMINI_API_KEY],
     timeoutSeconds: 60,
     memory: "512MiB",
+    enforceAppCheck: APP_CHECK_ENFORCED,
   },
   async (req: CallableRequest<GeminiRequest>) => {
     // ----- 1. Auth -----
@@ -128,43 +114,23 @@ export const callGemini = onCall(
       throw new HttpsError("unauthenticated", "Sign in first.");
     }
     const uid = req.auth.uid;
+    noteAppCheck(req);
 
     // ----- 1b. AI data-sharing consent (Guideline 5.1.2(i); audit PRIV-02) -----
     // Same rule as startFoodAnalysis: nothing goes to Gemini until the user
     // has accepted the in-app AI consent sheet.
     await requireAiConsent(uid);
 
-    // ----- 2. Validate input -----
-    const data = req.data;
-    if (!data || typeof data !== "object") {
+    // ----- 2. Validate input (audit SEC-01) -----
+    // Not a general-purpose proxy: only the app's own features, text only,
+    // size-capped; the server picks the model and the tools.
+    if (!req.data || typeof req.data !== "object") {
       throw new HttpsError("invalid-argument", "Missing request body.");
     }
-
-    const approxBytes = JSON.stringify(data).length;
-    if (approxBytes > MAX_REQUEST_BYTES) {
+    if (JSON.stringify(req.data).length > MAX_GEMINI_REQUEST_BYTES) {
       throw new HttpsError("invalid-argument", "Request too large.");
     }
-
-    // Server forces the model — don't trust the client.
-    const requestedModel = data.model || DEFAULT_MODEL;
-    if (!ALLOWED_MODELS.has(requestedModel)) {
-      throw new HttpsError(
-        "invalid-argument",
-        `Model not allowed: ${requestedModel}`,
-      );
-    }
-    const model = requestedModel;
-
-    if (!data.contents) {
-      throw new HttpsError("invalid-argument", "Missing `contents`.");
-    }
-
-    // Optional feature label from the client for per-feature attribution
-    // in the admin dashboard (e.g. 'analyzeFoodEntry', 'sendChatMessage').
-    // Sanitized — only used for analytics, doesn't affect routing.
-    const feature = typeof data.feature === "string"
-      ? data.feature.slice(0, 64).replace(/[^a-zA-Z0-9_.-]/g, "")
-      : "unknown";
+    const { feature, model, contents, config } = buildGeminiRequest(req.data);
 
     // ----- 3. Rate limit (atomic) -----
     try {
@@ -187,8 +153,8 @@ export const callGemini = onCall(
       // Gemini SDK version's exact shape.
       result = await ai.models.generateContent({
         model,
-        contents: data.contents as any,
-        config: data.config as any,
+        contents: contents as any,
+        config: config as any,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Gemini call failed";
@@ -234,6 +200,15 @@ export const callGemini = onCall(
   },
 );
 
+/**
+ * App Check is prepared but not enforced (aiPolicy APP_CHECK_ENFORCED).
+ * Until then, count calls that arrive without a valid token so we know when
+ * enforcement is safe to switch on (opsCounters.appCheckMissing).
+ */
+function noteAppCheck(req: CallableRequest<unknown>): void {
+  if (!req.app) bumpOpsCounter("appCheckMissing").catch(() => undefined);
+}
+
 // ============================================================================
 //  Quota helper
 // ============================================================================
@@ -244,6 +219,16 @@ export const callGemini = onCall(
 async function consumeQuota(uid: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
   const db = getFirestore();
+
+  // App-wide circuit breaker first (audit SEC-01): when today's total AI
+  // spend or call count hits the cap, every AI feature pauses until
+  // midnight UTC, whatever each user's own quota says.
+  try {
+    await checkGlobalSpend(today);
+  } catch (err) {
+    bumpOpsCounter("spendBreakerHits").catch(() => undefined);
+    throw err;
+  }
   const ref = db.collection("quotas").doc(uid);
 
   await db.runTransaction(async (tx) => {
@@ -321,6 +306,7 @@ async function logTokenUsage(input: TokenUsageInput): Promise<void> {
 
   await Promise.all([
     db.collection("tokenUsage").add(callDoc),
+    recordGlobalSpend(today, input.costUsd),
     quotasRef.set(
       {
         // Day rollover handling is done in consumeQuota; here we just add.
@@ -600,216 +586,8 @@ export const opsReport = onRequest({ cors: true }, async (req, res) => {
 });
 
 
-// ============================================================================
-//  callOpenAI
-// ============================================================================
-/**
- * OpenAI proxy, used ONLY by the food-macro scan (analyzeFoodEntry).
- *
- * Deliberately separate from callGemini rather than a provider flag inside
- * it: nine other features depend on that path and there is no reason to put
- * them at risk. Both share the same auth, quota bucket and usage logging.
- *
- * Two APIs:
- *   api: "responses" (default for the food scan since Oct 2026)
- *      gpt-5.6-terra sees the photo, reasons, and can call the hosted
- *      web_search tool in ONE call — the ChatGPT-style flow. Messages are
- *      sent in Chat Completions shape and converted here.
- *   api: "chat" (legacy two-pass fallback)
- *      1. vision + JSON (gpt-5.6-terra) - reads the plate
- *      2. text-only search (gpt-5-search-api + webSearch) - pass 1
- */
-interface OpenAIRequest {
-  model?: string;
-  messages: unknown;
-  responseFormat?: unknown;
-  /**
-   * chat: enables web_search_options (search models only).
-   * responses: offers the hosted web_search tool; the model decides
-   * whether to search.
-   */
-  webSearch?: boolean;
-  temperature?: number;
-  feature?: string;
-  api?: "chat" | "responses";
-  reasoningEffort?: "low" | "medium" | "high";
-}
-
-/** Chat Completions message shape -> Responses API `input` items. */
-function toResponsesInput(messages: unknown[]): unknown[] {
-  return messages.map((m: any) => {
-    const role = m?.role === "system" ? "developer" : (m?.role || "user");
-    const parts = typeof m?.content === "string"
-      ? [{ type: "text", text: m.content }]
-      : Array.isArray(m?.content) ? m.content : [];
-    const content = parts.map((p: any) => {
-      if (p?.type === "image_url") {
-        const url = typeof p.image_url === "string" ? p.image_url : p.image_url?.url;
-        // "high": labels and small portion cues need full resolution.
-        return { type: "input_image", image_url: url, detail: p.image_url?.detail || "high" };
-      }
-      return { type: "input_text", text: String(p?.text ?? "") };
-    });
-    return { role, content };
-  });
-}
-
-/** Pull url citations the model attached to its answer (deduped). */
-function extractCitations(response: any): { url: string; title?: string }[] {
-  const out: { url: string; title?: string }[] = [];
-  const seen = new Set<string>();
-  for (const item of response?.output ?? []) {
-    if (item?.type !== "message") continue;
-    for (const part of item.content ?? []) {
-      for (const a of part?.annotations ?? []) {
-        if (a?.type === "url_citation" && a.url && !seen.has(a.url)) {
-          seen.add(a.url);
-          out.push({ url: String(a.url), title: a.title ? String(a.title) : undefined });
-        }
-      }
-    }
-  }
-  return out.slice(0, 8);
-}
-
-export const callOpenAI = onCall(
-  {
-    cors: true,
-    secrets: [OPENAI_API_KEY],
-    timeoutSeconds: 180,   // reasoning + web search can take a while
-    memory: "512MiB",
-  },
-  async (req: CallableRequest<OpenAIRequest>) => {
-    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
-    const uid = req.auth.uid;
-
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-      throw new HttpsError("invalid-argument", "Missing request body.");
-    }
-    if (JSON.stringify(data).length > MAX_REQUEST_BYTES) {
-      throw new HttpsError("invalid-argument", "Request too large.");
-    }
-    if (!Array.isArray(data.messages) || data.messages.length === 0) {
-      throw new HttpsError("invalid-argument", "Missing `messages`.");
-    }
-
-    const model = data.model || DEFAULT_OPENAI_MODEL;
-    if (!ALLOWED_OPENAI_MODELS.has(model)) {
-      throw new HttpsError("invalid-argument", `Model not allowed: ${model}`);
-    }
-
-    const feature = typeof data.feature === "string"
-      ? data.feature.slice(0, 64).replace(/[^a-zA-Z0-9_.-]/g, "")
-      : "unknown";
-
-    // Shares the Gemini quota bucket so one user cannot bypass the daily cap
-    // by using the food scan.
-    try {
-      await consumeQuota(uid);
-    } catch (err) {
-      bumpOpsCounter("quotaExhaustedHits").catch(() => undefined);
-      throw err;
-    }
-
-    const client = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
-    const startTime = Date.now();
-
-    // ---- Responses API: vision + reasoning + optional web search, one call
-    if (data.api === "responses") {
-      const effort = ["low", "medium", "high"].includes(String(data.reasoningEffort))
-        ? data.reasoningEffort
-        : "medium";
-      let response: any;
-      try {
-        response = await (client as any).responses.create({
-          model,
-          input: toResponsesInput(data.messages as unknown[]),
-          reasoning: { effort },
-          ...(data.webSearch ? { tools: [{ type: "web_search" }], tool_choice: "auto" } : {}),
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "OpenAI call failed";
-        console.error("[callOpenAI:responses] upstream error", uid, feature, msg);
-        bumpOpsCounter("upstreamErrors").catch(() => undefined);
-        // The client falls back to the legacy two-pass scan on this error;
-        // the upstream message is passed along so the fallback is diagnosable
-        // from the browser console.
-        throw new HttpsError("internal", "AI service error. Try again.", { upstream: msg.slice(0, 300) });
-      }
-      const durationMs = Date.now() - startTime;
-      const webSearchCalls = (response?.output ?? []).filter((o: any) => o?.type === "web_search_call").length;
-      const sources = extractCitations(response);
-
-      try {
-        const usage = response?.usage ?? {};
-        const promptTokens = Number(usage.input_tokens ?? 0);
-        const candidatesTokens = Number(usage.output_tokens ?? 0);
-        await logTokenUsage({
-          uid,
-          userEmail: req.auth.token?.email ?? null,
-          feature,
-          model,
-          promptTokens,
-          candidatesTokens,
-          totalTokens: Number(usage.total_tokens ?? promptTokens + candidatesTokens),
-          costUsd: estimateCostUsd(model, promptTokens, candidatesTokens) + webSearchCalls * WEB_SEARCH_CALL_USD,
-          durationMs,
-          webSearchCalls,
-          api: "responses",
-        });
-      } catch (err) {
-        console.error("[callOpenAI] usage logging failed (non-fatal)", uid, err);
-      }
-
-      const text = typeof response?.output_text === "string"
-        ? response.output_text
-        : (response?.output ?? [])
-            .filter((o: any) => o?.type === "message")
-            .flatMap((o: any) => (o.content ?? []).map((c: any) => c?.text ?? ""))
-            .join("");
-      return { text, sources, webSearchCalls };
-    }
-
-    let result;
-    try {
-      result = await client.chat.completions.create({
-        model,
-        messages: data.messages as any,
-        ...(data.responseFormat ? { response_format: data.responseFormat as any } : {}),
-        ...(data.webSearch ? { web_search_options: {} } : {}),
-        ...(typeof data.temperature === "number" ? { temperature: data.temperature } : {}),
-      } as any);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "OpenAI call failed";
-      console.error("[callOpenAI] upstream error", uid, feature, msg);
-      bumpOpsCounter("upstreamErrors").catch(() => undefined);
-      throw new HttpsError("internal", "AI service error. Try again.");
-    }
-    const durationMs = Date.now() - startTime;
-
-    try {
-      const usage = (result as any).usage ?? {};
-      const promptTokens = Number(usage.prompt_tokens ?? 0);
-      const candidatesTokens = Number(usage.completion_tokens ?? 0);
-      await logTokenUsage({
-        uid,
-        userEmail: req.auth.token?.email ?? null,
-        feature,
-        model,
-        promptTokens,
-        candidatesTokens,
-        totalTokens: Number(usage.total_tokens ?? promptTokens + candidatesTokens),
-        costUsd: estimateCostUsd(model, promptTokens, candidatesTokens),
-        durationMs,
-      });
-    } catch (err) {
-      console.error("[callOpenAI] usage logging failed (non-fatal)", uid, err);
-    }
-
-    return { text: (result as any).choices?.[0]?.message?.content ?? "" };
-  },
-);
+// callOpenAI (generic OpenAI proxy) was deleted in Oct 2026 (audit SEC-01):
+// the food scan runs only through startFoodAnalysis/processFoodAnalysis.
 
 // ============================================================================
 //  deleteAccount
@@ -1043,6 +821,7 @@ interface SearchNutritionResponse {
 export const searchNutrition = onCall(
   {
     cors: true,
+    enforceAppCheck: APP_CHECK_ENFORCED,
     secrets: [USDA_API_KEY],
     timeoutSeconds: 15,
     memory: "256MiB",
@@ -1052,6 +831,7 @@ export const searchNutrition = onCall(
       throw new HttpsError("unauthenticated", "Sign in first.");
     }
     const uid = req.auth.uid;
+    noteAppCheck(req);
 
     const query = (req.data?.query ?? "").toString().trim().slice(0, 200);
     if (!query) {
@@ -1308,6 +1088,7 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 export const lookupBarcode = onCall(
   {
     cors: true,
+    enforceAppCheck: APP_CHECK_ENFORCED,
     secrets: [USDA_API_KEY],
     timeoutSeconds: 20,
     memory: "256MiB",
@@ -1315,6 +1096,7 @@ export const lookupBarcode = onCall(
   async (req: CallableRequest<{ barcode?: string }>): Promise<LookupBarcodeResponse> => {
     if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const uid = req.auth.uid;
+    noteAppCheck(req);
 
     const code = String(req.data?.barcode ?? "").replace(/\D/g, "");
     if (code.length < 6 || code.length > 14) {
@@ -1483,155 +1265,8 @@ async function fetchBarcodeFromUsda(code: string, apiKey: string): Promise<Barco
   };
 }
 
-// ============================================================================
-//  foodWebLookup
-// ============================================================================
-/**
- * Pass 1 of the food scan: a live web search (gpt-5-search-api) for a named
- * restaurant's dish ('restaurant') or a food USDA/OFF couldn't match
- * ('food'). Returns a short plain-text digest the client injects into the
- * vision call.
- *
- * Results are cached in `foodLookupCache/{hash}`, keyed by kind + a
- * normalized query (lowercased, punctuation and filler words dropped, words
- * sorted), so "Chipotle chicken bowl" and "chicken bowl from chipotle" share
- * one entry and every user after the first gets it instantly and free.
- * Found: 90 days. Not found: 3 days. Cache hits are NOT logged to
- * tokenUsage (no tokens were spent) — the response carries `cached: true`.
- */
-const LOOKUP_HIT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
-const LOOKUP_MISS_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const LOOKUP_STOPWORDS = new Set([
-  "a", "an", "the", "from", "at", "of", "with", "and", "i", "got", "had", "ate",
-  "my", "some", "for", "to", "in", "on", "order", "ordered",
-]);
-
-function normalizeLookupQuery(q: string): string {
-  return q
-    .toLowerCase()
-    .replace(/['’]s\b/g, "s")
-    .replace(/[^a-z0-9 ]+/g, " ")
-    .split(/\s+/)
-    .filter(w => w && !LOOKUP_STOPWORDS.has(w))
-    .sort()
-    .join(" ");
-}
-
-function buildLookupPrompt(q: string, kind: "restaurant" | "food"): string {
-  return kind === "restaurant"
-    ? `Find published nutrition information for this restaurant order: "${q}".
-
-Search the restaurant's own site and nutrition PDFs first, then reputable nutrition databases that list restaurant items (Nutritionix, FatSecret, MyFitnessPal, CalorieKing). Report ONLY what you actually find, in at most 8 short lines:
-- Restaurant name and the site the numbers came from
-- Each dish or side you matched, with calories and protein/carbs/fat if published
-- Typical portion size or weight if stated
-- If you could NOT find real data for this order, say exactly: NO DATA FOUND
-
-Do not guess numbers. Do not pad with general nutrition advice.`
-    : `Find published nutrition facts for this food: "${q}".
-
-The USDA and Open Food Facts databases had no match, so search the web: the brand's or manufacturer's own site first, then retailer listings (Target, Walmart, Amazon, Instacart), then reputable nutrition sites (Nutritionix, FatSecret, CalorieKing). Report ONLY what you actually find, in at most 6 short lines:
-- The exact product or dish you matched, with brand if any, and the site it came from
-- Serving size (with grams if stated)
-- Calories, protein, carbs, fat, and fiber per serving
-- If you could NOT find real data for this specific food, say exactly: NO DATA FOUND
-
-Do not guess numbers. Do not substitute a different product. Do not pad with general nutrition advice.`;
-}
-
-export const foodWebLookup = onCall(
-  {
-    cors: true,
-    secrets: [OPENAI_API_KEY],
-    timeoutSeconds: 90,
-    memory: "256MiB",
-  },
-  async (req: CallableRequest<{ query?: string; kind?: string }>): Promise<{ text: string; found: boolean; cached: boolean }> => {
-    if (!req.auth) throw new HttpsError("unauthenticated", "Sign in first.");
-    const uid = req.auth.uid;
-
-    const query = String(req.data?.query ?? "").trim().slice(0, 300);
-    const kind: "restaurant" | "food" = req.data?.kind === "restaurant" ? "restaurant" : "food";
-    if (!query) throw new HttpsError("invalid-argument", "Missing `query`.");
-
-    const normalized = normalizeLookupQuery(query);
-    const key = createHash("sha256").update(`${kind}:${normalized}`).digest("hex").slice(0, 40);
-    const db = getFirestore();
-    const cacheRef = db.collection("foodLookupCache").doc(key);
-
-    const cached = await cacheRef.get();
-    if (cached.exists) {
-      const c = cached.data() as { text?: string; found?: boolean; fetchedAt?: number };
-      const age = Date.now() - Number(c.fetchedAt ?? 0);
-      if ((c.found && age < LOOKUP_HIT_TTL_MS) || (!c.found && age < LOOKUP_MISS_TTL_MS)) {
-        cacheRef.update({ hits: FieldValue.increment(1) }).catch(() => undefined);
-        return { text: c.found ? String(c.text ?? "") : "", found: !!c.found, cached: true };
-      }
-    }
-
-    try {
-      await consumeQuota(uid);
-    } catch (err) {
-      bumpOpsCounter("quotaExhaustedHits").catch(() => undefined);
-      throw err;
-    }
-
-    const model = "gpt-5-search-api";
-    const feature = kind === "restaurant" ? "foodRestaurantLookup" : "foodWebLookup";
-    const client = new OpenAI({ apiKey: OPENAI_API_KEY.value() });
-    const startTime = Date.now();
-    let result;
-    try {
-      result = await client.chat.completions.create({
-        model,
-        messages: [{ role: "user", content: buildLookupPrompt(query, kind) }],
-        web_search_options: {},
-      } as any);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "OpenAI call failed";
-      // Logged with the real upstream message: this is the line to look for
-      // in Functions logs when lookups "find nothing" suspiciously often.
-      console.error("[foodWebLookup] upstream error", uid, feature, msg);
-      bumpOpsCounter("upstreamErrors").catch(() => undefined);
-      throw new HttpsError("internal", "Web lookup failed.");
-    }
-
-    try {
-      const usage = (result as any).usage ?? {};
-      const promptTokens = Number(usage.prompt_tokens ?? 0);
-      const candidatesTokens = Number(usage.completion_tokens ?? 0);
-      await logTokenUsage({
-        uid,
-        userEmail: req.auth.token?.email ?? null,
-        feature,
-        model,
-        promptTokens,
-        candidatesTokens,
-        totalTokens: Number(usage.total_tokens ?? promptTokens + candidatesTokens),
-        costUsd: estimateCostUsd(model, promptTokens, candidatesTokens),
-        durationMs: Date.now() - startTime,
-      });
-    } catch (err) {
-      console.error("[foodWebLookup] usage logging failed (non-fatal)", uid, err);
-    }
-
-    const raw = String((result as any).choices?.[0]?.message?.content ?? "").trim();
-    const found = !!raw && !/NO DATA FOUND/i.test(raw);
-    const text = found ? raw.slice(0, 1500) : "";
-
-    await cacheRef.set({
-      kind,
-      query: query.slice(0, 300),
-      normalized,
-      found,
-      text,
-      fetchedAt: Date.now(),
-      hits: 0,
-    }).catch(err => console.error("[foodWebLookup] cache write failed (non-fatal)", err));
-
-    return { text, found, cached: false };
-  },
-);
+// foodWebLookup (legacy two-pass scan, pass 1) was deleted in Oct 2026
+// (audit SEC-01). Old foodLookupCache docs are inert.
 
 // ═══════════════════════ Fuel Coach GPT API ═══════════════════════
 //

@@ -443,3 +443,102 @@ test('LEGAL-01: minimum age is 18 in onboarding, sign-up, Terms, Privacy and the
     assert.ok(!/thirteen|13 to 17|under 13/i.test(text), `${f} still mentions 13-17 year olds`);
   }
 });
+
+// ───────────────────────── SEC-01: AI cost exposure ─────────────────────────
+
+const loadPolicy = (spend = {}) => {
+  const docs = { ...spend };
+  const writes = [];
+  const fs = {
+    FieldPath: class { constructor(...p) { this.parts = p; } },
+    FieldValue: { increment: (n) => ({ __inc: n }), serverTimestamp: () => 'ts' },
+    getFirestore: () => ({
+      collection: (c) => ({ doc: (id) => ({
+        get: async () => ({ get: (k) => docs[`${c}/${id}`]?.[k] }),
+        set: async (v) => { writes.push({ path: `${c}/${id}`, v });
+          const cur = docs[`${c}/${id}`] || (docs[`${c}/${id}`] = {});
+          for (const [k, val] of Object.entries(v)) cur[k] = val && val.__inc !== undefined ? (cur[k] || 0) + val.__inc : val; },
+      }) }),
+      getAll: async () => [{ get: () => true }],
+    }),
+  };
+  return { policy: loadFunctionsModule('aiPolicy.js', fs), docs, writes };
+};
+
+test('SEC-01: callGemini only accepts the app\'s own features', () => {
+  const { policy } = loadPolicy();
+  assert.deepEqual(Object.keys(policy.GEMINI_FEATURES).sort(), ['analyzeDailyLog', 'fuelCoachIdeas', 'sendChatMessage']);
+  for (const feature of [undefined, '', 'unknown', 'generateOnboardingMacros', 'analyzeWeeklyCalories', '__proto__', 'toString']) {
+    assert.throws(() => policy.buildGeminiRequest({ feature, contents: 'hi' }), (e) => e.code === 'invalid-argument', String(feature));
+  }
+});
+
+test('SEC-01: the server picks the model and tools; client tools, model and extras are ignored', () => {
+  const { policy } = loadPolicy();
+  const r = policy.buildGeminiRequest({
+    feature: 'analyzeDailyLog', model: 'gemini-2.5-pro', contents: 'Analyze this day',
+    config: { tools: [{ googleSearch: {} }], responseMimeType: 'text/plain', responseSchema: { type: 'OBJECT' },
+      systemInstruction: 'You are a general assistant', safetySettings: [], cachedContent: 'x', maxOutputTokens: 65000 },
+  });
+  assert.equal(r.model, 'gemini-2.5-flash');
+  assert.equal(r.config.tools, undefined, 'no client tools (e.g. Google Search grounding)');
+  assert.equal(r.config.systemInstruction, undefined, 'Analyze Day takes no client system instruction');
+  assert.equal(r.config.responseMimeType, 'application/json');
+  assert.deepEqual(r.config.responseSchema, { type: 'OBJECT' });
+  assert.equal(r.config.maxOutputTokens, 2048);
+  assert.equal(r.config.safetySettings, undefined);
+  assert.equal(r.config.cachedContent, undefined);
+
+  const chat = policy.buildGeminiRequest({ feature: 'sendChatMessage', contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+    config: { systemInstruction: 'coach', tools: [{ codeExecution: {} }] } });
+  const names = chat.config.tools[0].functionDeclarations.map((f) => f.name).sort();
+  assert.deepEqual(names, ['saveInsight', 'updateUserMetric'], 'chat gets the server-owned coach tools only');
+  assert.equal(chat.config.systemInstruction, 'coach');
+});
+
+test('SEC-01: Gemini requests are text-only and size-capped', () => {
+  const { policy } = loadPolicy();
+  const img = [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/jpeg', data: 'AAAA' } }] }];
+  assert.throws(() => policy.buildGeminiRequest({ feature: 'sendChatMessage', contents: img }), (e) => e.code === 'invalid-argument');
+  const fileRef = [{ role: 'user', parts: [{ text: 'hi', fileData: { fileUri: 'gs://x' } }] }];
+  assert.throws(() => policy.buildGeminiRequest({ feature: 'sendChatMessage', contents: fileRef }), (e) => e.code === 'invalid-argument');
+  assert.throws(() => policy.buildGeminiRequest({ feature: 'sendChatMessage', contents: [{ role: 'system', parts: [{ text: 'x' }] }] }));
+  assert.throws(() => policy.buildGeminiRequest({ feature: 'fuelCoachIdeas', contents: 'x'.repeat(70_000) }), (e) => e.code === 'invalid-argument');
+});
+
+test('SEC-01: the global daily spend circuit breaker trips at the cap and reserves calls below it', async () => {
+  const day = '2026-10-15';
+  const under = loadPolicy({ [`opsSpend/${day}`]: { costUsd: 3, calls: 10 } });
+  await under.policy.checkGlobalSpend(day);
+  assert.equal(under.docs[`opsSpend/${day}`].calls, 11);
+  await under.policy.recordGlobalSpend(day, 0.5);
+  assert.equal(under.docs[`opsSpend/${day}`].costUsd, 3.5);
+
+  const over = loadPolicy({ [`opsSpend/${day}`]: { costUsd: 25, calls: 10 } });
+  await assert.rejects(over.policy.checkGlobalSpend(day), (e) => e.code === 'resource-exhausted');
+  assert.equal(over.docs[`opsSpend/${day}`].breakerTrips, 1);
+  const busy = loadPolicy({ [`opsSpend/${day}`]: { costUsd: 0, calls: 3000 } });
+  await assert.rejects(busy.policy.checkGlobalSpend(day), (e) => e.code === 'resource-exhausted');
+});
+
+test('SEC-01: quota and usage logging go through the breaker; callOpenAI and foodWebLookup are gone', () => {
+  const index = src('functions/src/index.ts');
+  const quota = index.slice(index.indexOf('async function consumeQuota'));
+  assert.ok(quota.indexOf('checkGlobalSpend(today)') > 0 && quota.indexOf('checkGlobalSpend(today)') < quota.indexOf('runTransaction'));
+  assert.match(index, /recordGlobalSpend\(today, input\.costUsd\)/);
+  assert.ok(!/export const (callOpenAI|foodWebLookup)\b/.test(index));
+  const gemini = src('services/geminiService.ts');
+  assert.ok(!/["'](callOpenAI|foodWebLookup)["']|lookupFoodOnWeb|analyzeFoodEntryLegacy|functionDeclarations/.test(gemini));
+  assert.match(index, /buildGeminiRequest\(req\.data\)/);
+  assert.ok(!/data\.config as any|data\.contents as any/.test(index), 'callGemini no longer forwards raw client config');
+});
+
+test('SEC-01: App Check is wired on the AI callables but not enforced', () => {
+  const index = src('functions/src/index.ts');
+  for (const fn of ['callGemini', 'searchNutrition', 'lookupBarcode']) {
+    const body = index.slice(index.indexOf(`export const ${fn} = onCall(`)).slice(0, 400);
+    assert.match(body, /enforceAppCheck: APP_CHECK_ENFORCED/, fn);
+  }
+  assert.match(src('functions/src/foodJobs.ts'), /enforceAppCheck: APP_CHECK_ENFORCED/);
+  assert.match(src('functions/src/aiPolicy.ts'), /export const APP_CHECK_ENFORCED = false;/);
+});
