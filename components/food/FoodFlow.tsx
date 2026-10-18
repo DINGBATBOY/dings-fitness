@@ -232,7 +232,10 @@ export function MealReview({ items, onQuantity, onCorrect, onEdit, onRemove,
         <legend className="sr-only">Check your food and portions</legend>
         {items.map(item => <article key={item.id} className={`${surface} space-y-3`}>
           <div className="flex items-start justify-between gap-3">
-            <h3 className="text-xl font-semibold">{item.name}</h3>
+            <div className="min-w-0">
+              <h3 className="text-xl font-semibold">{item.name}</h3>
+              <p className="mt-1 text-sm tabular-nums text-[var(--ink-mid)]"><span className="text-base font-semibold text-[var(--ink)]">{Math.round(item.base.calories * item.quantity)} kcal</span>{' · '}<span style={{ color: '#7ab896' }}>{Math.round(item.base.protein * item.quantity)}g P</span>{' · '}<span style={{ color: '#e8a85a' }}>{Math.round(item.base.carbs * item.quantity)}g C</span>{' · '}<span style={{ color: '#d97757' }}>{Math.round(item.base.fat * item.quantity)}g F</span></p>
+            </div>
             <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove ${item.name}`} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${focus}`}><X size={20} aria-hidden="true" /></button>
           </div>
           <p className="text-base text-[var(--ink-mid)]">{item.evidence.summary}</p>
@@ -243,6 +246,10 @@ export function MealReview({ items, onQuantity, onCorrect, onEdit, onRemove,
             })}
           </ul>}
           {item.evidence.needsCheck && <p className="rounded-xl border-l-2 border-[#e8a85a] py-2 pl-3 text-base">{item.evidence.needsCheck}</p>}
+          {item.ingredients && item.ingredients.length > 1 ? <ul aria-label={`What's in ${item.name}`} className="divide-y divide-white/10 rounded-2xl border border-white/10">{item.ingredients.map((ingredient, index) => <li key={index} className="flex items-start justify-between gap-3 px-3 py-2.5">
+            <span className="min-w-0 text-base">{ingredient.emoji ? `${ingredient.emoji} ` : ''}{ingredient.name}<span className="block text-sm tabular-nums text-[var(--ink-mid)]">{Math.round(ingredient.grams * item.quantity)} g · {Math.round(ingredient.protein * item.quantity)}P · {Math.round(ingredient.carbs * item.quantity)}C · {Math.round(ingredient.fat * item.quantity)}F</span></span>
+            <span className="shrink-0 text-base font-semibold tabular-nums">{Math.round(ingredient.calories * item.quantity)} kcal</span>
+          </li>)}</ul> : null}
           <p className="text-base">Base amount: {item.basePortion}</p>
           <fieldset className="space-y-2">
             <legend className="text-sm text-[var(--ink-mid)]">How much of that amount?</legend>
@@ -274,7 +281,6 @@ export function MealReview({ items, onQuantity, onCorrect, onEdit, onRemove,
               const href = sourceUrl(source.url);
               return href ? <li key={index}><a href={href} target="_blank" rel="noopener noreferrer" className={`inline-flex min-h-11 items-center break-words text-sm text-[#e8a85a] underline ${focus}`}>{source.title}</a></li> : null;
             })}</ul>}
-            {item.ingredients?.length ? <ul className="space-y-2 text-sm text-[var(--ink-mid)]">{item.ingredients.map((ingredient, index) => <li key={index} className="flex flex-wrap justify-between gap-2"><span>{ingredient.name} · {Math.round(ingredient.grams * item.quantity)} g</span><span className="tabular-nums">{Math.round(ingredient.calories * item.quantity)} kcal</span></li>)}</ul> : null}
           </details>
         </article>)}
       </fieldset>
