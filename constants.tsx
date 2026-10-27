@@ -288,9 +288,10 @@ export const MIN_TDEE_FRACTION = 0.75; // Don't recommend below 75% of TDEE
 // promising here is the safer error: it avoids "I earned a big dinner" math.
 //
 // NOTE: this is display-only. The daily calorie TARGET is computed separately
-// in CALCULATE_MACROS from multiplier-based TDEE and is intentionally NOT
-// affected by anything here — a target that moved with daily activity would
-// make "calories left" mean something different every day.
+// in CALCULATE_MACROS from multiplier-based TDEE and is NOT affected by
+// anything here. Workouts the user logs in Ding are the one exception to
+// "calories left": they add to that day's budget (Dashboard, Fuel Coach,
+// coach context) — see HANDOFF "Calorie model".
 // ---------------------------------------------------------------------------
 
 const NEAT_BASELINE: Record<string, number> = {
@@ -320,8 +321,9 @@ export interface EnergyBalanceInput {
    * Calories of the day's workouts as recorded BY Apple Health (e.g. an Apple
    * Watch session). When given alongside healthActiveEnergy, any logged
    * workout calories beyond this are treated as EXTRA activity Health didn't
-   * see (no watch, gym machine) and added on top. When omitted, logged
-   * workouts are assumed to be inside Health's number (the safe default).
+   * see (no watch, gym machine) and added on top. When omitted (unknown),
+   * Health is assumed to have recorded none of them: a workout logged by hand
+   * is one the user is telling us Health missed, so it always adds.
    */
   healthWorkoutKcal?: number | null;
   /** Include the thermic effect of food. Default true. */
@@ -362,7 +364,8 @@ export const computeEnergyBalance = (input: EnergyBalanceInput): EnergyBalance =
     // steps are inside active energy, never added separately).
     activeSource = 'health';
     const seen = input.healthWorkoutKcal;
-    extra = typeof seen === 'number' ? Math.max(0, workouts - Math.round(seen)) : 0;
+    const seenKcal = typeof seen === 'number' && seen > 0 ? Math.round(seen) : 0;
+    extra = Math.max(0, workouts - seenKcal);
     activeBurn = Math.round(health) + extra;
     // Whatever isn't attributable to logged workouts is everyday movement.
     neat = Math.max(0, Math.round(health) - Math.max(0, workouts - extra));

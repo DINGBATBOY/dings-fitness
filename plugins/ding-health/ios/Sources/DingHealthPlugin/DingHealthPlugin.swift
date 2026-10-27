@@ -203,6 +203,7 @@ public class DingHealthPlugin: CAPPlugin, CAPBridgedPlugin {
 
         var steps: [String: Double] = [:]
         var energy: [String: Double] = [:]
+        var workoutEnergy: [String: Double] = [:]
         var firstError: Error?
         let group = DispatchGroup()
         let lock = NSLock()
@@ -225,6 +226,22 @@ public class DingHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         collect(stepType, unit: HKUnit.count()) { k, v in lock.lock(); steps[k] = v; lock.unlock() }
         collect(energyType, unit: HKUnit.kilocalorie()) { k, v in lock.lock(); energy[k] = v; lock.unlock() }
 
+        // Calories of the workouts Health itself recorded, per day (by start
+        // date). Lets the app tell which logged workouts Health never saw.
+        group.enter()
+        let workoutQuery = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate,
+                                          limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, _ in
+            lock.lock()
+            for w in (samples as? [HKWorkout] ?? []) {
+                let kcal = w.totalEnergyBurned?.doubleValue(for: HKUnit.kilocalorie()) ?? 0
+                let key = dayFormatter.string(from: w.startDate)
+                workoutEnergy[key] = (workoutEnergy[key] ?? 0) + kcal
+            }
+            lock.unlock()
+            group.leave()
+        }
+        healthStore.execute(workoutQuery)
+
         group.notify(queue: .main) {
             if steps.isEmpty && energy.isEmpty, let error = firstError {
                 call.reject(error.localizedDescription, nil, error)
@@ -237,7 +254,8 @@ public class DingHealthPlugin: CAPPlugin, CAPBridgedPlugin {
                 out.append([
                     "date": key,
                     "steps": steps[key].map { round($0) } ?? NSNull(),
-                    "activeKcal": energy[key].map { round($0) } ?? NSNull()
+                    "activeKcal": energy[key].map { round($0) } ?? NSNull(),
+                    "workoutKcal": round(workoutEnergy[key] ?? 0)
                 ])
             }
             call.resolve(["available": true, "days": out])

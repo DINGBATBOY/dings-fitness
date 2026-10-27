@@ -72,6 +72,7 @@ export const ProgressCharts: React.FC<Props> = ({
       const e = energyBaseline && logged ? computeEnergyBalance({
         bmr: energyBaseline.bmr, activityLevel: profile.activityLevel, caloriesEaten: eaten,
         loggedWorkoutKcal: isToday ? todayActivityBurn : (l?.caloriesBurned || 0), healthActiveEnergy: active,
+        healthWorkoutKcal: health?.workoutKcal ?? undefined,
       }) : null;
       return {
         date,

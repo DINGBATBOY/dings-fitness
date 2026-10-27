@@ -356,20 +356,29 @@ only a Codemagic build ships new code to the phone. The Codemagic webhook is
    403. Read its log first; the fix is accepting the agreement in App Store
    Connect (account holder).
 
-## Calorie model — deliberate design
+## Calorie model — deliberate design (changed Oct 27, 2026)
 
 - **Daily target** = `CALCULATE_MACROS(tdee…)` where `tdee = BMR × activity
-  multiplier`. **Activity burn is NOT subtracted from it.** The multiplier
-  already includes activity; subtracting logged workouts double-counted and
-  made "calories left" mean different things on different days.
-- **`calories left = target − eaten`. Always.** Do not make the target move
-  with daily activity.
+  multiplier`. The target itself never moves.
+- **`calories left = target + workouts logged in Ding − eaten`** (Ding's call,
+  Oct 27: "if I log a workout it should subtract from the calories"). Only
+  hand-logged workouts (`activityBurn` / `dailyLogs[].caloriesBurned`) earn
+  calories back; Apple Health active energy and watch workouts do **not**.
+  Applied in the Dashboard ring ("2,200 target +800 workout"), Fuel Coach
+  `remaining`, Add Food → Eats macro-fit, and `coachContext` "Left".
 - **Energy card is informational only**: `computeEnergyBalance()` in
   `constants.tsx` returns `BMR + activeBurn + TEF`. It is **source-aware**:
-  - Health data present → `activeEnergyBurned` is truth, logged workouts are a
-    *component* of it, never added on top.
+  - Health data present → `activeEnergyBurned` is truth; logged workouts
+    beyond the calories of workouts **Health itself recorded that day**
+    (`healthWorkoutKcal`) are `extra`, added on top. Unknown
+    `healthWorkoutKcal` now means 0 (a hand-logged workout is one Health
+    missed). Before Oct 27 unknown meant "inside Health", which made logged
+    workouts vanish from Burned on past days and in Progress charts.
+  - Today's Health workout kcal = `getTodayWorkouts`; past days =
+    `getDailySummaries` `workoutKcal` (native field added Oct 27, needs a
+    Codemagic build; older builds return null → treated as 0).
   - No Health data → NEAT estimated from activity level (conservative
-    `NEAT_BASELINE`, 150–600), and logged workouts **do** add.
+    `NEAT_BASELINE`, 150–600), and logged workouts add.
 - The Home dashboard (`components/Dashboard.tsx`) shows burned energy via
   `computeEnergyBalance` with Apple Health active energy for the selected
   day when available, and **signed** calories left (negative = over).
@@ -398,8 +407,8 @@ Still outstanding: the **App Privacy nutrition label** in App Store Connect
 must declare health data before submission.
 
 Double-counting is handled in `computeEnergyBalance()` — when Health supplies
-active energy, logged workouts are a *component* of it, never an addition.
-Don't "fix" that by adding them.
+active energy, only logged workout calories beyond Health's own recorded
+workouts for that day are added (see "Calorie model").
 
 ## Deliberate product decisions (don't "fix" these)
 

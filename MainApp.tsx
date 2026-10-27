@@ -954,16 +954,10 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       fiber: acc.fiber + (Number(item.fiber) || 0)
     }), { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
 
-    // NOTE: activity burn is deliberately NOT subtracted here.
-    //
-    // The daily target already comes from TDEE = BMR x activityMultiplier,
-    // where the multiplier reflects the activity level chosen at onboarding.
-    // Subtracting logged workouts on top of that double-counts them and
-    // silently inflates the budget — which made "calories left" mean two
-    // different things depending on whether a workout had been logged.
-    //
-    // Eaten is now purely what was eaten. Burn is surfaced separately in the
-    // energy-balance card so the user can see it without it moving the target.
+    // NOTE: activity burn is deliberately NOT subtracted here. Eaten is purely
+    // what was eaten. Workouts logged in Ding are added to the day's BUDGET
+    // instead (calories left = target + logged workouts - eaten; Ding's call,
+    // Oct 2026) - see Dashboard, Fuel Coach and coachContext.
     
     return totals;
   }, [appState.todayLog, appState.activityBurn]);
@@ -1714,7 +1708,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       <FoodComposer key={userId} uid={userId!} open={showAddFood} onClose={() => setShowAddFood(false)} onOpen={openAddFood}
         seed={foodSeed} onSeedConsumed={() => setFoodSeed(null)} onStatus={setFoodStatus}
         onSave={pushFoodToState} history={appState.foodHistory || []} onFavorite={toggleHistoryFavorite} onRemoveHistory={removeHistoryEntry}
-        targets={targetMacros} consumed={consumedMacros} customMenuItems={appState.customMenuItems}
+        targets={{ ...targetMacros, calories: targetMacros.calories + (appState.activityBurn || 0) }} consumed={consumedMacros} customMenuItems={appState.customMenuItems}
         logDate={selectedDate}
         dateLabel={selectedDate === todayKey() ? 'Today' : parseDayKey(selectedDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
         requireConsent={action => {
@@ -1805,7 +1799,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       {showFuelCoach && (
         <FuelCoachSheet
           remaining={{
-            calories: Math.round(targetMacros.calories - consumedMacros.calories),
+            calories: Math.round(targetMacros.calories + (appState.activityBurn || 0) - consumedMacros.calories),
             protein: Math.max(0, Math.round(targetMacros.protein - consumedMacros.protein)),
             carbs: Math.max(0, Math.round(targetMacros.carbs - consumedMacros.carbs)),
             fat: Math.max(0, Math.round(targetMacros.fat - consumedMacros.fat)),

@@ -36,10 +36,12 @@ export function buildCoachContext(i: CoachContextInput): string {
   lines.push(`Daily targets: ${r(targets.calories)} kcal, P ${r(targets.protein)} g, C ${r(targets.carbs)} g, F ${r(targets.fat)} g.`);
 
   // ── Today ──
-  const left = targets.calories - consumed.calories;
+  // Workouts logged in Ding add to today's budget (HANDOFF "Calorie model").
+  const workoutKcal = Math.max(0, appState.activityBurn || 0);
+  const left = targets.calories + workoutKcal - consumed.calories;
   lines.push('', 'TODAY');
   lines.push(`Eaten: ${r(consumed.calories)} kcal, P ${r(consumed.protein)} / C ${r(consumed.carbs)} / F ${r(consumed.fat)} g. ` +
-    `Left: ${left >= 0 ? r(left) : `${r(-left)} over`} kcal, P ${r(targets.protein - consumed.protein)} / C ${r(targets.carbs - consumed.carbs)} / F ${r(targets.fat - consumed.fat)} g.`);
+    `Left${workoutKcal > 0 ? ` (target + ${r(workoutKcal)} kcal logged workouts)` : ''}: ${left >= 0 ? r(left) : `${r(-left)} over`} kcal, P ${r(targets.protein - consumed.protein)} / C ${r(targets.carbs - consumed.carbs)} / F ${r(targets.fat - consumed.fat)} g.`);
   const foods = (appState.todayLog || []).slice(0, 30);
   if (foods.length) {
     lines.push('Foods today (time · name · kcal · P/C/F):');

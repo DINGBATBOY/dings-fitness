@@ -14,8 +14,8 @@
  *   6. That day's food, grouped by meal
  *   7. Water
  *
- * Calorie model (HANDOFF): calories left = target − eaten, always. Burned
- * energy is informational and never moves the target.
+ * Calorie model (HANDOFF): calories left = target + workouts logged in Ding −
+ * eaten. Apple Health energy is informational and never moves the budget.
  */
 import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Flame, Footprints, Droplets, Scale, TrendingDown, TrendingUp, Minus, Plus, Sparkles, MessageCircle, Dumbbell, Info } from 'lucide-react';
@@ -24,7 +24,7 @@ import { computeEnergyBalance } from '../constants';
 import type { HealthWorkout } from '../services/health';
 import { addDays, dayKey, isoDate, normalizeDayKey, parseDayKey, shiftDayKey, todayKey } from '../services/dayKey';
 
-export type DaySummary = { steps?: number | null; activeKcal?: number | null };
+export type DaySummary = { steps?: number | null; activeKcal?: number | null; workoutKcal?: number | null };
 
 interface DashboardProps {
   profile: UserProfile;
@@ -129,9 +129,10 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const energy = energyBaseline ? computeEnergyBalance({
     bmr: energyBaseline.bmr, activityLevel: profile.activityLevel, caloriesEaten: day.calories,
     loggedWorkoutKcal: day.burned, healthActiveEnergy: activeFromHealth,
-    // Only today knows which workouts Health itself recorded; logged workouts
-    // beyond those count as extra burn on top of Health's number.
-    healthWorkoutKcal: isToday ? healthWorkouts.reduce((t, w) => t + (w.kcal || 0), 0) : undefined,
+    // Logged workouts beyond what Health itself recorded that day count as
+    // extra burn on top of Health's number (today: live workout list; past
+    // days: the daily summary; unknown = Health recorded none).
+    healthWorkoutKcal: isToday ? healthWorkouts.reduce((t, w) => t + (w.kcal || 0), 0) : (health?.workoutKcal ?? undefined),
   }) : null;
   const [showBalanceInfo, setShowBalanceInfo] = useState(false);
   const steps = health?.steps ?? null;
@@ -152,8 +153,11 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const [weightError, setWeightError] = useState('');
 
   // ── Ring ──
-  const left = targets.calories - day.calories; // signed on purpose
-  const ratio = Math.max(0, Math.min(1, day.calories / Math.max(1, targets.calories)));
+  // Workouts logged in Ding earn their calories back for that day.
+  const workoutBonus = Math.max(0, Math.round(day.burned || 0));
+  const budget = targets.calories + workoutBonus;
+  const left = budget - day.calories; // signed on purpose
+  const ratio = Math.max(0, Math.min(1, day.calories / Math.max(1, budget)));
   const R = 70, CIRC = 2 * Math.PI * R, ARC = CIRC * 0.75;
 
   const title = isToday ? 'Today' : selectedDate === shift(today, -1) ? 'Yesterday' : parse(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
@@ -225,7 +229,8 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <div className="min-w-0 flex-1 space-y-3">
               <div>
                 <p className={label}>Eaten</p>
-                <p className="text-xl font-bold tabular-nums">{n0(day.calories)} <span className="text-sm font-medium text-[var(--ink-mid)]">/ {n0(targets.calories)}</span></p>
+                <p className="text-xl font-bold tabular-nums">{n0(day.calories)} <span className="text-sm font-medium text-[var(--ink-mid)]">/ {n0(budget)}</span></p>
+                {workoutBonus > 0 && <p className="text-xs text-[var(--ink-mid)]"><span className="tabular-nums">{n0(targets.calories)}</span> target <span className="font-semibold text-[var(--sage)] tabular-nums">+{n0(workoutBonus)}</span> workout</p>}
               </div>
               {(['protein', 'carbs', 'fat'] as const).map(k => {
                 const cur = day[k]; const tgt = targets[k] || 1;
@@ -243,7 +248,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
               })}
             </div>
           </div>
-          {left < 0 && <p className="mt-3 text-sm text-[var(--ink-mid)]">{n0(-left)} above {isToday ? 'todays' : 'that days'} target. Thats information, not a verdict.</p>}
+          {left < 0 && <p className="mt-3 text-sm text-[var(--ink-mid)]">{n0(-left)} above {isToday ? 'todays' : 'that days'} {workoutBonus > 0 ? 'budget' : 'target'}. Thats information, not a verdict.</p>}
         </section>
 
         {/* ─── 3. Balance: eaten vs burned (deficit) + steps + workouts ─── */}
@@ -276,7 +281,8 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
               Burned = resting burn (from your stats) + active energy + a little for digesting food. With Apple Health,
               active energy is your iPhone/Watch number — it already counts your <b>steps</b> and any workout Health recorded,
               so steps arent added again. Workouts you log here that Health didnt record are added on top. Without Health,
-              Ding estimates daily movement from your activity level. Your calories-left target never moves with this.
+              Ding estimates daily movement from your activity level. Workouts you log in Ding also add their calories to
+              that days calories left; Apple Health numbers dont change it.
             </p>
           )}
           <div className="mt-4 grid grid-cols-2 gap-4 border-t border-[var(--line)] pt-4">

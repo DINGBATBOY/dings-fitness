@@ -46,7 +46,7 @@ interface DingHealthPlugin {
   }>;
   getDailySummaries(options: { days: number }): Promise<{
     available: boolean;
-    days: { date: string; steps: number | null; activeKcal: number | null }[];
+    days: { date: string; steps: number | null; activeKcal: number | null; workoutKcal?: number | null }[];
   }>;
 }
 
@@ -126,18 +126,21 @@ export const fetchLatestBodyMass = async (): Promise<HealthBodyMass | null> => {
  * day key (services/dayKey). {} when unavailable. Older app builds
  * without the native method resolve to {} too (the call rejects → caught).
  */
-export const fetchDailySummaries = async (days = 30): Promise<Record<string, { steps: number | null; activeKcal: number | null }>> => {
+export const fetchDailySummaries = async (days = 30): Promise<Record<string, { steps: number | null; activeKcal: number | null; workoutKcal: number | null }>> => {
   if (!isHealthSupported()) return {};
   try {
     const res = await DingHealth.getDailySummaries({ days });
     if (!res.available || !Array.isArray(res.days)) return {};
-    const out: Record<string, { steps: number | null; activeKcal: number | null }> = {};
+    const out: Record<string, { steps: number | null; activeKcal: number | null; workoutKcal: number | null }> = {};
     for (const d of res.days) {
       const [y, m, day] = d.date.split('-').map(Number);
       if (!y || !m || !day) continue;
       out[dayKey(new Date(y, m - 1, day))] = {
         steps: typeof d.steps === 'number' ? Math.round(d.steps) : null,
         activeKcal: typeof d.activeKcal === 'number' ? Math.round(d.activeKcal) : null,
+        // Calories of workouts Health itself recorded that day (null on builds
+        // before this field existed).
+        workoutKcal: typeof d.workoutKcal === 'number' ? Math.round(d.workoutKcal) : null,
       };
     }
     return out;
