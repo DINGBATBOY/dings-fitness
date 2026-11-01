@@ -532,8 +532,8 @@ Ordered by what blocks what. "Unconfirmed" = raised but never confirmed done.
   of the task** — commit, push, deploy what changed (rules → functions → web,
   see "Four deploy targets"), then start a Codemagic build and watch it to
   the end. Don't ask first. Docs-only changes: commit + push only.
-- The repo lives in the connected folder `Dings Fitness/ding! (2)` (Windows,
-  CRLF files). The **device shell** (`device_bash`) has **no network** and no
+- The repo lives in the connected folder `Dings Fitness/ding! (2)` (Windows;
+  the files are LF, checked Oct 31). The **device shell** (`device_bash`) has **no network** and no
   git credentials — use it for reading, editing and local git commits.
 - **Push / deploy / npm from the Desktop Commander tools** — they run
   PowerShell on Ding's PC with his GitHub + Firebase logins and network.
@@ -546,6 +546,11 @@ Ordered by what blocks what. "Unconfirmed" = raised but never confirmed done.
   Playwright give real screenshots), then tar the changed files back and
   extract on the device. `device_commit_files` can serve a stale copy when
   re-using the same staged path — always use a fresh file name.
+  **Before bringing work back, run `git log` on the device:** other sessions
+  commit to this repo too. On Oct 31 the Progress rebuild (`4a96432`) landed
+  while the onboarding work was in the cloud, and extracting whole files
+  silently undid it (repaired in `b22686c`). If HEAD moved, bring back a
+  patch (`git diff` in the cloud copy) and `git apply --3way` it instead.
 - **Codemagic:** use the Chrome browser named **"personal chrome"**
   (`select_browser`), not Opera GX (its tab groups break the extension). App
   = https://codemagic.io/app/6a20e6ff98dc5374825eecca (the other
