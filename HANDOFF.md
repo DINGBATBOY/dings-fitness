@@ -71,9 +71,10 @@ track" (https://claude.ai/artifact/Lnc2jDztAUX3Z7zvGvby4x).
   reasons, and tells the coach not to talk "left/over" to log-mode users.
 - Tests: `node --test tests/onboarding-v3.test.mjs`. Dev preview:
   `/design/preview.html?onboarding=1` and `?style=protein|calories|log`.
-- **Not in a TestFlight build yet** (Ding held Codemagic on Oct 31). Web is
-  deployed. Fuel Coach, Progress charts and Wrapped still show targets in
-  log mode.
+- **Shipped:** web `b22686c`+, and **Codemagic #77** (Oct 31, 23:06 ET,
+  commit `a2b4c85`, green, published to App Store Connect) carries both this
+  and the Progress rebuild. Fuel Coach, Progress charts and Wrapped still
+  show targets in log mode.
 
 ## Pre-launch fixes (Oct 14, 2026) — read before touching these areas
 
