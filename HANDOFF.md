@@ -118,9 +118,18 @@ workouts/steps/active energy.
 - **Tabs:** Home · Coach · **(+)** · Progress · Profile. Old ids still
   resolve in `switchTab`: `workouts` → Home, `reflect`/`recomp` → Progress,
   `journal` → Profile/History, `restaurants` → Add Food's Eats.
-- **Progress** (`components/ProgressCharts.tsx` + Wrapped + calorie calendar):
-  7/30-day calories vs target, eaten-vs-burned diverging bars, macros stacked
-  by calories, weight line, "See the numbers" table. Chart colors are the
+- **Progress** (`components/ProgressCharts.tsx`, dashboard layout since
+  Oct 31): one 7/30/90-day range drives everything. Overview tiles (avg
+  calories, avg protein, days logged, weight) each compared with the previous
+  period; Goals hit meters (calories within 10 %, protein >= 90 %, days
+  logged); one Calories card with an Eaten/Balance toggle (90 days = weekly
+  averages); Macros as average vs target + calorie split; Weight with change,
+  pace/week and distance to `goalTargetWeight`; Consistency day grid +
+  weekday/weekend patterns; What you ate (most logged / most kcal, from the
+  range's `foodItems`); a "Play your recap" button that opens the Wrapped
+  overlay; "See the numbers" table. **Averages and hit rates leave out today
+  until it's over.** Wrapped is no longer inline and CalorieCalendar is no
+  longer used on this tab. Chart colors are the
   `--viz-*` tokens in index.css, validated with the dataviz palette checker
   on every background tone (the old macro colors failed it — don't reuse
   them for charts).

@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Layout } from './components/Layout';
-import { CalorieCalendar } from './components/CalorieCalendar';
 import { Journal } from './components/Journal';
 import { Auth } from './components/Auth';
 import { Onboarding } from './components/Onboarding';
@@ -1910,28 +1909,18 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             todayLog={appState.todayLog || []}
             todayConsumed={consumedMacros}
             todayActivityBurn={appState.activityBurn || 0}
+            todayWater={appState.waterIntake || 0}
             weighIns={appState.weighIns || []}
+            streak={streak}
             energyBaseline={energyBaseline}
             healthActiveEnergy={healthActiveEnergy}
             healthByDate={healthByDate}
+            onOpenRecap={(period) => {
+              setWrappedAutoPrompted(false);
+              setWrappedInitialPeriod(period);
+              setShowWrapped(true);
+            }}
           />
-          <p className="pt-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink-light)]">Your story</p>
-          <Wrapped
-            inline
-            profile={appState.profile}
-            dailyLogs={appState.dailyLogs || []}
-            weighIns={appState.weighIns || []}
-            todayLog={appState.todayLog || []}
-            todayActivityBurn={appState.activityBurn || 0}
-            todayWaterIntake={appState.waterIntake || 0}
-            foodHistory={appState.foodHistory || []}
-            bodyStats={appState.bodyStats}
-            targets={targetMacros}
-            initialPeriod="week"
-          />
-          <div className="rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5">
-            <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
-          </div>
         </div>
       )}
 
