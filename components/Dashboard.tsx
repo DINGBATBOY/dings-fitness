@@ -7,7 +7,9 @@
  * (the + logs to the selected day).
  *
  *   1. Date bar + week strip
- *   2. Calories: ring (left, signed — never clamped) + macro bars
+ *   2. Calories: ring (left, signed — never clamped) + macro bars. What leads
+ *      follows profile.trackingStyle: macros (default) · calories (no macro
+ *      targets) · protein (ring = protein to go) · log (totals, no targets)
  *   3. Energy: burned (resting + active, Apple Health when connected) + steps
  *   4. Week: 7 bars of calories vs target, weekly average
  *   5. Trends: weight trend + weigh-in, 7-day protein average, days logged
@@ -158,6 +160,13 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
   const budget = targets.calories + workoutBonus;
   const left = budget - day.calories; // signed on purpose
   const ratio = Math.max(0, Math.min(1, day.calories / Math.max(1, budget)));
+  // What the ring leads with (profile.trackingStyle, onboarding v3).
+  const style = profile.trackingStyle || 'macros';
+  const proteinLeft = Math.round((targets.protein || 0) - day.protein);
+  const ring = style === 'protein'
+    ? { value: proteinLeft > 0 ? `${proteinLeft}g` : `${Math.round(day.protein)}g`, caption: proteinLeft > 0 ? 'protein to go' : 'protein hit',
+        ratio: Math.max(0, Math.min(1, day.protein / Math.max(1, targets.protein || 1))), color: 'var(--viz-protein)' }
+    : { value: `${left < 0 ? '−' : ''}${n0(Math.abs(left))}`, caption: left < 0 ? 'kcal over' : 'kcal left', ratio, color: left < 0 ? 'var(--accent)' : 'var(--primary)' };
   const R = 70, CIRC = 2 * Math.PI * R, ARC = CIRC * 0.75;
 
   const title = isToday ? 'Today' : selectedDate === shift(today, -1) ? 'Yesterday' : parse(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
@@ -212,27 +221,52 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
       </div>
 
       <div key={selectedDate} className="stagger space-y-4">
-        {/* ─── 2. Calories ─── */}
-        <section className={card} aria-label="Calories">
+        {/* ─── 2. Today's food numbers, led by the tracking style ─── */}
+        {style === 'log' ? (
+          <section className={card} aria-label="What you ate">
+            <p className={label}>{isToday ? 'Eaten today' : 'Eaten'}</p>
+            <p className="mt-1 text-[2.4rem] font-bold leading-none tabular-nums">{n0(day.calories)}<span className="ml-1.5 text-base font-semibold text-[var(--ink-mid)]">kcal</span></p>
+            <div className="mt-4 grid grid-cols-3 gap-2.5">
+              {(['protein', 'carbs', 'fat'] as const).map(k => (
+                <div key={k} className="rounded-2xl border border-[var(--line)] bg-[var(--bg-dark)] p-3">
+                  <p className="text-xs font-semibold capitalize" style={{ color: P[k] }}>{k}</p>
+                  <p className="mt-0.5 text-lg font-bold tabular-nums">{Math.round(day[k])}<span className="ml-0.5 text-xs font-medium text-[var(--ink-mid)]">g</span></p>
+                </div>
+              ))}
+            </div>
+            {day.burned > 0 && <p className="mt-3 text-sm text-[var(--ink-mid)]"><span className="font-semibold tabular-nums text-[var(--ink)]">{n0(day.burned)}</span> kcal of workouts logged</p>}
+          </section>
+        ) : (
+        <section className={card} aria-label={style === 'protein' ? 'Protein' : 'Calories'}>
           <div className="flex items-center gap-5">
             <div className="relative h-[156px] w-[156px] shrink-0">
               <svg viewBox="0 0 180 180" className="h-full w-full -rotate-[225deg]" aria-hidden="true">
                 <circle cx="90" cy="90" r={R} fill="none" stroke="var(--line-strong)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${ARC} ${CIRC}`} />
-                <circle cx="90" cy="90" r={R} fill="none" stroke={left < 0 ? 'var(--accent)' : 'var(--primary)'} strokeWidth="14" strokeLinecap="round"
-                  strokeDasharray={`${ARC * ratio} ${CIRC}`} style={{ transition: 'stroke-dasharray 0.9s cubic-bezier(0.16,1,0.3,1)' }} />
+                <circle cx="90" cy="90" r={R} fill="none" stroke={ring.color} strokeWidth="14" strokeLinecap="round"
+                  strokeDasharray={`${ARC * ring.ratio} ${CIRC}`} style={{ transition: 'stroke-dasharray 0.9s cubic-bezier(0.16,1,0.3,1)' }} />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
-                <span className="text-[2rem] font-bold leading-none tabular-nums">{left < 0 ? '−' : ''}{n0(Math.abs(left))}</span>
-                <span className="mt-1 text-xs font-semibold text-[var(--ink-mid)]">{left < 0 ? 'kcal over' : 'kcal left'}</span>
+                <span className="text-[2rem] font-bold leading-none tabular-nums">{ring.value}</span>
+                <span className="mt-1 text-xs font-semibold text-[var(--ink-mid)]">{ring.caption}</span>
               </div>
             </div>
             <div className="min-w-0 flex-1 space-y-3">
-              <div>
-                <p className={label}>Eaten</p>
-                <p className="text-xl font-bold tabular-nums">{n0(day.calories)} <span className="text-sm font-medium text-[var(--ink-mid)]">/ {n0(budget)}</span></p>
-                {workoutBonus > 0 && <p className="text-xs text-[var(--ink-mid)]"><span className="tabular-nums">{n0(targets.calories)}</span> target <span className="font-semibold text-[var(--sage)] tabular-nums">+{n0(workoutBonus)}</span> workout</p>}
-              </div>
-              {(['protein', 'carbs', 'fat'] as const).map(k => {
+              {style === 'protein' ? (
+                <div>
+                  <p className={label}>Protein</p>
+                  <p className="text-xl font-bold tabular-nums">{Math.round(day.protein)} <span className="text-sm font-medium text-[var(--ink-mid)]">/ {targets.protein}g</span></p>
+                  <p className="text-sm text-[var(--ink-mid)]"><b className="tabular-nums text-[var(--ink)]">{n0(day.calories)}</b> / {n0(budget)} kcal</p>
+                </div>
+              ) : (
+                <div>
+                  <p className={label}>Eaten</p>
+                  <p className="text-xl font-bold tabular-nums">{n0(day.calories)} <span className="text-sm font-medium text-[var(--ink-mid)]">/ {n0(budget)}</span></p>
+                  {workoutBonus > 0 && <p className="text-xs text-[var(--ink-mid)]"><span className="tabular-nums">{n0(targets.calories)}</span> target <span className="font-semibold text-[var(--sage)] tabular-nums">+{n0(workoutBonus)}</span> workout</p>}
+                </div>
+              )}
+              {style === 'calories' ? (
+                <p className="text-sm tabular-nums text-[var(--ink-mid)]">P <b className="text-[var(--ink)]">{Math.round(day.protein)}</b> · C <b className="text-[var(--ink)]">{Math.round(day.carbs)}</b> · F <b className="text-[var(--ink)]">{Math.round(day.fat)}</b> g</p>
+              ) : (['protein', 'carbs', 'fat'] as const).filter(k => style !== 'protein' || k !== 'protein').map(k => {
                 const cur = day[k]; const tgt = targets[k] || 1;
                 return (
                   <div key={k}>
@@ -248,15 +282,18 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
               })}
             </div>
           </div>
-          {left < 0 && <p className="mt-3 text-sm text-[var(--ink-mid)]">{n0(-left)} above {isToday ? 'todays' : 'that days'} {workoutBonus > 0 ? 'budget' : 'target'}. Thats information, not a verdict.</p>}
+          {left < 0 && <p className="mt-3 text-sm text-[var(--ink-mid)]">{n0(-left)} kcal above {isToday ? 'todays' : 'that days'} {workoutBonus > 0 ? 'budget' : 'target'}. Thats information, not a verdict.</p>}
         </section>
+        )}
 
         {/* ─── 3. Balance: eaten vs burned (deficit) + steps + workouts ─── */}
         <section className={card} aria-label="Calorie balance">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className={label}>{isToday ? 'Todays balance so far' : 'Balance'}</p>
-              {energy ? (
+              <p className={label}>{style === 'log' ? (isToday ? 'Burned so far' : 'Burned') : isToday ? 'Todays balance so far' : 'Balance'}</p>
+              {energy && style === 'log' ? (
+                <p className="mt-1 text-[2rem] font-bold leading-none tabular-nums">{n0(energy.totalBurn)}<span className="ml-1.5 text-base font-semibold text-[var(--ink-mid)]">burned</span></p>
+              ) : energy ? (
                 <p className="mt-1 text-[2rem] font-bold leading-none tabular-nums" style={{ color: energy.net <= 0 ? 'var(--sage)' : 'var(--accent)' }}>
                   {energy.net <= 0 ? '−' : '+'}{n0(Math.abs(energy.net))}
                   <span className="ml-1.5 text-base font-semibold">{energy.net <= 0 ? 'deficit' : 'surplus'}</span>
@@ -317,17 +354,18 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <p className="text-sm text-[var(--ink-mid)]">avg <b className="text-[var(--ink)] tabular-nums">{weekAvg ? n0(weekAvg) : '—'}</b> kcal</p>
           </div>
           {(() => {
-            const max = Math.max(targets.calories * 1.25, ...week.map(w => w.calories), 1);
+            const showTarget = style !== 'log';
+            const max = Math.max(showTarget ? targets.calories * 1.25 : 0, ...week.map(w => w.calories), 1);
             const targetPct = (targets.calories / max) * 100;
             return (
               <div className="relative mt-4 h-32">
-                <div className="absolute inset-x-0 border-t border-dashed border-[var(--ink-light)]/60" style={{ bottom: `${targetPct}%` }} aria-hidden="true">
+                {showTarget && <div className="absolute inset-x-0 border-t border-dashed border-[var(--ink-light)]/60" style={{ bottom: `${targetPct}%` }} aria-hidden="true">
                   <span className="absolute -top-4 right-0 text-[10px] font-semibold text-[var(--ink-light)]">target</span>
-                </div>
+                </div>}
                 <div className="absolute inset-0 flex items-end gap-2">
                   {week.map((w, i) => {
                     const on = w.date === selectedDate;
-                    const over = w.calories > targets.calories;
+                    const over = showTarget && w.calories > targets.calories;
                     return (
                       <button key={w.date} type="button" disabled={w.future} onClick={() => onSelectDate(w.date)} className="tap flex h-full flex-1 flex-col items-center justify-end gap-1" aria-label={`${parse(w.date).toLocaleDateString('en-US', { weekday: 'long' })}: ${n0(w.calories)} kcal`}>
                         <div className="bar-grow w-full rounded-lg" style={{
@@ -365,7 +403,7 @@ export const Dashboard: React.FC<DashboardProps> = (props) => {
             <div>
               <p className="text-sm text-[var(--ink-mid)]">Protein avg</p>
               <p className="mt-0.5 text-2xl font-bold tabular-nums">{proteinAvg ? Math.round(proteinAvg) : '—'}<span className="ml-1 text-sm font-medium text-[var(--ink-mid)]">g</span></p>
-              <p className="text-xs text-[var(--ink-mid)]">target {targets.protein}g · {loggedDays.length}/7 days logged</p>
+              <p className="text-xs text-[var(--ink-mid)]">{style === 'log' ? '' : `target ${targets.protein}g · `}{loggedDays.length}/7 days logged</p>
             </div>
           </div>
           {isToday && (weighing ? (

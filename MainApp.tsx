@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Layout } from './components/Layout';
+import { CalorieCalendar } from './components/CalorieCalendar';
 import { Journal } from './components/Journal';
 import { Auth } from './components/Auth';
 import { Onboarding } from './components/Onboarding';
@@ -12,6 +13,7 @@ import { Dashboard, type DaySummary } from './components/Dashboard';
 import { ProfileHub, type ProfileSection } from './components/ProfileHub';
 import { ProgressCharts } from './components/ProgressCharts';
 import { buildCoachContext } from './services/coachContext';
+import { timelineFor } from './services/starterTargets';
 import { FoodDetailSheet } from './components/FoodDetailSheet';
 import { readAppearance, applyAppearance, isValidAppearance, type Appearance } from './services/theme';
 import { FoodDialog } from './components/food/FoodDialog';
@@ -859,9 +861,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.weight,
       appState.profile.sex,
       appState.profile.macroSplit,
-      appState.profile.goalTargetWeight
-        ? { targetWeightLbs: appState.profile.goalTargetWeight, targetDate: appState.profile.goalTargetDate }
-        : undefined,
+      timelineFor(appState.profile),
       bf,
     );
   }, [appState.profile, appState.nutritionTargets]);
@@ -914,9 +914,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
       appState.profile.weight,
       appState.profile.sex,
       appState.profile.macroSplit,
-      appState.profile.goalTargetWeight
-        ? { targetWeightLbs: appState.profile.goalTargetWeight, targetDate: appState.profile.goalTargetDate }
-        : undefined,
+      timelineFor(appState.profile),
       appState.profile.inBodyData?.pbf ?? appState.profile.bodyFat,
     );
     const newTargets = {
@@ -1909,18 +1907,28 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
             todayLog={appState.todayLog || []}
             todayConsumed={consumedMacros}
             todayActivityBurn={appState.activityBurn || 0}
-            todayWater={appState.waterIntake || 0}
             weighIns={appState.weighIns || []}
-            streak={streak}
             energyBaseline={energyBaseline}
             healthActiveEnergy={healthActiveEnergy}
             healthByDate={healthByDate}
-            onOpenRecap={(period) => {
-              setWrappedAutoPrompted(false);
-              setWrappedInitialPeriod(period);
-              setShowWrapped(true);
-            }}
           />
+          <p className="pt-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink-light)]">Your story</p>
+          <Wrapped
+            inline
+            profile={appState.profile}
+            dailyLogs={appState.dailyLogs || []}
+            weighIns={appState.weighIns || []}
+            todayLog={appState.todayLog || []}
+            todayActivityBurn={appState.activityBurn || 0}
+            todayWaterIntake={appState.waterIntake || 0}
+            foodHistory={appState.foodHistory || []}
+            bodyStats={appState.bodyStats}
+            targets={targetMacros}
+            initialPeriod="week"
+          />
+          <div className="rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5">
+            <CalorieCalendar logs={appState.dailyLogs || []} targetCalories={targetMacros.calories} />
+          </div>
         </div>
       )}
 
@@ -2181,6 +2189,49 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                         </select>
                     </div>
 
+                    {/* PACE — onboarding v3. Only loss and gain goals move weight. */}
+                    {(() => {
+                        const g = editProfileData.goal || appState.profile?.goal || '';
+                        if (!(g.includes('Weight Loss') || g.includes('Bulk'))) return null;
+                        const current = (editProfileData.goalPace !== undefined ? editProfileData.goalPace : appState.profile?.goalPace) || 'steady';
+                        return (
+                            <div>
+                                <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Pace</label>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                    {(['gentle', 'steady', 'faster'] as const).map(p => (
+                                        <button key={p} type="button" onClick={() => setEditProfileData(prev => ({ ...prev, goalPace: p }))}
+                                            className={`px-3 py-2 rounded-lg border text-[11px] font-bold uppercase tracking-widest transition-all ${current === p ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                                            {p}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* TRACKING STYLE — what Home leads with (onboarding v3). */}
+                    <div>
+                        <label className="block text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Tracking style</label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                            {([
+                                { value: 'macros',   display: 'Full macros',   hint: 'kcal + P/C/F' },
+                                { value: 'calories', display: 'Calories first', hint: 'one number' },
+                                { value: 'protein',  display: 'Protein first', hint: 'protein ring' },
+                                { value: 'log',      display: 'Just log it',   hint: 'no targets' },
+                            ] as const).map(opt => {
+                                const current = (editProfileData.trackingStyle !== undefined ? editProfileData.trackingStyle : appState.profile?.trackingStyle) || 'macros';
+                                const selected = current === opt.value;
+                                return (
+                                    <button key={opt.value} type="button" onClick={() => setEditProfileData(prev => ({ ...prev, trackingStyle: opt.value }))}
+                                        className={`flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-all ${selected ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40' : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10'}`}>
+                                        <span className="text-[11px] font-bold uppercase tracking-widest">{opt.display}</span>
+                                        <span className="text-[9px] mt-0.5 opacity-70">{opt.hint}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     {/* MACRO SPLIT — how the non-protein calories divide between
                         carbs and fat. Defaults to 'balanced'. Picker recomputes
                         the user's daily macros on save. */}
@@ -2321,9 +2372,7 @@ const MainApp = ({ userId, userEmail, initialProfile, onSignOut }: any) => {
                           newProfile.weight,
                           newProfile.sex,
                           newProfile.macroSplit,
-                          newProfile.goalTargetWeight
-                            ? { targetWeightLbs: newProfile.goalTargetWeight, targetDate: newProfile.goalTargetDate }
-                            : undefined,
+                          timelineFor(newProfile),
                           bf,
                         );
                         // Custom targets win verbatim; otherwise strip MacroResult

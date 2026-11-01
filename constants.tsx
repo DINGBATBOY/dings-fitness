@@ -459,7 +459,28 @@ const SPLIT_RULES: Record<MacroSplitMode, SplitRules> = {
 export interface GoalTimeline {
   targetWeightLbs?: number;
   targetDate?: string; // YYYY-MM-DD
+  /** Onboarding v3 pace. Replaces the goal's flat delta for loss/gain goals. */
+  pace?: 'gentle' | 'steady' | 'faster';
 }
+
+/**
+ * Pace presets (onboarding v3). Loss is a share of body weight per week
+ * (0.25 / 0.5 / 0.75 %, all under the 1 %/week cap); gain is lbs per week.
+ * The calorie floor in CALCULATE_MACROS still applies on top.
+ */
+export const PACE_RULES = {
+  gentle: { lossPctPerWeek: 0.0025, gainLbsPerWeek: 0.25 },
+  steady: { lossPctPerWeek: 0.005, gainLbsPerWeek: 0.5 },
+  faster: { lossPctPerWeek: 0.0075, gainLbsPerWeek: 0.75 },
+} as const;
+
+/** Weekly change in lbs for a goal + pace (negative = losing). 0 when the goal doesn't move weight. */
+export const paceWeeklyLbs = (goal: string | undefined, weightLbs: number, pace?: string): number => {
+  const rule = PACE_RULES[(pace as keyof typeof PACE_RULES) || 'steady'] || PACE_RULES.steady;
+  if (goal?.includes('Weight Loss')) return -(weightLbs * rule.lossPctPerWeek);
+  if (goal?.includes('Bulk')) return rule.gainLbsPerWeek;
+  return 0;
+};
 
 // Macro guard rails (audit NUT-01): protein at most 40% of calories and
 // 250 g/day; fat at least 25% of calories. Carbs get the remainder.
@@ -496,6 +517,8 @@ export const CALCULATE_MACROS = (
       proteinRatio = 0.9;
   } else if (goal?.includes('Performance')) {
       proteinRatio = 0.9;
+  } else if (goal === 'Maintain') {
+      proteinRatio = 0.8;
   }
 
   // Timeline-aware daily delta (preferred when data available). Clamped
@@ -518,8 +541,15 @@ export const CALCULATE_MACROS = (
       goalDelta = 300;
   } else if (goal?.includes('Performance')) {
       goalDelta = -100;
+  } else if (goal === 'Maintain') {
+      goalDelta = 0;
   } else {
       goalDelta = -300;
+  }
+
+  // A chosen pace (onboarding v3) sets the delta for loss and gain goals.
+  if (timeline?.pace && (goal?.includes('Weight Loss') || goal?.includes('Bulk'))) {
+    goalDelta = Math.round((paceWeeklyLbs(goal, weightLbs, timeline.pace) * KCAL_PER_LB) / 7);
   }
 
   let usedTimeline = false;

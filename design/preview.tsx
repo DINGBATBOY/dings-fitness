@@ -10,18 +10,21 @@ import { ProfileHub, type ProfileSection } from '../components/ProfileHub';
 import { FoodComposer, type FoodStatus } from '../components/food/FoodComposer';
 import { Journal } from '../components/Journal';
 import { ProgressCharts } from '../components/ProgressCharts';
+import { Wrapped } from '../components/Wrapped';
+import { Onboarding } from '../components/Onboarding';
 import { applyAppearance, readAppearance, type Appearance } from '../services/theme';
 import { ActivityLevel, PhysiqueGoal, type DailyLog, type FoodItem, type HistoryEntry, type UserProfile, type WeightEntry } from '../types';
 
-const profile: UserProfile = { name: 'Ding', age: 30, weight: 170, height: 68, activityLevel: ActivityLevel.Light, goal: PhysiqueGoal.Lean, highEnergyDays: [], busyDays: [], initialWeight: 176, goalTargetWeight: 165 };
+const qs = new URLSearchParams(location.search);
+const profile: UserProfile = { trackingStyle: (qs.get('style') as UserProfile['trackingStyle']) || undefined,  name: 'Ding', age: 30, weight: 170, height: 68, activityLevel: ActivityLevel.Light, goal: PhysiqueGoal.Lean, highEnergyDays: [], busyDays: [], initialWeight: 176 };
 const targets = { calories: 2100, protein: 160, carbs: 220, fat: 70 };
 const food = (name: string, calories: number, protein: number, carbs: number, fat: number, timestamp: string): FoodItem =>
   ({ id: crypto.randomUUID(), name, calories, protein, carbs, fat, timestamp });
 const day = (n: number) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - n); return d; };
-const dailyLogs: DailyLog[] = Array.from({ length: 60 }, (_, i) => i + 1).filter(n => n % 11 !== 7 && n % 13 !== 5).map(n => {
+const dailyLogs: DailyLog[] = [1, 2, 3, 4, 5, 6, 8, 9].map(n => {
   const items = [food('Oatmeal with banana', 380, 14, 68, 7, '8:10:00 AM'), food('Chipotle chicken bowl', 690 + n * 25, 52, 70, 22, '12:40:00 PM'), food('Salmon, rice and greens', 640 - n * 10, 44, 58, 24, '7:15:00 PM')];
   return { date: day(n).toLocaleDateString(), weight: 0, waterIntake: 48 + n * 4, workoutCompleted: n % 2 === 0,
-    caloriesConsumed: items.reduce((s, i) => s + i.calories, 0) + (n === 3 ? 450 : 0) + ((n * 37) % 9 - 4) * 70 + (day(n).getDay() % 6 === 0 ? 380 : 0), proteinConsumed: 120 + ((n * 17) % 7) * 8, carbsConsumed: 196, fatConsumed: 53, foodItems: items };
+    caloriesConsumed: items.reduce((s, i) => s + i.calories, 0) + (n === 3 ? 450 : 0), proteinConsumed: 110 + n * 4, carbsConsumed: 196, fatConsumed: 53, foodItems: items };
 });
 const todayLog: FoodItem[] = [food('Greek yogurt + berries', 240, 22, 28, 4, '8:05:00 AM'), food('Turkey sandwich', 520, 36, 48, 18, '12:30:00 PM')];
 const history: HistoryEntry[] = [
@@ -29,7 +32,7 @@ const history: HistoryEntry[] = [
   { id: 'h2', label: 'Greek yogurt + berries', timestamp: day(0).toISOString(), totalCalories: 240, totalProtein: 22, totalCarbs: 28, totalFat: 4, items: [todayLog[0]], loggedCount: 6 },
   { id: 'h3', label: 'Turkey sandwich', timestamp: day(0).toISOString(), totalCalories: 520, totalProtein: 36, totalCarbs: 48, totalFat: 18, items: [todayLog[1]], loggedCount: 2 },
 ];
-const weighIns: WeightEntry[] = [56, 49, 42, 35, 28, 24, 20, 16, 12, 10, 8, 6, 4, 2, 0].map((n, i) => ({ id: String(i), date: day(n).toISOString().slice(0, 10), weight: +(178 - i * 0.55 + (i % 3) * 0.3).toFixed(1), createdAt: '', source: 'check-in' }));
+const weighIns: WeightEntry[] = [12, 10, 8, 6, 4, 2, 0].map((n, i) => ({ id: String(i), date: day(n).toISOString().slice(0, 10), weight: 174 - i * 0.6, createdAt: '', source: 'check-in' }));
 const health: Record<string, { steps: number; activeKcal: number }> = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(n => [day(n).toLocaleDateString(), { steps: 4200 + n * 1100, activeKcal: 310 + n * 30 }]));
 
 function Preview() {
@@ -44,6 +47,7 @@ function Preview() {
     return m || t ? { mode: (m as Appearance['mode']) || 'dark', tone: (t as Appearance['tone']) || 'charcoal' } : readAppearance();
   });
   useEffect(() => applyAppearance(appearance), [appearance]);
+  if (params.get('onboarding') === '1') return <Onboarding onComplete={(p, t) => { (window as any).__onboarded = { p, t }; }} />;
   const consumed = { calories: 760, protein: 58, carbs: 76, fat: 22 };
   return <Layout activeTab={tab} onTabChange={setTab} onAdd={() => setOpen(o => !o)} addOpen={open} foodStatus={status} profile={profile}>
     {tab === 'dashboard' && <Dashboard profile={profile} targets={targets} selectedDate={date} onSelectDate={setDate} todayLog={todayLog} todayConsumed={consumed}
@@ -55,7 +59,7 @@ function Preview() {
       appearance={appearance} onAppearance={setAppearance}
       history={<Journal dailyLogs={dailyLogs} todayLog={todayLog} waterIntake={32} activityBurn={0} profile={profile} requireAiConsent={(a) => a()} targets={targets} onDeleteLog={() => {}} onUpdateFood={() => {}} />}
       settings={<div className="rounded-3xl border border-[var(--line)] bg-[var(--bg-card)] p-5 text-white">Apple Health, targets, account…</div>} />}
-    {tab === 'progress' && <div className="space-y-5"><h1 className="text-[1.65rem] font-bold">Progress</h1><ProgressCharts profile={profile} targets={targets} dailyLogs={dailyLogs} todayLog={todayLog} todayConsumed={consumed} todayActivityBurn={0} todayWater={32} weighIns={weighIns} streak={12} energyBaseline={{ bmr: 1780, tdee: 2350 }} healthActiveEnergy={null} healthByDate={health} onOpenRecap={() => {}} /></div>}
+    {tab === 'progress' && <div className="space-y-5"><h1 className="text-[1.65rem] font-bold">Progress</h1><ProgressCharts profile={profile} targets={targets} dailyLogs={dailyLogs} todayLog={todayLog} todayConsumed={consumed} todayActivityBurn={0} weighIns={weighIns} energyBaseline={{ bmr: 1780, tdee: 2350 }} healthActiveEnergy={null} healthByDate={health} /><Wrapped inline profile={profile} dailyLogs={dailyLogs} weighIns={weighIns} todayLog={todayLog} todayActivityBurn={0} todayWaterIntake={32} foodHistory={history} bodyStats={undefined as any} targets={targets} initialPeriod="week" /></div>}
     {tab === 'coach' && <p className="pt-10 text-center text-[var(--ink-mid)]">{tab} screen</p>}
     <FoodComposer uid="design-preview" open={open} onClose={() => setOpen(false)} onOpen={() => setOpen(true)} seed={null} onSeedConsumed={() => {}} onStatus={setStatus}
       onSave={async () => { setOpen(false); }} history={history} onFavorite={() => {}} onRemoveHistory={() => {}} targets={targets} consumed={consumed}

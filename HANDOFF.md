@@ -36,6 +36,44 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 - A weekly **ops agent** ("ding-ops-check", Mondays) checks uptime, deploy
   freshness, backend cost risk, and scans for code regressions.
 
+## Onboarding v3 (Oct 31, 2026) — "how and why do you track"
+
+Ding! is a food tracker, so onboarding no longer opens with physique goals.
+Audit + competitor comparison: project doc "Onboarding audit" (claude/).
+
+- **Flow** (`components/Onboarding.tsx`): welcome (name + always-visible
+  health/ED note; acceptance recorded on finish) → **why** (multi-select
+  `trackingReasons`) → **how** (`trackingStyle`) → direction (skipped for
+  "Just log it") → about you (lbs/ft or kg/cm, body fat optional) → activity
+  (workouts excluded: logged workouts earn calories back) → pace (lose/gain
+  only, optional goal weight + ETA) → eating style (`macroSplit`) → result.
+  "Just log it" is 5 screens. Answers persist in localStorage
+  (`ding.onboarding.v3`) until finish. Choices are preselected from earlier
+  answers. Result has "I have my own numbers" (→ `manualTargets`); it opens
+  by default when the reason "I already have numbers" was picked.
+- **New profile fields** (`types.ts`): `trackingStyle` ('macros' default ·
+  'calories' · 'protein' · 'log'), `trackingReasons`, `goalPace`
+  ('gentle'|'steady'|'faster'), `units`. New goal `PhysiqueGoal.Maintain`
+  (delta 0, protein 0.8 g/lb). Storage is still lbs/inches; **the rest of
+  the app still displays lbs** even when `units === 'metric'` (follow-up).
+- **Pace math** (`PACE_RULES`, `paceWeeklyLbs` in constants): loss 0.25 /
+  0.5 / 0.75 % body weight per week, gain 0.25 / 0.5 / 0.75 lb/week. A pace
+  replaces the goal's flat delta for Weight Loss / Bulk; the calorie floor
+  still applies. Every CALCULATE_MACROS caller builds its timeline with
+  `timelineFor(profile)` (`services/starterTargets.ts`) — use it for any new
+  caller or pace silently stops counting there.
+- **Home follows the style** (`Dashboard.tsx`): protein → ring is protein
+  to go, calories under it; calories → no macro targets, just totals; log →
+  "Eaten today" totals, no ring, no target line on the week chart, balance
+  card leads with "burned" instead of deficit/surplus. Edit Profile has
+  Tracking style + Pace pickers. The coach context states the style and
+  reasons, and tells the coach not to talk "left/over" to log-mode users.
+- Tests: `node --test tests/onboarding-v3.test.mjs`. Dev preview:
+  `/design/preview.html?onboarding=1` and `?style=protein|calories|log`.
+- **Not in a TestFlight build yet** (Ding held Codemagic on Oct 31). Web is
+  deployed. Fuel Coach, Progress charts and Wrapped still show targets in
+  log mode.
+
 ## Pre-launch fixes (Oct 14, 2026) — read before touching these areas
 
 - **Day keys** (`services/dayKey.ts`): every day key is `M/D/YYYY` built
@@ -118,18 +156,9 @@ workouts/steps/active energy.
 - **Tabs:** Home · Coach · **(+)** · Progress · Profile. Old ids still
   resolve in `switchTab`: `workouts` → Home, `reflect`/`recomp` → Progress,
   `journal` → Profile/History, `restaurants` → Add Food's Eats.
-- **Progress** (`components/ProgressCharts.tsx`, dashboard layout since
-  Oct 31): one 7/30/90-day range drives everything. Overview tiles (avg
-  calories, avg protein, days logged, weight) each compared with the previous
-  period; Goals hit meters (calories within 10 %, protein >= 90 %, days
-  logged); one Calories card with an Eaten/Balance toggle (90 days = weekly
-  averages); Macros as average vs target + calorie split; Weight with change,
-  pace/week and distance to `goalTargetWeight`; Consistency day grid +
-  weekday/weekend patterns; What you ate (most logged / most kcal, from the
-  range's `foodItems`); a "Play your recap" button that opens the Wrapped
-  overlay; "See the numbers" table. **Averages and hit rates leave out today
-  until it's over.** Wrapped is no longer inline and CalorieCalendar is no
-  longer used on this tab. Chart colors are the
+- **Progress** (`components/ProgressCharts.tsx` + Wrapped + calorie calendar):
+  7/30-day calories vs target, eaten-vs-burned diverging bars, macros stacked
+  by calories, weight line, "See the numbers" table. Chart colors are the
   `--viz-*` tokens in index.css, validated with the dataviz palette checker
   on every background tone (the old macro colors failed it — don't reuse
   them for charts).

@@ -32,7 +32,12 @@ export function buildCoachContext(i: CoachContextInput): string {
   const profile = appState.profile;
 
   lines.push(`Now: ${now.toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`);
-  if (profile) lines.push(`Goal: ${profile.goal}${profile.goalTargetWeight ? ` (target ${profile.goalTargetWeight} lbs)` : ''}. Day streak: ${i.streak}.`);
+  if (profile) lines.push(`Goal: ${profile.goal}${profile.goalPace ? ` (${profile.goalPace} pace)` : ''}${profile.goalTargetWeight ? ` (target ${profile.goalTargetWeight} lbs)` : ''}. Day streak: ${i.streak}.`);
+  if (profile?.trackingReasons?.length) lines.push(`Why they track: ${profile.trackingReasons.join(', ')}.`);
+  if (profile?.trackingStyle) lines.push(`Tracking style: ${profile.trackingStyle}.${profile.trackingStyle === 'log'
+    ? ' They chose to log without targets: talk about what they ate and patterns, never "left", "over" or hitting numbers unless they ask.'
+    : profile.trackingStyle === 'protein' ? ' Protein is their headline number.'
+    : profile.trackingStyle === 'calories' ? ' Calories are their headline number.' : ''}`);
   lines.push(`Daily targets: ${r(targets.calories)} kcal, P ${r(targets.protein)} g, C ${r(targets.carbs)} g, F ${r(targets.fat)} g.`);
 
   // ── Today ──

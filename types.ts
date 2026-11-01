@@ -12,8 +12,22 @@ export enum PhysiqueGoal {
   Bulk = 'Bulk/Hypertrophy',
   WeightLoss = 'Weight Loss',
   Performance = 'Performance',
-  Recomposition = 'Body Recomposition'
+  Recomposition = 'Body Recomposition',
+  /** Keep weight steady (onboarding v3, Oct 2026): maintenance calories. */
+  Maintain = 'Maintain'
 }
+
+/**
+ * How the user chose to track in onboarding (Oct 31, 2026). Drives what the
+ * Home dashboard puts first. Unset = 'macros' (everyone before v3).
+ *   macros   — calories + protein/carbs/fat with targets
+ *   calories — one calorie number; macros shown without targets
+ *   protein  — protein goal is the headline; calories ride along
+ *   log      — no targets, no "over": just totals
+ */
+export type TrackingStyle = 'macros' | 'calories' | 'protein' | 'log';
+/** How fast a lose/gain goal moves. See PACE_RULES in constants.tsx. */
+export type GoalPace = 'gentle' | 'steady' | 'faster';
 
 export enum Location {
   Gym = 'Gym',
@@ -134,6 +148,14 @@ export interface UserProfile {
   // mathematically; the Coach can reference it in check-ins to feel less
   // generic. Short string, capped in the UI at ~120 chars.
   motivation?: string;
+  /** Onboarding v3: why they track (ids from TRACKING_REASONS in Onboarding). */
+  trackingReasons?: string[];
+  /** Onboarding v3: what Home puts first. Unset = 'macros'. */
+  trackingStyle?: TrackingStyle;
+  /** Lose/gain speed. When set it replaces the goal's flat calorie delta. */
+  goalPace?: GoalPace;
+  /** Units the user entered their stats in. Storage is always lbs/inches. */
+  units?: 'us' | 'metric';
   // Apple Health (iOS only). `healthSyncEnabled` is set once the user taps
   // Connect and we've shown the HealthKit permission sheet; it drives whether
   // we sync on launch/foreground. `healthPromptDismissed` remembers a "Not

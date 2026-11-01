@@ -7,7 +7,7 @@
  * dashboard fallback, adaptive TDEE) now goes through CALCULATE_MACROS, and
  * onboarding sends nothing to an AI provider (the consent sheet comes later).
  */
-import { CALCULATE_MACROS, calculateTDEEDetailed, type MacroResult, type MacroSplitMode } from '../constants';
+import { CALCULATE_MACROS, calculateTDEEDetailed, type GoalTimeline, type MacroResult, type MacroSplitMode } from '../constants';
 import { ActivityLevel, PhysiqueGoal } from '../types';
 
 export interface StarterProfile {
@@ -23,6 +23,21 @@ export interface StarterProfile {
   macroSplit?: string;
   goalTargetWeight?: number;
   goalTargetDate?: string;
+  goalPace?: string;
+}
+
+/**
+ * The GoalTimeline every CALCULATE_MACROS call builds from a profile
+ * (onboarding, Edit Profile, the dashboard fallback, adaptive TDEE), so the
+ * pace and goal weight count the same everywhere.
+ */
+export function timelineFor(p: Pick<StarterProfile, 'goalTargetWeight' | 'goalTargetDate' | 'goalPace'> | null | undefined): GoalTimeline | undefined {
+  if (!p || (!p.goalTargetWeight && !p.goalPace)) return undefined;
+  return {
+    targetWeightLbs: p.goalTargetWeight || undefined,
+    targetDate: p.goalTargetDate || undefined,
+    pace: (p.goalPace as GoalTimeline['pace']) || undefined,
+  };
 }
 
 export interface StarterTargets extends MacroResult {
@@ -48,7 +63,7 @@ export function computeProfileTargets(p: StarterProfile): StarterTargets {
     weight,
     p.sex || 'Male',
     (p.macroSplit as MacroSplitMode) || 'balanced',
-    p.goalTargetWeight ? { targetWeightLbs: p.goalTargetWeight, targetDate: p.goalTargetDate } : undefined,
+    timelineFor(p),
     bf,
   );
   return { ...macros, tdee: detail.tdee, bmr: detail.bmr };
@@ -62,5 +77,6 @@ export function starterCoachMessage(goal: string | undefined, t: Pick<StarterTar
   if (g.includes('Performance')) return 'Close to what you burn, so you have fuel to perform.';
   if (g.includes('Weight Loss')) return 'A steady deficit you can actually keep up, with protein to protect muscle.';
   if (g.includes('Recomp')) return 'A gentle deficit with plenty of protein: lose fat, keep muscle.';
+  if (g === 'Maintain') return 'Right around what you burn. Steady weight, room to live.';
   return 'Built from your stats and activity. It adjusts as you log.';
 }
