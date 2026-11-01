@@ -39,7 +39,8 @@ Fast context transfer for Ding! Fitness. Companion docs: `MONITORING.md`
 ## Onboarding v3 (Oct 31, 2026) — "how and why do you track"
 
 Ding! is a food tracker, so onboarding no longer opens with physique goals.
-Audit + competitor comparison: project doc "Onboarding audit" (claude/).
+Audit + competitor comparison: doc "Ding! onboarding audit: how and why you
+track" (https://claude.ai/artifact/Lnc2jDztAUX3Z7zvGvby4x).
 
 - **Flow** (`components/Onboarding.tsx`): welcome (name + always-visible
   health/ED note; acceptance recorded on finish) → **why** (multi-select
